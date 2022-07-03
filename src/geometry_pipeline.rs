@@ -15,7 +15,7 @@ impl GeometryPipeline {
         let scene_uniform_buffer = SceneUniformBuffer::new(device);
         let instance_bind_group_layout = instance_bind_group_layout(device);
 
-        let mesh_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+        let mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("mesh_shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/mesh.wgsl").into()),
         });
@@ -48,11 +48,11 @@ impl GeometryPipeline {
             fragment: Some(wgpu::FragmentState {
                 module: &mesh_shader,
                 entry_point: "fs_main",
-                targets: &[wgpu::ColorTargetState {
+                targets: &[Some(wgpu::ColorTargetState {
                     format: wgpu::TextureFormat::Rgba8UnormSrgb,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
-                }],
+                })],
             }),
             multiview: None,
         });
@@ -87,7 +87,7 @@ impl GeometryPipeline {
     {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("mesh_render_pass"),
-            color_attachments: &[output],
+            color_attachments: &[Some(output)],
             depth_stencil_attachment: None,
         });
 

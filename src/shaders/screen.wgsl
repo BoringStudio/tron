@@ -1,11 +1,11 @@
 struct VertexOutput {
-    [[builtin(position)]] position: vec4<f32>;
-    [[location(0)]] tex_coords: vec2<f32>;
-};
+    @builtin(position) position: vec4<f32>,
+    @location(0) tex_coords: vec2<f32>,
+}
 
-[[stage(vertex)]]
+@vertex
 fn vs_main(
-    [[builtin(vertex_index)]] index: u32
+    @builtin(vertex_index) index: u32
 ) -> VertexOutput {
     var v: VertexOutput;
     let low_bit = i32(index & 0x1u);
@@ -26,14 +26,14 @@ fn vs_main(
     return v;
 }
 
-[[group(0), binding(0)]]
+@group(0) @binding(0)
 var screen_texture: texture_2d<f32>;
-[[group(0), binding(1)]]
+@group(0) @binding(1)
 var screen_sampler: sampler;
 
-[[stage(fragment)]]
+@fragment
 fn fs_main(
     v: VertexOutput,
-) -> [[location(0)]] vec4<f32> {
+) -> @location(0) vec4<f32> {
     return textureSample(screen_texture, screen_sampler, v.tex_coords);
 }

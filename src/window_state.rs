@@ -50,7 +50,9 @@ impl WindowState {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface
-                .get_preferred_format(&adapter)
+                .get_supported_formats(&adapter)
+                .into_iter()
+                .next()
                 .ok_or(WindowStateError::IncompatibleSurface)?,
             width: size.width,
             height: size.height,

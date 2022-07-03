@@ -40,7 +40,7 @@ impl ScreenPipeline {
             &sampler,
         );
 
-        let screen_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+        let screen_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("screen_shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/screen.wgsl").into()),
         });
@@ -74,11 +74,11 @@ impl ScreenPipeline {
             fragment: Some(wgpu::FragmentState {
                 module: &screen_shader,
                 entry_point: "fs_main",
-                targets: &[wgpu::ColorTargetState {
+                targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
-                }],
+                })],
             }),
             multiview: None,
         });
@@ -131,7 +131,7 @@ impl ScreenPipeline {
     pub fn render(&self, encoder: &mut wgpu::CommandEncoder, output: &wgpu::TextureView) {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("screen_render_pass"),
-            color_attachments: &[wgpu::RenderPassColorAttachment {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: output,
                 resolve_target: None,
                 ops: wgpu::Operations {
@@ -143,7 +143,7 @@ impl ScreenPipeline {
                     }),
                     store: true,
                 },
-            }],
+            })],
             depth_stencil_attachment: None,
         });
 
