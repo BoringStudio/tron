@@ -4,6 +4,7 @@ use winit::window::Window;
 use crate::camera::Camera;
 use crate::geometry_pipeline::{GeometryPipeline, InstanceDescription};
 use crate::mesh::Mesh;
+use crate::scene;
 use crate::screen_pipeline::ScreenPipeline;
 use crate::texture::Texture;
 
@@ -15,6 +16,7 @@ pub struct WindowState {
     size: winit::dpi::PhysicalSize<u32>,
 
     camera: Camera,
+    depth_texture: Texture,
     geometry_pipeline: GeometryPipeline,
     screen_pipeline: ScreenPipeline,
 
@@ -63,6 +65,8 @@ impl WindowState {
         let mut camera = Camera::new();
         camera.update_projection(config.width as f32 / config.height as f32);
 
+        let depth_texture = Texture::new_depth(&device, &config, "depth_texture");
+
         let geometry_pipeline = GeometryPipeline::new(&device);
         let screen_pipeline = ScreenPipeline::new(&device, &config);
 
@@ -74,8 +78,11 @@ impl WindowState {
         )?;
         let descr =
             geometry_pipeline.create_instance_description(&device, glm::identity(), &texture);
+
+        let meshes = scene::load_object(&device, include_bytes!("./res/bike.glb"))?;
+
         let doge = Doge {
-            mesh: Mesh::quad(&device),
+            mesh: meshes.into_iter().skip(5).next().unwrap(),
             texture,
             descr,
         };
@@ -88,6 +95,7 @@ impl WindowState {
             size,
 
             camera,
+            depth_texture,
             geometry_pipeline,
             screen_pipeline,
             doge,
@@ -107,6 +115,7 @@ impl WindowState {
             self.surface.configure(&self.device, &self.config);
             self.camera
                 .update_projection(new_size.width as f32 / new_size.height as f32);
+            self.depth_texture = Texture::new_depth(&self.device, &self.config, "depth_texture");
         }
     }
 
@@ -125,9 +134,19 @@ impl WindowState {
                 label: Some("render_command_encoder"),
             });
 
+        let depth = wgpu::RenderPassDepthStencilAttachment {
+            view: &self.depth_texture.view,
+            depth_ops: Some(wgpu::Operations {
+                load: wgpu::LoadOp::Clear(1.0),
+                store: true,
+            }),
+            stencil_ops: None,
+        };
+
         self.geometry_pipeline.render(
             &mut encoder,
             std::iter::once((&self.doge.mesh, &self.doge.descr)),
+            depth,
             self.screen_pipeline.render_target(),
         );
         self.screen_pipeline.render(&mut encoder, &view);

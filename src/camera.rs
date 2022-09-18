@@ -16,8 +16,8 @@ impl Camera {
         const ZRANGE: (f32, f32) = (0.1, 100.0);
 
         let mut camera = Self {
-            eye: glm::vec3(0.0, 1.0, 2.0),
-            target: glm::vec3(0.0, 0.0, 0.0),
+            eye: glm::vec3(0.0, 2.0, 3.0),
+            target: glm::vec3(0.0, 1.0, 0.0),
             up: glm::Vec3::y(),
             fovy: FOVY.to_radians(),
             znear: ZRANGE.0,

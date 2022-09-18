@@ -11,6 +11,7 @@ use self::window_state::WindowState;
 mod camera;
 mod geometry_pipeline;
 mod mesh;
+mod scene;
 mod screen_pipeline;
 mod texture;
 mod window_state;

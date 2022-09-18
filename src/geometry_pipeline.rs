@@ -43,7 +43,13 @@ impl GeometryPipeline {
                 polygon_mode: wgpu::PolygonMode::Fill,
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: Default::default(),
             fragment: Some(wgpu::FragmentState {
                 module: &mesh_shader,
@@ -81,6 +87,7 @@ impl GeometryPipeline {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         meshes: I,
+        depth: wgpu::RenderPassDepthStencilAttachment,
         output: wgpu::RenderPassColorAttachment,
     ) where
         I: Iterator<Item = (&'a Mesh, &'a InstanceDescription)>,
@@ -88,7 +95,7 @@ impl GeometryPipeline {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("mesh_render_pass"),
             color_attachments: &[Some(output)],
-            depth_stencil_attachment: None,
+            depth_stencil_attachment: Some(depth),
         });
 
         render_pass.set_pipeline(&self.pipeline);
@@ -97,7 +104,7 @@ impl GeometryPipeline {
         meshes.for_each(|(mesh, descr)| {
             render_pass.set_bind_group(1, &descr.bind_group, &[]);
             render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
         })
     }
@@ -118,7 +125,8 @@ impl InstanceDescription {
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&[InstanceUniform {
-                transform: transform.into(),
+                transform,
+                normal_matrix: glm::inverse_transpose(transform),
             }]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -154,7 +162,8 @@ impl InstanceDescription {
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct InstanceUniform {
-    transform: [[f32; 4]; 4],
+    transform: glm::Mat4,
+    normal_matrix: glm::Mat4,
 }
 
 fn instance_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
@@ -240,7 +249,7 @@ impl SceneUniformBuffer {
             &self.buffer,
             0,
             bytemuck::cast_slice(&[CameraUniform {
-                view_proj: camera.compute_view_proj().into(),
+                view_proj: camera.compute_view_proj(),
             }]),
         );
     }
@@ -249,13 +258,13 @@ impl SceneUniformBuffer {
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct CameraUniform {
-    view_proj: [[f32; 4]; 4],
+    view_proj: glm::Mat4,
 }
 
 impl Default for CameraUniform {
     fn default() -> Self {
         Self {
-            view_proj: glm::identity::<f32, 4>().into(),
+            view_proj: glm::identity::<f32, 4>(),
         }
     }
 }
