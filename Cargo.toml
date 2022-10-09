@@ -14,5 +14,5 @@ nalgebra-glm = { version = "0.17", features = ["convert-bytemuck"] }
 pollster = "0.2.5"
 range-alloc = "0.1"
 thiserror = "1.0"
-wgpu = "0.13.1"
+wgpu = "0.14.0"
 winit = "0.27.1"

@@ -13,6 +13,7 @@ mod geometry_pipeline;
 mod mesh;
 mod scene;
 mod screen_pipeline;
+mod sky_pipeline;
 mod texture;
 mod window_state;
 

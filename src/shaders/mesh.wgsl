@@ -40,7 +40,7 @@ var diffuse_sampler: sampler;
 
 @fragment
 fn fs_main(v: VertexOutput) -> @location(0) vec4<f32> {
-    var direct_light = max(dot(v.normal, vec3(0.1, -1.0, 0.1)), 0.0);
+    var direct_light = max(dot(v.normal, vec3<f32>(0.1, -1.0, 0.1)), 0.0);
     var color = textureSample(diffuse_texture, diffuse_sampler, v.tex_coords).xyz;
     color *= min(0.5 + direct_light, 1.0);
     return vec4(color, 1.0);

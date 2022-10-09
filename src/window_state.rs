@@ -4,8 +4,9 @@ use winit::window::Window;
 use crate::camera::Camera;
 use crate::geometry_pipeline::{GeometryPipeline, InstanceDescription};
 use crate::mesh::Mesh;
-use crate::scene;
+use crate::scene::{self, SceneUniformBuffer};
 use crate::screen_pipeline::ScreenPipeline;
+use crate::sky_pipeline::SkyPipeline;
 use crate::texture::Texture;
 
 pub struct WindowState {
@@ -16,8 +17,10 @@ pub struct WindowState {
     size: winit::dpi::PhysicalSize<u32>,
 
     camera: Camera,
+    scene_uniform_buffer: SceneUniformBuffer,
     depth_texture: Texture,
     geometry_pipeline: GeometryPipeline,
+    sky_pipeline: SkyPipeline,
     screen_pipeline: ScreenPipeline,
 
     doge: Doge,
@@ -59,15 +62,19 @@ impl WindowState {
             width: size.width,
             height: size.height,
             present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::Opaque,
         };
         surface.configure(&device, &config);
 
         let mut camera = Camera::new();
         camera.update_projection(config.width as f32 / config.height as f32);
 
+        let scene_uniform_buffer = SceneUniformBuffer::new(&device);
+
         let depth_texture = Texture::new_depth(&device, &config, "depth_texture");
 
-        let geometry_pipeline = GeometryPipeline::new(&device);
+        let geometry_pipeline = GeometryPipeline::new(&device, &scene_uniform_buffer);
+        let sky_pipeline = SkyPipeline::new(&device, &scene_uniform_buffer);
         let screen_pipeline = ScreenPipeline::new(&device, &config);
 
         let texture = Texture::from_bytes(
@@ -95,8 +102,10 @@ impl WindowState {
             size,
 
             camera,
+            scene_uniform_buffer,
             depth_texture,
             geometry_pipeline,
+            sky_pipeline,
             screen_pipeline,
             doge,
         })
@@ -116,12 +125,13 @@ impl WindowState {
             self.camera
                 .update_projection(new_size.width as f32 / new_size.height as f32);
             self.depth_texture = Texture::new_depth(&self.device, &self.config, "depth_texture");
+            self.screen_pipeline
+                .update_screen_texture(&self.device, &self.config);
         }
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        self.geometry_pipeline
-            .update_scene_uniform_buffer(&self.queue, &self.camera);
+        self.scene_uniform_buffer.update(&self.queue, &self.camera);
 
         let output = self.surface.get_current_texture()?;
         let view = output
@@ -143,12 +153,22 @@ impl WindowState {
             stencil_ops: None,
         };
 
-        self.geometry_pipeline.render(
-            &mut encoder,
-            std::iter::once((&self.doge.mesh, &self.doge.descr)),
-            depth,
-            self.screen_pipeline.render_target(),
-        );
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("geometry_render_pass"),
+                color_attachments: &[Some(self.screen_pipeline.render_target())],
+                depth_stencil_attachment: Some(depth),
+            });
+            render_pass.set_bind_group(0, self.scene_uniform_buffer.bind_group(), &[]);
+
+            self.geometry_pipeline.render(
+                &mut render_pass,
+                std::iter::once((&self.doge.mesh, &self.doge.descr)),
+            );
+
+            self.sky_pipeline.render(&mut render_pass);
+        }
+
         self.screen_pipeline.render(&mut encoder, &view);
 
         self.queue.submit(std::iter::once(encoder.finish()));
