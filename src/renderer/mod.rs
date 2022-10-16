@@ -1,15 +1,13 @@
 use anyhow::Result;
 use winit::window::Window;
 
-use crate::camera::Camera;
-use crate::geometry_pipeline::{GeometryPipeline, InstanceDescription};
-use crate::mesh::Mesh;
-use crate::scene::{self, SceneUniformBuffer};
-use crate::screen_pipeline::ScreenPipeline;
-use crate::sky_pipeline::SkyPipeline;
-use crate::texture::Texture;
+use self::pipelines::{BasePipelineBuffer, GeometryPipeline, ScreenPipeline, SkyPipeline};
+use self::types::{Camera, Texture};
 
-pub struct WindowState {
+pub mod pipelines;
+pub mod types;
+
+pub struct Renderer {
     surface: wgpu::Surface,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -17,16 +15,14 @@ pub struct WindowState {
     size: winit::dpi::PhysicalSize<u32>,
 
     camera: Camera,
-    scene_uniform_buffer: SceneUniformBuffer,
+    base_pipeline_buffer: BasePipelineBuffer,
     depth_texture: Texture,
     geometry_pipeline: GeometryPipeline,
     sky_pipeline: SkyPipeline,
     screen_pipeline: ScreenPipeline,
-
-    doge: Doge,
 }
 
-impl WindowState {
+impl Renderer {
     pub async fn new(window: &Window) -> Result<Self> {
         let size = window.inner_size();
 
@@ -45,7 +41,7 @@ impl WindowState {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    features: wgpu::Features::empty(),
+                    features: wgpu::Features::default(),
                     limits: wgpu::Limits::default(),
                 },
                 None,
@@ -69,30 +65,13 @@ impl WindowState {
         let mut camera = Camera::new();
         camera.update_projection(config.width as f32 / config.height as f32);
 
-        let scene_uniform_buffer = SceneUniformBuffer::new(&device);
+        let base_pipeline_buffer = BasePipelineBuffer::new(&device);
 
         let depth_texture = Texture::new_depth(&device, &config, "depth_texture");
 
-        let geometry_pipeline = GeometryPipeline::new(&device, &scene_uniform_buffer);
-        let sky_pipeline = SkyPipeline::new(&device, &scene_uniform_buffer);
+        let geometry_pipeline = GeometryPipeline::new(&device, &base_pipeline_buffer);
+        let sky_pipeline = SkyPipeline::new(&device, &base_pipeline_buffer);
         let screen_pipeline = ScreenPipeline::new(&device, &config);
-
-        let texture = Texture::from_bytes(
-            &device,
-            &queue,
-            include_bytes!("res/texture.png"),
-            "texture",
-        )?;
-        let descr =
-            geometry_pipeline.create_instance_description(&device, glm::identity(), &texture);
-
-        let meshes = scene::load_object(&device, include_bytes!("./res/bike.glb"))?;
-
-        let doge = Doge {
-            mesh: meshes.into_iter().skip(5).next().unwrap(),
-            texture,
-            descr,
-        };
 
         Ok(Self {
             surface,
@@ -102,12 +81,11 @@ impl WindowState {
             size,
 
             camera,
-            scene_uniform_buffer,
+            base_pipeline_buffer,
             depth_texture,
             geometry_pipeline,
             sky_pipeline,
             screen_pipeline,
-            doge,
         })
     }
 
@@ -131,7 +109,7 @@ impl WindowState {
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        self.scene_uniform_buffer.update(&self.queue, &self.camera);
+        self.base_pipeline_buffer.update(&self.queue, &self.camera);
 
         let output = self.surface.get_current_texture()?;
         let view = output
@@ -159,12 +137,12 @@ impl WindowState {
                 color_attachments: &[Some(self.screen_pipeline.render_target())],
                 depth_stencil_attachment: Some(depth),
             });
-            render_pass.set_bind_group(0, self.scene_uniform_buffer.bind_group(), &[]);
+            render_pass.set_bind_group(0, self.base_pipeline_buffer.bind_group(), &[]);
 
-            self.geometry_pipeline.render(
-                &mut render_pass,
-                std::iter::once((&self.doge.mesh, &self.doge.descr)),
-            );
+            // self.geometry_pipeline.render(
+            //     &mut render_pass,
+            //     std::iter::once((&self.doge.mesh, &self.doge.descr)),
+            // );
 
             self.sky_pipeline.render(&mut render_pass);
         }
@@ -176,12 +154,6 @@ impl WindowState {
 
         Ok(())
     }
-}
-
-struct Doge {
-    mesh: Mesh,
-    texture: Texture,
-    descr: InstanceDescription,
 }
 
 #[derive(thiserror::Error, Debug)]

@@ -1,8 +1,7 @@
 use wgpu::util::DeviceExt;
 
-use crate::mesh::{Mesh, Vertex};
-use crate::scene::SceneUniformBuffer;
-use crate::texture::Texture;
+use super::BasePipelineBuffer;
+use crate::renderer::types::{Mesh, Texture, Vertex};
 
 pub struct GeometryPipeline {
     pipeline: wgpu::RenderPipeline,
@@ -10,17 +9,17 @@ pub struct GeometryPipeline {
 }
 
 impl GeometryPipeline {
-    pub fn new(device: &wgpu::Device, scene_uniform_buffer: &SceneUniformBuffer) -> Self {
+    pub fn new(device: &wgpu::Device, base_pipeline_buffer: &BasePipelineBuffer) -> Self {
         let instance_bind_group_layout = InstanceUniform::make_layout(device);
 
         let mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("mesh_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/mesh.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/mesh.wgsl").into()),
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("mesh_pipeline_layout"),
-            bind_group_layouts: &[&scene_uniform_buffer.layout(), &instance_bind_group_layout],
+            bind_group_layouts: &[base_pipeline_buffer.layout(), &instance_bind_group_layout],
             push_constant_ranges: &[],
         });
 

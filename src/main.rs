@@ -6,16 +6,10 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::platform::unix::{WindowBuilderExtUnix, XWindowType};
 use winit::window::WindowBuilder;
 
-use self::window_state::WindowState;
+use self::renderer::Renderer;
 
-mod camera;
-mod geometry_pipeline;
-mod mesh;
+mod renderer;
 mod scene;
-mod screen_pipeline;
-mod sky_pipeline;
-mod texture;
-mod window_state;
 
 pub async fn run() -> Result<()> {
     env_logger::init();
@@ -25,17 +19,19 @@ pub async fn run() -> Result<()> {
         .with_x11_window_type(vec![XWindowType::Dialog, XWindowType::Normal])
         .build(&event_loop)?;
 
-    let mut state = WindowState::new(&window).await?;
+    let mut renderer = Renderer::new(&window).await?;
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent { event, window_id } if window_id == window.id() => match event {
             WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-            WindowEvent::Resized(size) => state.resize(size),
-            WindowEvent::ScaleFactorChanged { new_inner_size, .. } => state.resize(*new_inner_size),
+            WindowEvent::Resized(size) => renderer.resize(size),
+            WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                renderer.resize(*new_inner_size)
+            }
             _ => {}
         },
-        Event::RedrawRequested(window_id) if window_id == window.id() => match state.render() {
-            Err(wgpu::SurfaceError::Lost) => state.resize(state.size()),
+        Event::RedrawRequested(window_id) if window_id == window.id() => match renderer.render() {
+            Err(wgpu::SurfaceError::Lost) => renderer.resize(renderer.size()),
             Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
             _ => {}
         },

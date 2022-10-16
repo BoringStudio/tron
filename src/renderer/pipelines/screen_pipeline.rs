@@ -42,7 +42,7 @@ impl ScreenPipeline {
 
         let screen_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("screen_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/screen.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/screen.wgsl").into()),
         });
 
         let screen_pipeline_layout =

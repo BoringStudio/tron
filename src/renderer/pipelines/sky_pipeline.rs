@@ -1,6 +1,6 @@
 use wgpu::util::DeviceExt;
 
-use crate::scene::SceneUniformBuffer;
+use super::BasePipelineBuffer;
 
 pub struct SkyPipeline {
     pipeline: wgpu::RenderPipeline,
@@ -9,19 +9,19 @@ pub struct SkyPipeline {
 }
 
 impl SkyPipeline {
-    pub fn new(device: &wgpu::Device, scene_uniform_buffer: &SceneUniformBuffer) -> Self {
+    pub fn new(device: &wgpu::Device, base_pipeline_buffer: &BasePipelineBuffer) -> Self {
         let sky_uniform_buffer = SkyUniformBuffer::new(device);
 
         let sky_box = SkyBox::new(device);
 
         let sky_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("sky_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/sky.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/sky.wgsl").into()),
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("sky_pipeline_layout"),
-            bind_group_layouts: &[scene_uniform_buffer.layout(), sky_uniform_buffer.layout()],
+            bind_group_layouts: &[base_pipeline_buffer.layout(), sky_uniform_buffer.layout()],
             push_constant_ranges: &[],
         });
 
