@@ -3,8 +3,8 @@ struct CameraUniform {
 }
 
 struct InstanceUniform {
-    transform: mat4x4<f32>,
-    normal_matrix: mat4x4<f32>,
+    transform: mat3x4<f32>,
+    normal_matrix: mat3x4<f32>,
 }
 
 @group(0) @binding(0)
@@ -27,7 +27,12 @@ struct VertexOutput {
 @vertex
 fn vs_main(vertex: VertexInput) -> VertexOutput {
     var v: VertexOutput;
-    v.clip_position = camera.view_proj * instance.transform * vec4<f32>(vertex.position, 1.0);
+    v.clip_position = camera.view_proj * mat4x4(
+        instance.transform[0],
+        instance.transform[1],
+        instance.transform[2],
+        vec4<f32>(0.0, 0.0, 0.0, 1.0)
+    ) * vec4<f32>(vertex.position, 1.0);
     v.normal = mat3x3(instance.normal_matrix[0].xyz, instance.normal_matrix[1].xyz, instance.normal_matrix[2].xyz) * vertex.normal;
     v.tex_coords = vertex.tex_coords;
     return v;

@@ -101,11 +101,21 @@ impl InstanceDescription {
         transform: glm::Mat4,
         texture: &Texture,
     ) -> Self {
+        let normal_matrix = glm::inverse_transpose(transform);
+
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&[InstanceUniform {
-                transform,
-                normal_matrix: glm::inverse_transpose(transform),
+                transform: [
+                    transform.column(0).into(),
+                    transform.column(1).into(),
+                    transform.column(2).into(),
+                ],
+                normal_matrix: [
+                    normal_matrix.column(0).into(),
+                    normal_matrix.column(1).into(),
+                    normal_matrix.column(2).into(),
+                ],
             }]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -141,8 +151,8 @@ impl InstanceDescription {
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct InstanceUniform {
-    transform: glm::Mat4,
-    normal_matrix: glm::Mat4,
+    transform: [glm::Vec4; 3],
+    normal_matrix: [glm::Vec4; 3],
 }
 
 impl InstanceUniform {
