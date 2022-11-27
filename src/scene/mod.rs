@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 
+use crate::renderer::types::mesh::MeshBuilder;
 use crate::renderer::types::{Mesh, Vertex};
 
 pub fn load_object(device: &wgpu::Device, data: &[u8]) -> Result<Vec<Mesh>> {
@@ -61,6 +62,11 @@ fn load_mesh(
     for index in mesh_indices {
         indices.push(index);
     }
+
+    MeshBuilder::new(positions)
+    .with_normals(normals)
+    .with_uv0(uv0)
+    .with_indices(indices)
 
     Ok(Mesh::new(device, &vertices, &indices))
 }

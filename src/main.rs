@@ -1,5 +1,3 @@
-extern crate nalgebra_glm as glm;
-
 use anyhow::Result;
 use winit::event::*;
 use winit::event_loop::{ControlFlow, EventLoop};
@@ -10,6 +8,7 @@ use self::renderer::Renderer;
 
 mod renderer;
 mod scene;
+mod util;
 
 pub async fn run() -> Result<()> {
     env_logger::init();

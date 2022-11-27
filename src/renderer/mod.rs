@@ -1,9 +1,14 @@
 use anyhow::Result;
 use winit::window::Window;
 
-use self::pipelines::{BasePipelineBuffer, GeometryPipeline, ScreenPipeline, SkyPipeline};
-use self::types::{Camera, Texture};
+use crate::scene::load_object;
 
+use self::managers::MeshManager;
+use self::pipelines::geometry_pipeline::InstanceDescription;
+use self::pipelines::{BasePipelineBuffer, GeometryPipeline, ScreenPipeline, SkyPipeline};
+use self::types::{Camera, Mesh, MeshHandle, Texture};
+
+pub mod managers;
 pub mod pipelines;
 pub mod types;
 
@@ -13,6 +18,7 @@ pub struct Renderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
+    mesh_manager: MeshManager,
 
     camera: Camera,
     base_pipeline_buffer: BasePipelineBuffer,
@@ -20,6 +26,9 @@ pub struct Renderer {
     geometry_pipeline: GeometryPipeline,
     sky_pipeline: SkyPipeline,
     screen_pipeline: ScreenPipeline,
+
+    // TEMP:
+    doge: Doge,
 }
 
 impl Renderer {
@@ -73,6 +82,22 @@ impl Renderer {
         let sky_pipeline = SkyPipeline::new(&device, &base_pipeline_buffer);
         let screen_pipeline = ScreenPipeline::new(&device, &config);
 
+        // TEMP:
+        let texture = Texture::from_bytes(
+            &device,
+            &queue,
+            include_bytes!("../res/texture.png"),
+            "texture",
+        )?;
+        let descr = geometry_pipeline.create_instance_description(&device, glam::ma, &texture);
+        let meshes = load_object(&device, include_bytes!("../res/bike.glb"))?;
+
+        let doge = Doge {
+            mesh: meshes.into_iter().nth(5).unwrap(),
+            texture,
+            descr,
+        };
+
         Ok(Self {
             surface,
             device,
@@ -86,6 +111,8 @@ impl Renderer {
             geometry_pipeline,
             sky_pipeline,
             screen_pipeline,
+
+            doge,
         })
     }
 
@@ -139,10 +166,10 @@ impl Renderer {
             });
             render_pass.set_bind_group(0, self.base_pipeline_buffer.bind_group(), &[]);
 
-            // self.geometry_pipeline.render(
-            //     &mut render_pass,
-            //     std::iter::once((&self.doge.mesh, &self.doge.descr)),
-            // );
+            self.geometry_pipeline.render(
+                &mut render_pass,
+                std::iter::once((&self.doge.mesh, &self.doge.descr)),
+            );
 
             self.sky_pipeline.render(&mut render_pass);
         }
@@ -154,6 +181,12 @@ impl Renderer {
 
         Ok(())
     }
+}
+
+struct Doge {
+    mesh: MeshHandle,
+    texture: Texture,
+    descr: InstanceDescription,
 }
 
 #[derive(thiserror::Error, Debug)]

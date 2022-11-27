@@ -69,7 +69,7 @@ impl GeometryPipeline {
     pub fn create_instance_description(
         &self,
         device: &wgpu::Device,
-        transform: glm::Mat4,
+        transform: &glam::Mat4,
         texture: &Texture,
     ) -> InstanceDescription {
         InstanceDescription::new(device, &self.instance_bind_group_layout, transform, texture)
@@ -98,24 +98,16 @@ impl InstanceDescription {
     fn new(
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
-        transform: glm::Mat4,
+        transform: &glam::Mat4,
         texture: &Texture,
     ) -> Self {
-        let normal_matrix = glm::inverse_transpose(transform);
+        let normal_matrix = transform.inverse().transpose();
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&[InstanceUniform {
-                transform: [
-                    transform.column(0).into(),
-                    transform.column(1).into(),
-                    transform.column(2).into(),
-                ],
-                normal_matrix: [
-                    normal_matrix.column(0).into(),
-                    normal_matrix.column(1).into(),
-                    normal_matrix.column(2).into(),
-                ],
+                transform: transform.as_ref()[..4 * 3].try_into().unwrap(),
+                normal_matrix: normal_matrix.as_ref()[..4 * 3].try_into().unwrap(),
             }]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -151,8 +143,8 @@ impl InstanceDescription {
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct InstanceUniform {
-    transform: [glm::Vec4; 3],
-    normal_matrix: [glm::Vec4; 3],
+    transform: [f32; 4 * 3],
+    normal_matrix: [f32; 4 * 3],
 }
 
 impl InstanceUniform {

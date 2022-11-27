@@ -78,13 +78,13 @@ impl BasePipelineBuffer {
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct CameraUniform {
-    view_proj: glm::Mat4,
+    view_proj: glam::Mat4,
 }
 
 impl Default for CameraUniform {
     fn default() -> Self {
         Self {
-            view_proj: glm::identity::<f32, 4>(),
+            view_proj: glam::Mat4::IDENTITY,
         }
     }
 }
