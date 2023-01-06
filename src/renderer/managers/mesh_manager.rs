@@ -1,11 +1,9 @@
 use std::ops::Range;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use bytemuck::{Pod, Zeroable};
-use glam::{Vec2, Vec3};
 use range_alloc::RangeAllocator;
 
-use crate::renderer::types::{Mesh, MeshHandle, RawMeshHandle};
+use crate::renderer::types::{Mesh, MeshHandle, RawMeshHandle, Vertex};
 use crate::util::ResourceRegistry;
 
 pub struct MeshManager {
@@ -59,7 +57,7 @@ impl MeshManager {
         handle: &MeshHandle,
         mesh: Mesh,
     ) {
-        let vertex_count = mesh.positions.len();
+        let vertex_count = mesh.vertices.len();
         let index_count = mesh.indices.len();
 
         let mut vertex_range = self.vertex_alloc.allocate_range(vertex_count).ok();
@@ -82,24 +80,9 @@ impl MeshManager {
         let index_range = index_range.unwrap();
 
         queue.write_buffer(
-            &self.buffers.positions,
-            (vertex_range.start * POSITIONS_ITEM_SIZE) as wgpu::BufferAddress,
-            bytemuck::cast_slice(&mesh.positions),
-        );
-        queue.write_buffer(
-            &self.buffers.normals,
-            (vertex_range.start * NORMALS_ITEM_SIZE) as wgpu::BufferAddress,
-            bytemuck::cast_slice(&mesh.normals),
-        );
-        queue.write_buffer(
-            &self.buffers.tangents,
-            (vertex_range.start * TANGENTS_ITEM_SIZE) as wgpu::BufferAddress,
-            bytemuck::cast_slice(&mesh.tangents),
-        );
-        queue.write_buffer(
-            &self.buffers.uv0,
-            (vertex_range.start * UV0_ITEM_SIZE) as wgpu::BufferAddress,
-            bytemuck::cast_slice(&mesh.uv0),
+            &self.buffers.vertices,
+            (vertex_range.start * VERTEX_SIZE) as wgpu::BufferAddress,
+            bytemuck::cast_slice(&mesh.vertices),
         );
         queue.write_buffer(
             &self.buffers.indices,
@@ -118,12 +101,11 @@ impl MeshManager {
         &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
-        remaining_vertices: u32,
-        remaining_indices: u32,
+        remaining_vertices: usize,
+        remaining_indices: usize,
     ) {
-        let new_vertex_count =
-            (self.vertex_count() + remaining_vertices as usize).next_power_of_two();
-        let new_index_count = (self.index_count() + remaining_indices as usize).next_power_of_two();
+        let new_vertex_count = (self.vertex_count() + remaining_vertices).next_power_of_two();
+        let new_index_count = (self.index_count() + remaining_indices).next_power_of_two();
 
         let new_buffers = MeshBuffers::new(device, new_vertex_count, new_index_count);
 
@@ -171,6 +153,15 @@ pub struct InternalMesh {
     pub index_range: Range<usize>,
 }
 
+impl InternalMesh {
+    pub fn indices(&self) -> Range<u32> {
+        Range {
+            start: self.index_range.start as u32,
+            end: self.index_range.end as u32,
+        }
+    }
+}
+
 pub struct MeshBuffers {
     pub vertices: wgpu::Buffer,
     pub indices: wgpu::Buffer,
@@ -204,7 +195,7 @@ impl MeshBuffers {
         Self { vertices, indices }
     }
 
-    pub fn bind(&self, pass: &mut wgpu::RenderPass<'_>) {
+    pub fn bind<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
         pass.set_vertex_buffer(VERTICES_SLOT, self.vertices.slice(..));
         pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
     }

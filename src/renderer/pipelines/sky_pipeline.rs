@@ -1,3 +1,4 @@
+use glam::Vec3;
 use wgpu::util::DeviceExt;
 
 use super::BasePipelineBuffer;
@@ -43,7 +44,7 @@ impl SkyPipeline {
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth24Plus,
+                format: wgpu::TextureFormat::Depth24PlusStencil8,
                 depth_write_enabled: false,
                 depth_compare: wgpu::CompareFunction::Less,
                 stencil: wgpu::StencilState::default(),
@@ -145,7 +146,7 @@ struct SkyUniform {
     turbidity: f32,
     mie_coefficient: f32,
     luminance: f32,
-    direction: glm::Vec3,
+    direction: Vec3,
     mie_directional_g: f32,
 }
 
@@ -156,7 +157,7 @@ impl Default for SkyUniform {
             rayleigh: 3.0,
             mie_coefficient: 0.005,
             luminance: 0.5,
-            direction: glm::normalize(&glm::Vec3::new(1.0, -1.0, 0.0)),
+            direction: Vec3::new(1.0, -1.0, 0.0).normalize(),
             mie_directional_g: 0.7,
         }
     }
@@ -212,7 +213,7 @@ const SKY_BOX_INDICES: &[u16] = &[
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct SkyBoxVertex {
-    pos: glm::Vec3,
+    pos: Vec3,
 }
 
 impl SkyBoxVertex {
@@ -223,7 +224,7 @@ impl SkyBoxVertex {
     #[inline(always)]
     const fn new(x: f32, y: f32, z: f32) -> Self {
         Self {
-            pos: glm::Vec3::new(x, y, z),
+            pos: Vec3::new(x, y, z),
         }
     }
 

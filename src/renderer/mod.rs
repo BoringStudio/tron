@@ -1,12 +1,14 @@
+use std::sync::atomic::AtomicUsize;
+
 use anyhow::Result;
 use winit::window::Window;
 
-use crate::scene::load_object;
+use crate::scene::load_scene;
 
 use self::managers::MeshManager;
 use self::pipelines::geometry_pipeline::InstanceDescription;
 use self::pipelines::{BasePipelineBuffer, GeometryPipeline, ScreenPipeline, SkyPipeline};
-use self::types::{Camera, Mesh, MeshHandle, Texture};
+use self::types::{Camera, MeshHandle, Texture};
 
 pub mod managers;
 pub mod pipelines;
@@ -18,6 +20,8 @@ pub struct Renderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
+
+    resource_id: AtomicUsize,
     mesh_manager: MeshManager,
 
     camera: Camera,
@@ -76,11 +80,33 @@ impl Renderer {
 
         let base_pipeline_buffer = BasePipelineBuffer::new(&device);
 
+        let resource_id = AtomicUsize::new(0);
+        let mut mesh_manager = MeshManager::new(&device);
+
         let depth_texture = Texture::new_depth(&device, &config, "depth_texture");
 
         let geometry_pipeline = GeometryPipeline::new(&device, &base_pipeline_buffer);
         let sky_pipeline = SkyPipeline::new(&device, &base_pipeline_buffer);
         let screen_pipeline = ScreenPipeline::new(&device, &config);
+
+        let doge_mesh = {
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("mesh_loader"),
+            });
+
+            let meshes = load_scene(
+                &mut mesh_manager,
+                &device,
+                &queue,
+                &mut encoder,
+                &resource_id,
+                include_bytes!("../res/bike.glb"),
+            )?;
+
+            queue.submit(std::iter::once(encoder.finish()));
+
+            meshes.into_iter().nth(5).unwrap()
+        };
 
         // TEMP:
         let texture = Texture::from_bytes(
@@ -89,11 +115,11 @@ impl Renderer {
             include_bytes!("../res/texture.png"),
             "texture",
         )?;
-        let descr = geometry_pipeline.create_instance_description(&device, glam::ma, &texture);
-        let meshes = load_object(&device, include_bytes!("../res/bike.glb"))?;
+        let descr =
+            geometry_pipeline.create_instance_description(&device, &glam::Mat4::IDENTITY, &texture);
 
         let doge = Doge {
-            mesh: meshes.into_iter().nth(5).unwrap(),
+            mesh: doge_mesh,
             texture,
             descr,
         };
@@ -104,6 +130,9 @@ impl Renderer {
             queue,
             config,
             size,
+
+            resource_id,
+            mesh_manager,
 
             camera,
             base_pipeline_buffer,
@@ -166,9 +195,11 @@ impl Renderer {
             });
             render_pass.set_bind_group(0, self.base_pipeline_buffer.bind_group(), &[]);
 
+            self.mesh_manager.buffers().bind(&mut render_pass);
             self.geometry_pipeline.render(
                 &mut render_pass,
-                std::iter::once((&self.doge.mesh, &self.doge.descr)),
+                std::iter::once(&self.doge)
+                    .map(|doge| (self.mesh_manager.get_mesh(doge.mesh.raw()), &doge.descr)),
             );
 
             self.sky_pipeline.render(&mut render_pass);

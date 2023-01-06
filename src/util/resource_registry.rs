@@ -27,7 +27,7 @@ impl<T, H> ResourceRegistry<T, H> {
                 refcount: handle.get_weak(),
                 data,
             },
-        )
+        );
     }
 
     pub fn values(&self) -> impl ExactSizeIterator<Item = &T> {
@@ -46,7 +46,7 @@ impl<T, H> ResourceRegistry<T, H> {
         &self.mapping.get(&handle.id).unwrap().data
     }
 
-    pub fn get_mut(&self, handle: RawResourceHandle<H>) -> &mut T {
+    pub fn get_mut(&mut self, handle: RawResourceHandle<H>) -> &mut T {
         &mut self.mapping.get_mut(&handle.id).unwrap().data
     }
 }

@@ -1,7 +1,8 @@
 use wgpu::util::DeviceExt;
 
 use super::BasePipelineBuffer;
-use crate::renderer::types::{Mesh, Texture, Vertex};
+use crate::renderer::managers::mesh_manager::{InternalMesh, MeshBuffers};
+use crate::renderer::types::{Texture, Vertex};
 
 pub struct GeometryPipeline {
     pipeline: wgpu::RenderPipeline,
@@ -77,14 +78,12 @@ impl GeometryPipeline {
 
     pub fn render<'a, I>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, meshes: I)
     where
-        I: Iterator<Item = (&'a Mesh, &'a InstanceDescription)>,
+        I: Iterator<Item = (&'a InternalMesh, &'a InstanceDescription)>,
     {
         render_pass.set_pipeline(&self.pipeline);
         meshes.for_each(|(mesh, descr)| {
             render_pass.set_bind_group(1, &descr.bind_group, &[]);
-            render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            render_pass.draw_indexed(mesh.indices(), mesh.vertex_range.start as i32, 0..1);
         })
     }
 }

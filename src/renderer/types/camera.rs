@@ -45,5 +45,9 @@ impl Camera {
 }
 
 /// Map Z coords from -1..1 to 0..1
-const OPENGL_TO_WGPU_MATRIX: Mat4 =
-    Mat4::from_cols(Vec4::X, Vec4::Y, Vec4::Z * 0.5, Vec4::Z * 0.5 + Vec4::W);
+const OPENGL_TO_WGPU_MATRIX: Mat4 = Mat4::from_cols(
+    Vec4::new(1.0, 0.0, 0.0, 0.0),
+    Vec4::new(0.0, 1.0, 0.0, 0.0),
+    Vec4::new(0.0, 0.0, 0.5, 0.0),
+    Vec4::new(0.0, 0.0, 0.5, 1.0),
+);

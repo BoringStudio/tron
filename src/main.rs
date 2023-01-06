@@ -11,7 +11,7 @@ mod scene;
 mod util;
 
 pub async fn run() -> Result<()> {
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
@@ -39,9 +39,6 @@ pub async fn run() -> Result<()> {
     });
 }
 
-fn main() {
-    if let Err(e) = pollster::block_on(run()) {
-        eprintln!("Error: {e:?}");
-        std::process::exit(1);
-    }
+fn main() -> Result<()> {
+    pollster::block_on(run())
 }

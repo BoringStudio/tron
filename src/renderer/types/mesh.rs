@@ -1,6 +1,5 @@
 use bytemuck::{Pod, Zeroable};
 use glam::{Vec2, Vec3};
-use wgpu::util::DeviceExt;
 
 #[derive(Copy, Clone, Debug)]
 pub enum VertexBufferType {
@@ -57,21 +56,47 @@ impl MeshBuilder {
     }
 
     pub fn build(self) -> Result<Mesh, MeshValidationError> {
+        fn make_component_iter<T: Default>(
+            items: Option<Vec<T>>,
+            len: usize,
+        ) -> impl Iterator<Item = T> + ExactSizeIterator {
+            match items {
+                Some(items) => either::Left(items.into_iter()),
+                None => either::Right((0..len).map(|_| T::default())),
+            }
+        }
+
         let len = self.vertex_count;
 
         let has_normals = self.normals.is_some();
         let has_tangents = self.tangents.is_some();
         let has_uvs = self.uv0.is_some();
 
-        if let Some(normals) = self.normals {
-            normals.
+        if matches!(&self.normals, Some(v) if v.len() != len)
+            || matches!(&self.tangents, Some(v) if v.len() != len)
+            || matches!(&self.uv0, Some(v) if v.len() != len)
+        {
+            return Err(MeshValidationError::ComponentMismatch);
+        }
+
+        let mut vertices = Vec::with_capacity(len);
+        for (((position, normal), tangent), uv0) in self
+            .positions
+            .into_iter()
+            .zip(make_component_iter(self.normals, len))
+            .zip(make_component_iter(self.tangents, len))
+            .zip(make_component_iter(self.uv0, len))
+        {
+            vertices.push(Vertex {
+                position,
+                normal,
+                tangent,
+                uv0,
+            });
         }
 
         let mut mesh = Mesh {
-            positions: self.positions,
-            normals: self.normals.unwrap_or_else(|| vec![Vec3::ZERO; len]),
-            tangents: self.tangents.unwrap_or_else(|| vec![Vec3::ZERO; len]),
-            uv0: self.uv0.unwrap_or_else(|| vec![Vec2::ZERO; len]),
+            vertices,
             indices: self.indices.unwrap_or_else(|| (0..len as u32).collect()),
         };
 
@@ -98,7 +123,7 @@ pub struct Mesh {
 
 impl Mesh {
     pub fn validate(&self) -> Result<(), MeshValidationError> {
-        let vertex_count = self.positions.len();
+        let vertex_count = self.vertices.len();
         let index_count = self.indices.len();
 
         if vertex_count > index_count {
@@ -120,9 +145,8 @@ impl Mesh {
         Ok(())
     }
 
-    unsafe fn compute_normals(&mut self) {
+    pub unsafe fn compute_normals(&mut self) {
         debug_assert_eq!(self.indices.len() % 3, 0);
-        debug_assert_eq!(self.normals.len(), self.positions.len());
 
         for idx in self.indices.chunks_exact(3) {
             let (idx0, idx1, idx2) = match *idx {
@@ -130,28 +154,27 @@ impl Mesh {
                 _ => std::hint::unreachable_unchecked(),
             };
 
-            let pos0 = *self.positions.get_unchecked(idx0 as usize);
-            let pos1 = *self.positions.get_unchecked(idx1 as usize);
-            let pos2 = *self.positions.get_unchecked(idx2 as usize);
+            let pos0 = self.vertices.get_unchecked(idx0 as usize).position;
+            let pos1 = self.vertices.get_unchecked(idx1 as usize).position;
+            let pos2 = self.vertices.get_unchecked(idx2 as usize).position;
 
             let edge0 = pos1 - pos0;
             let edge1 = pos2 - pos0;
 
             let normal = edge0.cross(edge1);
 
-            *self.normals.get_unchecked_mut(idx0 as usize) += normal;
-            *self.normals.get_unchecked_mut(idx1 as usize) += normal;
-            *self.normals.get_unchecked_mut(idx2 as usize) += normal;
+            self.vertices.get_unchecked_mut(idx0 as usize).normal += normal;
+            self.vertices.get_unchecked_mut(idx1 as usize).normal += normal;
+            self.vertices.get_unchecked_mut(idx2 as usize).normal += normal;
         }
 
-        for normal in &mut self.normals {
-            *normal = normal.normalize_or_zero();
+        for vertex in &mut self.vertices {
+            vertex.normal = vertex.normal.normalize_or_zero();
         }
     }
 
-    unsafe fn compute_tangents(&mut self) {
+    pub unsafe fn compute_tangents(&mut self) {
         debug_assert_eq!(self.indices.len() % 3, 0);
-        debug_assert_eq!(self.tangents.len(), self.positions.len());
 
         for idx in self.indices.chunks_exact(3) {
             let (idx0, idx1, idx2) = match *idx {
@@ -159,19 +182,15 @@ impl Mesh {
                 _ => std::hint::unreachable_unchecked(),
             };
 
-            let pos0 = *self.positions.get_unchecked(idx0 as usize);
-            let pos1 = *self.positions.get_unchecked(idx1 as usize);
-            let pos2 = *self.positions.get_unchecked(idx2 as usize);
+            let v0 = *self.vertices.get_unchecked(idx0 as usize);
+            let v1 = *self.vertices.get_unchecked(idx1 as usize);
+            let v2 = *self.vertices.get_unchecked(idx2 as usize);
 
-            let uv0 = *self.uv0.get_unchecked(idx0 as usize);
-            let uv1 = *self.uv0.get_unchecked(idx1 as usize);
-            let uv2 = *self.uv0.get_unchecked(idx2 as usize);
+            let pos_edge0 = v1.position - v0.position;
+            let pos_edge1 = v2.position - v0.position;
 
-            let pos_edge0 = pos1 - pos0;
-            let pos_edge1 = pos2 - pos0;
-
-            let uv_edge0 = uv1 - uv0;
-            let uv_edge1 = uv2 - uv0;
+            let uv_edge0 = v1.uv0 - v0.uv0;
+            let uv_edge1 = v2.uv0 - v0.uv0;
 
             let r = 1.0 / (uv_edge0.x * uv_edge1.y - uv_edge0.y * uv_edge1.x);
 
@@ -181,19 +200,22 @@ impl Mesh {
                 (pos_edge0.z * uv_edge1.y - pos_edge1.z * uv_edge0.y) * r,
             );
 
-            *self.tangents.get_unchecked_mut(idx0 as usize) += tangent;
-            *self.tangents.get_unchecked_mut(idx1 as usize) += tangent;
-            *self.tangents.get_unchecked_mut(idx2 as usize) += tangent;
+            self.vertices.get_unchecked_mut(idx0 as usize).tangent += tangent;
+            self.vertices.get_unchecked_mut(idx1 as usize).tangent += tangent;
+            self.vertices.get_unchecked_mut(idx2 as usize).tangent += tangent;
         }
 
-        for (tangent, normal) in self.tangents.iter_mut().zip(self.normals.iter()) {
-            *tangent = (*tangent - (*normal * normal.dot(*tangent))).normalize_or_zero();
+        for vertex in &mut self.vertices {
+            vertex.tangent = (vertex.tangent - (vertex.normal * vertex.normal.dot(vertex.tangent)))
+                .normalize_or_zero();
         }
     }
 }
 
 #[derive(thiserror::Error, Debug)]
-enum MeshValidationError {
+pub enum MeshValidationError {
+    #[error("component array length mismatch")]
+    ComponentMismatch,
     #[error("more vertices than indices")]
     IndexCountMismatch,
     #[error("index count is not multiple of three")]
