@@ -1,7 +1,8 @@
+use glam::Mat4;
 use wgpu::util::DeviceExt;
 
 use super::BasePipelineBuffer;
-use crate::renderer::managers::mesh_manager::{InternalMesh, MeshBuffers};
+use crate::renderer::managers::mesh_manager::InternalMesh;
 use crate::renderer::types::{Texture, Vertex};
 
 pub struct GeometryPipeline {
@@ -70,7 +71,7 @@ impl GeometryPipeline {
     pub fn create_instance_description(
         &self,
         device: &wgpu::Device,
-        transform: &glam::Mat4,
+        transform: &Mat4,
         texture: &Texture,
     ) -> InstanceDescription {
         InstanceDescription::new(device, &self.instance_bind_group_layout, transform, texture)
@@ -97,17 +98,12 @@ impl InstanceDescription {
     fn new(
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
-        transform: &glam::Mat4,
+        transform: &Mat4,
         texture: &Texture,
     ) -> Self {
-        let normal_matrix = transform.inverse().transpose();
-
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: bytemuck::cast_slice(&[InstanceUniform {
-                transform: transform.as_ref()[..4 * 3].try_into().unwrap(),
-                normal_matrix: normal_matrix.as_ref()[..4 * 3].try_into().unwrap(),
-            }]),
+            contents: bytemuck::cast_slice(&[InstanceUniform::new(transform)]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -137,6 +133,14 @@ impl InstanceDescription {
             uniform_buffer,
         }
     }
+
+    pub fn update(&self, queue: &wgpu::Queue, transform: &Mat4) {
+        queue.write_buffer(
+            &self.uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[InstanceUniform::new(transform)]),
+        )
+    }
 }
 
 #[repr(C)]
@@ -147,6 +151,15 @@ struct InstanceUniform {
 }
 
 impl InstanceUniform {
+    fn new(transform: &Mat4) -> Self {
+        let normal_matrix = transform.inverse().transpose();
+
+        InstanceUniform {
+            transform: transform.as_ref()[..4 * 3].try_into().unwrap(),
+            normal_matrix: normal_matrix.as_ref()[..4 * 3].try_into().unwrap(),
+        }
+    }
+
     fn make_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("instance_bind_group_layout"),

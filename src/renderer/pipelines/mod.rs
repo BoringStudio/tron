@@ -1,3 +1,4 @@
+use glam::{IVec2, Mat4};
 use wgpu::util::DeviceExt;
 
 use super::types::Camera;
@@ -20,7 +21,7 @@ impl BasePipelineBuffer {
     pub fn new(device: &wgpu::Device) -> Self {
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("base_pipeline_buffer"),
-            contents: bytemuck::cast_slice(&[CameraUniform::default()]),
+            contents: bytemuck::cast_slice(&[BaseUniform::default()]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -28,7 +29,7 @@ impl BasePipelineBuffer {
             label: Some("scene_bind_group_layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -64,12 +65,23 @@ impl BasePipelineBuffer {
         &self.bind_group
     }
 
-    pub fn update(&self, queue: &wgpu::Queue, camera: &Camera) {
+    pub fn update(
+        &self,
+        queue: &wgpu::Queue,
+        camera: &Camera,
+        viewport_width: u32,
+        viewport_height: u32,
+        time: f32,
+    ) {
         queue.write_buffer(
             &self.buffer,
             0,
-            bytemuck::cast_slice(&[CameraUniform {
+            bytemuck::cast_slice(&[BaseUniform {
                 view_proj: camera.compute_view_proj(),
+                viewport_width,
+                viewport_height,
+                time,
+                _padding: 0.0,
             }]),
         );
     }
@@ -77,14 +89,22 @@ impl BasePipelineBuffer {
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct CameraUniform {
-    view_proj: glam::Mat4,
+struct BaseUniform {
+    view_proj: Mat4,
+    viewport_width: u32,
+    viewport_height: u32,
+    time: f32,
+    _padding: f32,
 }
 
-impl Default for CameraUniform {
+impl Default for BaseUniform {
     fn default() -> Self {
         Self {
             view_proj: glam::Mat4::IDENTITY,
+            viewport_width: 0,
+            viewport_height: 0,
+            time: 0.0,
+            _padding: 0.0,
         }
     }
 }

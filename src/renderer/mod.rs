@@ -1,4 +1,5 @@
 use std::sync::atomic::AtomicUsize;
+use std::time::Instant;
 
 use anyhow::Result;
 use winit::window::Window;
@@ -30,6 +31,8 @@ pub struct Renderer {
     geometry_pipeline: GeometryPipeline,
     sky_pipeline: SkyPipeline,
     screen_pipeline: ScreenPipeline,
+
+    started_at: Instant,
 
     // TEMP:
     doge: Doge,
@@ -141,6 +144,8 @@ impl Renderer {
             sky_pipeline,
             screen_pipeline,
 
+            started_at: Instant::now(),
+
             doge,
         })
     }
@@ -165,7 +170,14 @@ impl Renderer {
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        self.base_pipeline_buffer.update(&self.queue, &self.camera);
+        let time = self.started_at.elapsed().as_secs_f32();
+        self.base_pipeline_buffer.update(
+            &self.queue,
+            &self.camera,
+            self.config.width,
+            self.config.height,
+            time,
+        );
 
         let output = self.surface.get_current_texture()?;
         let view = output

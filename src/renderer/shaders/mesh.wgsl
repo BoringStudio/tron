@@ -1,5 +1,8 @@
-struct CameraUniform {
+struct BaseUniform {
     view_proj: mat4x4<f32>,
+    view_width: u32,
+    view_height: u32,
+    time: f32,
 }
 
 struct InstanceUniform {
@@ -8,7 +11,7 @@ struct InstanceUniform {
 }
 
 @group(0) @binding(0)
-var<uniform> camera: CameraUniform;
+var<uniform> base: BaseUniform;
 @group(1) @binding(0)
 var<uniform> instance: InstanceUniform;
 
@@ -27,7 +30,7 @@ struct VertexOutput {
 @vertex
 fn vs_main(vertex: VertexInput) -> VertexOutput {
     var v: VertexOutput;
-    v.clip_position = camera.view_proj * mat4x4(
+    v.clip_position = base.view_proj * mat4x4(
         instance.transform[0],
         instance.transform[1],
         instance.transform[2],
@@ -45,8 +48,10 @@ var diffuse_sampler: sampler;
 
 @fragment
 fn fs_main(v: VertexOutput) -> @location(0) vec4<f32> {
+    var shift = vec2<f32>((base.time * 0.1), 0.0);
+
     var direct_light = max(dot(v.normal, vec3<f32>(0.1, -1.0, 0.1)), 0.0);
-    var color = textureSample(diffuse_texture, diffuse_sampler, v.tex_coords).xyz;
+    var color = textureSample(diffuse_texture, diffuse_sampler, v.tex_coords + shift).xyz;
     color *= min(0.5 + direct_light, 1.0);
     return vec4(color, 1.0);
 }
