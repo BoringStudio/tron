@@ -1,15 +1,11 @@
 use std::sync::atomic::AtomicUsize;
-use std::time::Instant;
 
 use anyhow::Result;
 use winit::window::Window;
 
-use crate::scene::load_scene;
-
 use self::managers::MeshManager;
-use self::pipelines::geometry_pipeline::InstanceDescription;
 use self::pipelines::{BasePipelineBuffer, GeometryPipeline, ScreenPipeline, SkyPipeline};
-use self::types::{Camera, MeshHandle, Texture};
+use self::types::{Camera, Texture};
 
 pub mod managers;
 pub mod pipelines;
@@ -22,20 +18,12 @@ pub struct Renderer {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
 
-    resource_id: AtomicUsize,
-    mesh_manager: MeshManager,
-
     camera: Camera,
     base_pipeline_buffer: BasePipelineBuffer,
     depth_texture: Texture,
     geometry_pipeline: GeometryPipeline,
     sky_pipeline: SkyPipeline,
     screen_pipeline: ScreenPipeline,
-
-    started_at: Instant,
-
-    // TEMP:
-    doge: Doge,
 }
 
 impl Renderer {
@@ -83,49 +71,44 @@ impl Renderer {
 
         let base_pipeline_buffer = BasePipelineBuffer::new(&device);
 
-        let resource_id = AtomicUsize::new(0);
-        let mut mesh_manager = MeshManager::new(&device);
-
         let depth_texture = Texture::new_depth(&device, &config, "depth_texture");
 
         let geometry_pipeline = GeometryPipeline::new(&device, &base_pipeline_buffer);
         let sky_pipeline = SkyPipeline::new(&device, &base_pipeline_buffer);
         let screen_pipeline = ScreenPipeline::new(&device, &config);
 
-        let doge_mesh = {
-            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("mesh_loader"),
-            });
+        // let doge_mesh = {
+        //     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        //         label: Some("mesh_loader"),
+        //     });
 
-            let meshes = load_scene(
-                &mut mesh_manager,
-                &device,
-                &queue,
-                &mut encoder,
-                &resource_id,
-                include_bytes!("../res/bike.glb"),
-            )?;
+        //     let meshes = load_scene(
+        //         &mut mesh_manager,
+        //         &device,
+        //         &queue,
+        //         &mut encoder,
+        //         &resource_id,
+        //         include_bytes!("../res/bike.glb"),
+        //     )?;
 
-            queue.submit(std::iter::once(encoder.finish()));
+        //     meshes.into_iter().nth(5).unwrap()
+        // };
 
-            meshes.into_iter().nth(5).unwrap()
-        };
+        // // TEMP:
+        // let texture = Texture::from_bytes(
+        //     &device,
+        //     &queue,
+        //     include_bytes!("../res/texture.png"),
+        //     "texture",
+        // )?;
+        // let descr =
+        //     geometry_pipeline.create_instance_description(&device, &glam::Mat4::IDENTITY, &texture);
 
-        // TEMP:
-        let texture = Texture::from_bytes(
-            &device,
-            &queue,
-            include_bytes!("../res/texture.png"),
-            "texture",
-        )?;
-        let descr =
-            geometry_pipeline.create_instance_description(&device, &glam::Mat4::IDENTITY, &texture);
-
-        let doge = Doge {
-            mesh: doge_mesh,
-            texture,
-            descr,
-        };
+        // let doge = Doge {
+        //     mesh: doge_mesh,
+        //     texture,
+        //     descr,
+        // };
 
         Ok(Self {
             surface,
@@ -134,43 +117,48 @@ impl Renderer {
             config,
             size,
 
-            resource_id,
-            mesh_manager,
-
             camera,
             base_pipeline_buffer,
             depth_texture,
             geometry_pipeline,
             sky_pipeline,
             screen_pipeline,
-
-            started_at: Instant::now(),
-
-            doge,
         })
     }
 
-    #[inline(always)]
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
     pub fn size(&self) -> winit::dpi::PhysicalSize<u32> {
         self.size
     }
 
-    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        if new_size.width > 0 && new_size.height > 0 {
-            self.size = new_size;
-            self.config.width = new_size.width;
-            self.config.height = new_size.height;
-            self.surface.configure(&self.device, &self.config);
-            self.camera
-                .update_projection(new_size.width as f32 / new_size.height as f32);
-            self.depth_texture = Texture::new_depth(&self.device, &self.config, "depth_texture");
-            self.screen_pipeline
-                .update_screen_texture(&self.device, &self.config);
+    pub fn encode_commands(&self, name: &'static str) -> CommandEncoder<'_> {
+        let encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(name) });
+
+        CommandEncoder {
+            device: &self.device,
+            queue: &self.queue,
+            encoder,
         }
     }
 
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let time = self.started_at.elapsed().as_secs_f32();
+    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+        self.size = new_size;
+        self.config.width = new_size.width;
+        self.config.height = new_size.height;
+        self.surface.configure(&self.device, &self.config);
+        self.camera
+            .update_projection(new_size.width as f32 / new_size.height as f32);
+        self.depth_texture = Texture::new_depth(&self.device, &self.config, "depth_texture");
+        self.screen_pipeline
+            .update_screen_texture(&self.device, &self.config);
+    }
+
+    pub fn render(&mut self, time: f32) {
         self.base_pipeline_buffer.update(
             &self.queue,
             &self.camera,
@@ -179,7 +167,15 @@ impl Renderer {
             time,
         );
 
-        let output = self.surface.get_current_texture()?;
+        let output = match self.surface.get_current_texture() {
+            Ok(frame) => frame,
+            Err(_) => {
+                self.surface.configure(&self.device, &self.config);
+                self.surface
+                    .get_current_texture()
+                    .expect("failed to get next frame texture")
+            }
+        };
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -207,12 +203,12 @@ impl Renderer {
             });
             render_pass.set_bind_group(0, self.base_pipeline_buffer.bind_group(), &[]);
 
-            self.mesh_manager.buffers().bind(&mut render_pass);
-            self.geometry_pipeline.render(
-                &mut render_pass,
-                std::iter::once(&self.doge)
-                    .map(|doge| (self.mesh_manager.get_mesh(doge.mesh.raw()), &doge.descr)),
-            );
+            //self.mesh_manager.buffers().bind(&mut render_pass);
+            // self.geometry_pipeline.render(
+            //     &mut render_pass,
+            //     std::iter::once(&self.doge)
+            //         .map(|doge| (self.mesh_manager.get_mesh(doge.mesh.raw()), &doge.descr)),
+            // );
 
             self.sky_pipeline.render(&mut render_pass);
         }
@@ -221,16 +217,26 @@ impl Renderer {
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-
-        Ok(())
     }
 }
 
-struct Doge {
-    mesh: MeshHandle,
-    texture: Texture,
-    descr: InstanceDescription,
+pub struct CommandEncoder<'a> {
+    pub device: &'a wgpu::Device,
+    pub queue: &'a wgpu::Queue,
+    pub encoder: wgpu::CommandEncoder,
 }
+
+impl CommandEncoder<'_> {
+    pub fn submit(self) {
+        self.queue.submit(std::iter::once(self.encoder.finish()));
+    }
+}
+
+// struct Doge {
+//     mesh: MeshHandle,
+//     texture: Texture,
+//     descr: InstanceDescription,
+// }
 
 #[derive(thiserror::Error, Debug)]
 enum WindowStateError {

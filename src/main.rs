@@ -4,10 +4,10 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::platform::unix::{WindowBuilderExtUnix, XWindowType};
 use winit::window::WindowBuilder;
 
-use self::renderer::Renderer;
+use game::Game;
 
+mod game;
 mod renderer;
-mod scene;
 mod util;
 
 pub async fn run() -> Result<()> {
@@ -18,24 +18,33 @@ pub async fn run() -> Result<()> {
         .with_x11_window_type(vec![XWindowType::Dialog, XWindowType::Normal])
         .build(&event_loop)?;
 
-    let mut renderer = Renderer::new(&window).await?;
+    let mut game = Game::new(&window).await?;
 
-    event_loop.run(move |event, _, control_flow| match event {
-        Event::WindowEvent { event, window_id } if window_id == window.id() => match event {
-            WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-            WindowEvent::Resized(size) => renderer.resize(size),
-            WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                renderer.resize(*new_inner_size)
+    event_loop.run(move |event, _, control_flow| {
+        if !game.is_running() {
+            *control_flow = ControlFlow::Exit;
+            return;
+        }
+
+        match event {
+            Event::MainEventsCleared => window.request_redraw(),
+            Event::WindowEvent {
+                event:
+                    WindowEvent::Resized(mut size)
+                    | WindowEvent::ScaleFactorChanged {
+                        new_inner_size: &mut mut size,
+                        ..
+                    },
+                ..
+            } => {
+                size.width = size.width.max(1);
+                size.height = size.height.max(1);
+                game.resize(size);
             }
+            Event::WindowEvent { event, .. } => game.handle_event(&event),
+            Event::RedrawRequested(_) => game.render(),
             _ => {}
-        },
-        Event::RedrawRequested(window_id) if window_id == window.id() => match renderer.render() {
-            Err(wgpu::SurfaceError::Lost) => renderer.resize(renderer.size()),
-            Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-            _ => {}
-        },
-        Event::MainEventsCleared => window.request_redraw(),
-        _ => {}
+        }
     });
 }
 

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::atomic::AtomicUsize;
 
 use anyhow::{Context, Result};
@@ -5,51 +6,67 @@ use glam::{Vec2, Vec3};
 
 use crate::renderer::managers::MeshManager;
 use crate::renderer::types::{Mesh, MeshHandle, Vertex};
+use crate::renderer::CommandEncoder;
 
-pub fn load_scene(
+pub fn load(
+    ctx: &mut CommandEncoder<'_>,
     mesh_manager: &mut MeshManager,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    encoder: &mut wgpu::CommandEncoder,
     resource_id: &AtomicUsize,
     data: &[u8],
-) -> Result<Vec<MeshHandle>> {
+) -> Result<HashMap<String, MeshHandle>> {
     let (file, buffers, _) = gltf::import_slice(data)?;
     let scene = file.default_scene().context("Default scene not found")?;
 
-    let mut meshes = Vec::new();
+    let mut meshes = HashMap::new();
 
-    let mut stack = Vec::from([scene.nodes().next().context("Root node not found")?]);
-    while let Some(node) = stack.pop() {
-        println!("NODE: {}, {:?}", node.index(), node.name());
+    let mut stack = Vec::from([Segment {
+        node: scene.nodes().next().context("Root node not found")?,
+        path: String::new(),
+    }]);
 
-        if let Some(mesh) = node.mesh() {
-            for primitive in mesh.primitives() {
-                meshes.push(load_mesh(
-                    mesh_manager,
-                    device,
-                    queue,
-                    encoder,
-                    resource_id,
-                    &buffers,
-                    primitive,
-                )?);
+    while let Some(segment) = stack.pop() {
+        if let Some(mesh) = segment.node.mesh() {
+            let mesh_name = mesh.name();
+
+            for (i, primitive) in mesh.primitives().enumerate() {
+                let mesh = load_mesh(ctx, mesh_manager, resource_id, &buffers, primitive)?;
+                meshes.insert(segment.primitive_path(mesh_name, i), mesh);
             }
         }
 
-        for child in node.children() {
-            stack.push(child);
+        for (i, child) in segment.node.children().enumerate() {
+            let path = segment.child_path(child.name(), i);
+            stack.push(Segment { node: child, path });
         }
     }
 
     Ok(meshes)
 }
 
+struct Segment<'a> {
+    node: gltf::Node<'a>,
+    path: String,
+}
+
+impl Segment<'_> {
+    fn child_path(&self, name: Option<&str>, i: usize) -> String {
+        match name {
+            Some(name) => format!("{}/{name}", self.path),
+            None => format!("{}/{i}", self.path),
+        }
+    }
+
+    fn primitive_path(&self, mesh_name: Option<&str>, i: usize) -> String {
+        match mesh_name {
+            Some(name) => format!("{}/{name}/{i}", self.path),
+            None => format!("{}/{i}", self.path),
+        }
+    }
+}
+
 fn load_mesh(
+    ctx: &mut CommandEncoder<'_>,
     mesh_manager: &mut MeshManager,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    encoder: &mut wgpu::CommandEncoder,
     resource_id: &AtomicUsize,
     buffers: &[gltf::buffer::Data],
     primitive: gltf::Primitive<'_>,
@@ -118,7 +135,7 @@ fn load_mesh(
     }
 
     let handle = MeshManager::allocate(&resource_id);
-    mesh_manager.set_mesh(device, queue, encoder, &handle, mesh);
+    mesh_manager.set_mesh(ctx, &handle, mesh);
 
     Ok(handle)
 }

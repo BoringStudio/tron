@@ -1,5 +1,6 @@
 use std::hash::Hash;
 use std::marker::PhantomData;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 
 pub struct ResourceHandle<T> {
@@ -9,6 +10,11 @@ pub struct ResourceHandle<T> {
 }
 
 impl<T> ResourceHandle<T> {
+    pub fn allocate(id: &AtomicUsize) -> Self {
+        let id = id.fetch_add(1, Ordering::Relaxed);
+        Self::new(id)
+    }
+
     pub fn new(id: usize) -> Self {
         Self {
             id,

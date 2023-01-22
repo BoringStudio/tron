@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use range_alloc::RangeAllocator;
 
 use crate::renderer::types::{Mesh, MeshHandle, RawMeshHandle, Vertex};
+use crate::renderer::CommandEncoder;
 use crate::util::ResourceRegistry;
 
 pub struct MeshManager {
@@ -49,14 +50,7 @@ impl MeshManager {
         self.registry.get(handle)
     }
 
-    pub fn set_mesh(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
-        handle: &MeshHandle,
-        mesh: Mesh,
-    ) {
+    pub fn set_mesh(&mut self, ctx: &mut CommandEncoder<'_>, handle: &MeshHandle, mesh: Mesh) {
         let vertex_count = mesh.vertices.len();
         let index_count = mesh.indices.len();
 
@@ -71,7 +65,12 @@ impl MeshManager {
         };
 
         if let Some((remaining_vertices, remaining_indices)) = requested {
-            self.realloc_buffers(device, encoder, remaining_vertices, remaining_indices);
+            self.realloc_buffers(
+                ctx.device,
+                &mut ctx.encoder,
+                remaining_vertices,
+                remaining_indices,
+            );
             vertex_range = self.vertex_alloc.allocate_range(vertex_count).ok();
             index_range = self.index_alloc.allocate_range(index_count).ok();
         }
@@ -79,12 +78,12 @@ impl MeshManager {
         let vertex_range = vertex_range.unwrap();
         let index_range = index_range.unwrap();
 
-        queue.write_buffer(
+        ctx.queue.write_buffer(
             &self.buffers.vertices,
             (vertex_range.start * VERTEX_SIZE) as wgpu::BufferAddress,
             bytemuck::cast_slice(&mesh.vertices),
         );
-        queue.write_buffer(
+        ctx.queue.write_buffer(
             &self.buffers.indices,
             (index_range.start * INDEX_SIZE) as wgpu::BufferAddress,
             bytemuck::cast_slice(&mesh.indices),
