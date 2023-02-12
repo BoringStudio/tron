@@ -1,4 +1,4 @@
-use glam::{IVec2, Mat4};
+use glam::Mat4;
 use wgpu::util::DeviceExt;
 
 use super::types::Camera;

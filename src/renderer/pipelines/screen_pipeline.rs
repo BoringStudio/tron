@@ -193,6 +193,7 @@ fn create_screen_texture(
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8UnormSrgb,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
     });
 
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());

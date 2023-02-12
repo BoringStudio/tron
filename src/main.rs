@@ -1,7 +1,7 @@
 use anyhow::Result;
 use winit::event::*;
 use winit::event_loop::{ControlFlow, EventLoop};
-use winit::platform::unix::{WindowBuilderExtUnix, XWindowType};
+use winit::platform::x11::{WindowBuilderExtX11, XWindowType};
 use winit::window::WindowBuilder;
 
 use game::Game;

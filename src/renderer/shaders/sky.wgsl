@@ -16,21 +16,21 @@ var<uniform> camera: CameraUniform;
 @group(1) @binding(0)
 var<uniform> sun: SunUniform;
 
-let up = vec3<f32>(0.0, 1.0, 0.0);
-let camera_position = vec3<f32>(0.0, 0.0, 0.0);
+const up = vec3<f32>(0.0, 1.0, 0.0);
+const camera_position = vec3<f32>(0.0, 0.0, 0.0);
 
-let sun_angular_diameter_cos = 0.999812627955556656903750820965829532378703448007194460804;
+const sun_angular_diameter_cos = 0.999812627955556656903750820965829532378703448007194460804;
 
-let pi = 3.141592653589793238462643383279502884197169;
+const pi = 3.141592653589793238462643383279502884197169;
 
 // lambda = vec3(680e-9, 550e-9, 450e-9)
 // (8.0 * pow(pi, 3.0) * pow(pow(n, 2.0) - 1.0, 2.0) * (6.0 + 3.0 * pn)) / (3.0 * N * pow(lambda, vec3(4.0)) * (6.0 - 7.0 * pn))
-let total_rayleigh = vec3<f32>(5.804542996261093e-6, 1.3562911419845635e-5, 3.0265902468824876e-5);
+const total_rayleigh = vec3<f32>(5.804542996261093e-6, 1.3562911419845635e-5, 3.0265902468824876e-5);
 
 // v = 4
 // K = vec3(0.686, 0.678, 0.666);
 // MIE = pi * pow( ( 2.0 * pi ) / lambda, vec3( v - 2.0 ) ) * K
-let mie = vec3<f32>(1.8399918514433978e14, 2.7798023919660528e14, 4.0790479543861094e14);
+const mie = vec3<f32>(1.8399918514433978e14, 2.7798023919660528e14, 4.0790479543861094e14);
 
 // earth shadow hack
 fn sun_intensity(zenith_angle_cos: f32) -> f32 {
@@ -95,7 +95,7 @@ fn hg_phase(cos_theta: f32, g: f32) -> f32 {
     return one_over_four_pi * (1.0 - g2) * inverse;
 }
 
-let while_scale = 1.0748724675633854; // 1.0 / Uncharted2Tonemap(1000.0)
+const white_scale = 1.0748724675633854; // 1.0 / Uncharted2Tonemap(1000.0)
 
 fn uncharted_tonemap(x: vec3<f32>) -> vec3<f32> {
     let A: f32 = 0.15;
@@ -148,7 +148,7 @@ fn fs_main(v: VertexOutput) -> @location(0) vec4<f32> {
     let tex_color = (lin + l0) * 0.04 + vec3<f32>(0.0, 0.0003, 0.00075);
 
     let curr = uncharted_tonemap((log2(2.0 / pow(sun.luminance, 4.0))) * tex_color);
-    let color = curr * while_scale;
+    let color = curr * white_scale;
 
     let ret_color = pow(color, vec3<f32>(1.0 / (1.2 + (1.2 * v.sun_fade))));
 
