@@ -1,0 +1,16 @@
+[package]
+name = "renderer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+bytemuck = { version = "1.10", features = ["derive"] }
+glam = { version = "0.22", features = ["bytemuck"] }
+thiserror = "1.0"
+tracing = "0.1"
+vulkanalia = { version = "0.21", features = ["window", "libloading"] }
+winit = { version = "0.28.1", default-features = false }
+
+spirv = { path = "../spirv" }
+shared = { path = "../shared" }

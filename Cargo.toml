@@ -1,22 +1,2 @@
-[package]
-name = "tron"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-anyhow = "1.0"
-bytemuck = { version = "1.10", features = ["derive"] }
-either = "1.8"
-glam = { version = "0.22", features = ["bytemuck"] }
-gltf = { version = "1", default-features = false, features = ["utils", "import", "names"] }
-image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
-indexmap = "1.9"
-nohash-hasher = "0.2"
-pollster = "0.3.0"
-range-alloc = "0.1"
-rustc-hash = "1.1.0"
-thiserror = "1.0"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-wgpu = "0.15.1"
-winit = "0.28.1"
+[workspace]
+members = ["game", "renderer", "spirv", "shared"]
