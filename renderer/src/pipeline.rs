@@ -105,6 +105,14 @@ impl Pipeline {
             handle,
         })
     }
+
+    pub fn handle(&self) -> vk::Pipeline {
+        self.handle
+    }
+
+    pub fn render_pass(&self) -> &SimpleRenderPass {
+        &self.render_pass
+    }
 }
 
 impl Drop for Pipeline {
@@ -115,7 +123,7 @@ impl Drop for Pipeline {
     }
 }
 
-struct SimpleRenderPass {
+pub struct SimpleRenderPass {
     base: Rc<RendererBase>,
     handle: vk::RenderPass,
 }
@@ -145,9 +153,18 @@ impl SimpleRenderPass {
             .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
             .color_attachments(std::slice::from_ref(&color_attachment_ref));
 
+        let dependency = vk::SubpassDependency::builder()
+            .src_subpass(vk::SUBPASS_EXTERNAL)
+            .dst_subpass(0)
+            .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+            .src_access_mask(vk::AccessFlags::empty())
+            .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+            .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE);
+
         let render_pass_info = vk::RenderPassCreateInfo::builder()
             .attachments(std::slice::from_ref(&color_attachment))
-            .subpasses(std::slice::from_ref(&subpass));
+            .subpasses(std::slice::from_ref(&subpass))
+            .dependencies(std::slice::from_ref(&dependency));
 
         let handle = base.device().create_render_pass(&render_pass_info, None)?;
 

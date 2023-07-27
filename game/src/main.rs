@@ -50,6 +50,7 @@ impl App {
             )?
         };
 
+        let mut destroying = false;
         event_loop.run(move |event, _, control_flow| {
             // if !game.is_running() {
             //     *control_flow = ControlFlow::Exit;
@@ -76,8 +77,10 @@ impl App {
                     ..
                 } => {
                     *control_flow = ControlFlow::Exit;
+                    destroying = true;
+                    unsafe { renderer.wait_idle() }.unwrap();
                 }
-                Event::RedrawRequested(_) => {
+                Event::RedrawRequested(_) if !destroying => {
                     unsafe { renderer.render(&window) }.unwrap();
                 }
                 _ => {}

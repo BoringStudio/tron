@@ -26,6 +26,22 @@ impl Swapchain {
         }
     }
 
+    pub fn handle(&self) -> vk::SwapchainKHR {
+        self.swapchain
+    }
+
+    pub fn len(&self) -> usize {
+        self.swapchain_image_views.len()
+    }
+
+    pub fn extent(&self) -> vk::Extent2D {
+        self.swapchain_extent
+    }
+
+    pub fn image_views(&self) -> &[vk::ImageView] {
+        &self.swapchain_image_views
+    }
+
     pub unsafe fn recreate(&mut self, window: &Window) -> Result<()> {
         if !self.swapchain.is_null() {
             self.base
