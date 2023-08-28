@@ -5,7 +5,7 @@ use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::KhrSwapchainExtension;
 use winit::window::Window;
 
-use crate::base::{RendererBase, SwapchainSupport};
+use super::base::{RendererBase, SwapchainSupport};
 
 pub struct Swapchain {
     base: Rc<RendererBase>,
@@ -13,6 +13,7 @@ pub struct Swapchain {
     swapchain_extent: vk::Extent2D,
     swapchain_images: Vec<vk::Image>,
     swapchain_image_views: Vec<vk::ImageView>,
+    image_fence_handles: Vec<vk::Fence>,
 }
 
 impl Swapchain {
@@ -23,6 +24,7 @@ impl Swapchain {
             swapchain_extent: Default::default(),
             swapchain_images: Default::default(),
             swapchain_image_views: Default::default(),
+            image_fence_handles: Default::default(),
         }
     }
 
@@ -40,6 +42,39 @@ impl Swapchain {
 
     pub fn image_views(&self) -> &[vk::ImageView] {
         &self.swapchain_image_views
+    }
+
+    pub unsafe fn make_framebuffers(
+        &self,
+        render_pass_handle: vk::RenderPass,
+    ) -> Result<Vec<SwapchainFramebuffer>> {
+        self.swapchain_image_views
+            .iter()
+            .map(|image_view| {
+                SwapchainFramebuffer::new(
+                    self.base.clone(),
+                    render_pass_handle,
+                    *image_view,
+                    self.swapchain_extent,
+                )
+            })
+            .collect::<Result<Vec<_>>>()
+    }
+
+    pub unsafe fn wait_for_image_fence(
+        &mut self,
+        index: usize,
+        fence_handle: vk::Fence,
+    ) -> Result<()> {
+        let image_in_flight = self.image_fence_handles[index];
+        if !image_in_flight.is_null() {
+            self.base
+                .device()
+                .wait_for_fences(&[image_in_flight], true, u64::MAX)?;
+        }
+
+        self.image_fence_handles[index] = fence_handle;
+        Ok(())
     }
 
     pub unsafe fn recreate(&mut self, window: &Window) -> Result<()> {
@@ -122,6 +157,10 @@ impl Swapchain {
                 .push(device.create_image_view(&info, None)?);
         }
 
+        self.image_fence_handles.clear();
+        self.image_fence_handles
+            .resize_with(self.swapchain_image_views.len(), vk::Fence::null);
+
         Ok(())
     }
 }
@@ -138,6 +177,43 @@ impl Drop for Swapchain {
             if !self.swapchain.is_null() {
                 device.destroy_swapchain_khr(self.swapchain, None);
             }
+        }
+    }
+}
+
+pub struct SwapchainFramebuffer {
+    base: Rc<RendererBase>,
+    handle: vk::Framebuffer,
+}
+
+impl SwapchainFramebuffer {
+    pub unsafe fn new(
+        base: Rc<RendererBase>,
+        render_pass: vk::RenderPass,
+        image_view: vk::ImageView,
+        extent: vk::Extent2D,
+    ) -> Result<Self> {
+        let info = vk::FramebufferCreateInfo::builder()
+            .render_pass(render_pass)
+            .attachments(std::slice::from_ref(&image_view))
+            .width(extent.width)
+            .height(extent.height)
+            .layers(1);
+
+        let handle = base.device().create_framebuffer(&info, None)?;
+
+        Ok(Self { base, handle })
+    }
+
+    pub fn handle(&self) -> vk::Framebuffer {
+        self.handle
+    }
+}
+
+impl Drop for SwapchainFramebuffer {
+    fn drop(&mut self) {
+        unsafe {
+            self.base.device().destroy_framebuffer(self.handle, None);
         }
     }
 }
