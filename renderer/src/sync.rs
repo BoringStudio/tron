@@ -26,8 +26,34 @@ impl Semaphore {
 
 impl Drop for Semaphore {
     fn drop(&mut self) {
-        unsafe {
-            self.base.device().destroy_semaphore(self.handle, None);
+        unsafe { self.base.device().destroy_semaphore(self.handle, None) }
+    }
+}
+
+pub struct Fence {
+    base: Rc<RendererBase>,
+    handle: vk::Fence,
+}
+
+impl Fence {
+    pub unsafe fn new(base: Rc<RendererBase>, signaled: bool) -> Result<Self> {
+        let mut info = vk::FenceCreateInfo::builder();
+        if signaled {
+            info.flags = vk::FenceCreateFlags::SIGNALED;
         }
+
+        let handle = base.device().create_fence(&info, None)?;
+
+        Ok(Self { base, handle })
+    }
+
+    pub fn handle(&self) -> vk::Fence {
+        self.handle
+    }
+}
+
+impl Drop for Fence {
+    fn drop(&mut self) {
+        unsafe { self.base.device().destroy_fence(self.handle, None) }
     }
 }

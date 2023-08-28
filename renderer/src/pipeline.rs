@@ -200,8 +200,8 @@ fn vs_main(
     let high_bit = i32(index >> 1u);
 
     v.position = vec4<f32>(
-        f32(4 * low_bit - 1),
-        f32(4 * high_bit - 1),
+        0.1 * f32(4 * low_bit - 1),
+        0.1 * f32(4 * high_bit - 1),
         0.0,
         1.0
     );

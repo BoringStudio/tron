@@ -10,7 +10,7 @@ use self::base::RendererBase;
 use self::command_buffer::GraphicsCommandPool;
 use self::pipeline::Pipeline;
 use self::swapchain::Swapchain;
-use self::sync::Semaphore;
+use self::sync::{Fence, Semaphore};
 
 mod base;
 mod command_buffer;
@@ -30,11 +30,14 @@ pub struct Renderer {
     base: Rc<RendererBase>,
     swapchain: Swapchain,
     pipeline: Pipeline,
-    render_finished_semaphore: Semaphore,
-    image_available_semaphore: Semaphore,
+    render_finished_semaphores: [Semaphore; MAX_FRAMES_IN_FLIGHT],
+    image_available_semaphores: [Semaphore; MAX_FRAMES_IN_FLIGHT],
+    in_flight_fences: [Fence; MAX_FRAMES_IN_FLIGHT],
+    images_in_flight: Vec<vk::Fence>,
     swapchain_framebuffers: Vec<Framebuffer>,
     graphics_command_pool: GraphicsCommandPool,
     command_buffers: Vec<vk::CommandBuffer>,
+    frame: usize,
 }
 
 impl Renderer {
@@ -46,8 +49,17 @@ impl Renderer {
 
         let pipeline = Pipeline::new(base.clone())?;
 
-        let render_finished_semaphore = Semaphore::new(base.clone())?;
-        let image_available_semaphore = Semaphore::new(base.clone())?;
+        let make_semaphore = || Semaphore::new(base.clone());
+        let render_finished_semaphores = [make_semaphore()?, make_semaphore()?];
+        let image_available_semaphores = [make_semaphore()?, make_semaphore()?];
+        let make_fence = || Fence::new(base.clone(), true);
+        let in_flight_fences = [make_fence()?, make_fence()?];
+
+        let images_in_flight = swapchain
+            .image_views()
+            .iter()
+            .map(|_| vk::Fence::null())
+            .collect::<Vec<_>>();
 
         let swapchain_framebuffers = swapchain
             .image_views()
@@ -88,6 +100,17 @@ impl Renderer {
             device.begin_command_buffer(*command_buffer, &info)?;
 
             //
+            let viewport = vk::Viewport::builder()
+                .x(0.0)
+                .y(0.0)
+                .width(render_area.extent.width as f32)
+                .height(render_area.extent.height as f32)
+                .min_depth(0.0)
+                .max_depth(1.0);
+            device.cmd_set_viewport(*command_buffer, 0, std::slice::from_ref(&viewport));
+            device.cmd_set_scissor(*command_buffer, 0, std::slice::from_ref(&render_area));
+
+            //
             let info = vk::RenderPassBeginInfo::builder()
                 .render_pass(pipeline.render_pass().handle())
                 .framebuffer(swapchain_framebuffers[i].handle())
@@ -116,11 +139,14 @@ impl Renderer {
             base,
             swapchain,
             pipeline,
-            render_finished_semaphore,
-            image_available_semaphore,
+            render_finished_semaphores,
+            image_available_semaphores,
+            in_flight_fences,
+            images_in_flight,
             swapchain_framebuffers,
             graphics_command_pool,
             command_buffers,
+            frame: 0,
         })
     }
 
@@ -130,31 +156,49 @@ impl Renderer {
     }
 
     pub unsafe fn render(&mut self, window: &Window) -> Result<()> {
+        let in_flight_fence = self.in_flight_fences[self.frame].handle();
+
+        self.base
+            .device()
+            .wait_for_fences(&[in_flight_fence], true, u64::MAX)?;
+
         let (image_index, _) = self.base.device().acquire_next_image_khr(
             self.swapchain.handle(),
             u64::MAX,
-            self.image_available_semaphore.handle(),
+            self.image_available_semaphores[self.frame].handle(),
             vk::Fence::null(),
         )?;
+        let image_index = image_index as usize;
 
-        let wait_semaphores = &[self.image_available_semaphore.handle()];
+        let image_in_flight = self.images_in_flight[image_index];
+        if !image_in_flight.is_null() {
+            self.base
+                .device()
+                .wait_for_fences(&[image_in_flight], true, u64::MAX)?;
+        }
+
+        self.images_in_flight[image_index as usize] = image_in_flight;
+
+        let wait_semaphores = &[self.image_available_semaphores[self.frame].handle()];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
         let command_buffers = &[self.command_buffers[image_index as usize]];
-        let signal_semaphores = &[self.render_finished_semaphore.handle()];
+        let signal_semaphores = &[self.render_finished_semaphores[self.frame].handle()];
         let submit_info = vk::SubmitInfo::builder()
             .wait_semaphores(wait_semaphores)
             .wait_dst_stage_mask(wait_stages)
             .command_buffers(command_buffers)
             .signal_semaphores(signal_semaphores);
 
+        self.base.device().reset_fences(&[in_flight_fence])?;
+
         self.base.device().queue_submit(
             self.base.queues().graphics_queue,
             std::slice::from_ref(&submit_info),
-            vk::Fence::null(),
+            in_flight_fence,
         )?;
 
         let swapchains = &[self.swapchain.handle()];
-        let image_indices = &[image_index];
+        let image_indices = &[image_index as u32];
         let present_info = vk::PresentInfoKHR::builder()
             .wait_semaphores(signal_semaphores)
             .swapchains(swapchains)
@@ -164,6 +208,7 @@ impl Renderer {
             .device()
             .queue_present_khr(self.base.queues().present_queue, &present_info)?;
 
+        self.frame = (self.frame + 1) % MAX_FRAMES_IN_FLIGHT;
         Ok(())
     }
 }
@@ -204,3 +249,5 @@ impl Drop for Framebuffer {
         }
     }
 }
+
+const MAX_FRAMES_IN_FLIGHT: usize = 2;
