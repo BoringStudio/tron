@@ -41,6 +41,14 @@ impl GraphicsCommandPool {
                 .map_err(From::from)
         }
     }
+
+    pub fn free_command_buffers(&mut self, buffers: &[vk::CommandBuffer]) {
+        unsafe {
+            self.base
+                .device()
+                .free_command_buffers(self.handle, buffers)
+        }
+    }
 }
 
 impl Drop for GraphicsCommandPool {

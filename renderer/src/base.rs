@@ -268,6 +268,15 @@ impl PhysicalDevice {
         Ok((score, result))
     }
 
+    pub unsafe fn update_swapchain_support(
+        &mut self,
+        instance: &Instance,
+        surface: vk::SurfaceKHR,
+    ) -> Result<()> {
+        self.swapchain_support = SwapchainSupport::new(instance, self.handle, surface)?;
+        Ok(())
+    }
+
     unsafe fn create_logical_device(
         &self,
         instance: &Instance,

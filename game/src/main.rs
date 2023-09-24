@@ -50,41 +50,38 @@ impl App {
             )?
         };
 
+        let mut minimized = false;
         let mut destroying = false;
-        event_loop.run(move |event, _, control_flow| {
-            // if !game.is_running() {
-            //     *control_flow = ControlFlow::Exit;
-            //     return;
-            // }
-
-            match event {
-                Event::MainEventsCleared => window.request_redraw(),
-                Event::WindowEvent {
-                    event:
-                        WindowEvent::Resized(mut size)
-                        | WindowEvent::ScaleFactorChanged {
-                            new_inner_size: &mut mut size,
-                            ..
-                        },
-                    ..
-                } => {
-                    size.width = size.width.max(1);
-                    size.height = size.height.max(1);
-                    //game.resize(size);
+        event_loop.run(move |event, _, control_flow| match event {
+            Event::MainEventsCleared => window.request_redraw(),
+            Event::WindowEvent {
+                event:
+                    WindowEvent::Resized(size)
+                    | WindowEvent::ScaleFactorChanged {
+                        new_inner_size: &mut size,
+                        ..
+                    },
+                ..
+            } => {
+                if size.width == 0 || size.height == 0 {
+                    minimized = true;
+                } else {
+                    minimized = false;
+                    renderer.mark_resized();
                 }
-                Event::WindowEvent {
-                    event: WindowEvent::CloseRequested,
-                    ..
-                } => {
-                    *control_flow = ControlFlow::Exit;
-                    destroying = true;
-                    unsafe { renderer.wait_idle() }.unwrap();
-                }
-                Event::RedrawRequested(_) if !destroying => {
-                    unsafe { renderer.render(&window) }.unwrap();
-                }
-                _ => {}
             }
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => {
+                *control_flow = ControlFlow::Exit;
+                destroying = true;
+                unsafe { renderer.wait_idle() }.unwrap();
+            }
+            Event::RedrawRequested(_) if !destroying && !minimized => {
+                unsafe { renderer.render(&window) }.unwrap();
+            }
+            _ => {}
         });
     }
 }

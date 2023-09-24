@@ -135,8 +135,10 @@ fn compile(src: &str, cfg: &ShaderCompilationConfig) -> Result<CompilationFeedba
 
     let module = naga::front::wgsl::parse_str(src).map_err(|e| e.emit_to_string(src))?;
 
-    let mut opts = naga::back::spv::Options::default();
-    opts.lang_version = (1, 0);
+    let mut opts = naga::back::spv::Options {
+        lang_version: (1, 0),
+        ..Default::default()
+    };
 
     if cfg.debug {
         opts.flags.insert(WriterFlags::DEBUG);
@@ -164,7 +166,7 @@ fn build_spirv_binary(path: &Path) -> Option<Vec<u32>> {
     use std::io::Read;
 
     let mut buf = Vec::new();
-    if let Ok(mut f) = File::open(&path) {
+    if let Ok(mut f) = File::open(path) {
         if buf.len() & 3 != 0 {
             // Misaligned input.
             return None;
@@ -189,7 +191,7 @@ impl Parse for IncludedShaderSource {
     fn parse(mut input: ParseStream) -> syn::parse::Result<Self> {
         use std::ffi::OsStr;
         let path_lit = input.parse::<LitStr>()?;
-        let path = Path::new(&get_base_dir()).join(&path_lit.value());
+        let path = Path::new(&get_base_dir()).join(path_lit.value());
 
         if !path.is_file() {
             return Err(syn::parse::Error::new(

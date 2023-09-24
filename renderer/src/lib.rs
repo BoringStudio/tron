@@ -1,7 +1,6 @@
 use std::rc::Rc;
 
 use anyhow::Result;
-use shared::util::WithDefer;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::KhrSwapchainExtension;
 use winit::window::Window;
@@ -28,37 +27,52 @@ pub struct RendererConfig {
 
 pub struct Renderer {
     base: Rc<RendererBase>,
-    swapchain: Swapchain,
     pipeline: Pipeline,
+    graphics_command_pool: GraphicsCommandPool,
+    state: Option<RendererState>,
+    resized: bool,
+}
+
+struct RendererState {
+    swapchain: Swapchain,
     swapchain_framebuffers: Vec<SwapchainFramebuffer>,
     frames: Frames,
-    graphics_command_pool: GraphicsCommandPool,
     command_buffers: Vec<vk::CommandBuffer>,
 }
 
 impl Renderer {
     pub unsafe fn new(window: &Window, config: RendererConfig) -> Result<Self> {
-        const MAX_FRAMES_IN_FLIGHT: usize = 2;
-
         let base = Rc::new(RendererBase::new(window, config)?);
+
+        let pipeline = Pipeline::new(base.clone())?;
+        let graphics_command_pool = GraphicsCommandPool::new(base.clone())?;
+
+        let state = Self::make_renderer_state(&base, &pipeline, &graphics_command_pool, window)?;
+
+        Ok(Self {
+            base,
+            pipeline,
+            graphics_command_pool,
+            state: Some(state),
+            resized: false,
+        })
+    }
+
+    unsafe fn make_renderer_state(
+        base: &Rc<RendererBase>,
+        pipeline: &Pipeline,
+        graphics_command_pool: &GraphicsCommandPool,
+        window: &Window,
+    ) -> Result<RendererState> {
+        const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
         let mut swapchain = Swapchain::uninit(base.clone());
         swapchain.recreate(window)?;
-
-        let pipeline = Pipeline::new(base.clone())?;
-
-        let make_semaphore = || Semaphore::new(base.clone());
-        let render_finished_semaphores = [make_semaphore()?, make_semaphore()?];
-        let image_available_semaphores = [make_semaphore()?, make_semaphore()?];
-        let make_fence = || Fence::new(base.clone(), true);
-        let in_flight_fences = [make_fence()?, make_fence()?];
 
         let swapchain_framebuffers =
             swapchain.make_framebuffers(pipeline.render_pass().handle())?;
 
         let frames = Frames::new(base.clone(), MAX_FRAMES_IN_FLIGHT)?;
-
-        let graphics_command_pool = GraphicsCommandPool::new(base.clone())?;
 
         let command_buffers =
             graphics_command_pool.allocate_command_buffers(swapchain.image_views().len())?;
@@ -119,15 +133,16 @@ impl Renderer {
             device.end_command_buffer(*command_buffer)?;
         }
 
-        Ok(Self {
-            base,
+        Ok(RendererState {
             swapchain,
-            pipeline,
-            frames,
             swapchain_framebuffers,
-            graphics_command_pool,
+            frames,
             command_buffers,
         })
+    }
+
+    pub fn mark_resized(&mut self) {
+        self.resized = true;
     }
 
     pub unsafe fn wait_idle(&self) -> Result<()> {
@@ -136,27 +151,36 @@ impl Renderer {
     }
 
     pub unsafe fn render(&mut self, window: &Window) -> Result<()> {
-        let in_flight_fence = self.frames.in_flight_fence();
+        let Some(state) = self.state.as_mut() else {
+            return Ok(());
+        };
+
+        let in_flight_fence = state.frames.in_flight_fence();
 
         self.base
             .device()
             .wait_for_fences(&[in_flight_fence], true, u64::MAX)?;
 
-        let (image_index, _) = self.base.device().acquire_next_image_khr(
-            self.swapchain.handle(),
+        let image_index = match self.base.device().acquire_next_image_khr(
+            state.swapchain.handle(),
             u64::MAX,
-            self.frames.image_available(),
+            state.frames.image_available(),
             vk::Fence::null(),
-        )?;
+        ) {
+            Ok((image_index, _)) => image_index,
+            Err(vk::ErrorCode::OUT_OF_DATE_KHR) => return self.recreate_swapchain(window),
+            Err(e) => return Err(e.into()),
+        };
         let image_index = image_index as usize;
 
-        self.swapchain
+        state
+            .swapchain
             .wait_for_image_fence(image_index, in_flight_fence)?;
 
-        let wait_semaphores = &[self.frames.image_available()];
+        let wait_semaphores = &[state.frames.image_available()];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-        let command_buffers = &[self.command_buffers[image_index as usize]];
-        let signal_semaphores = &[self.frames.render_finished()];
+        let command_buffers = &[state.command_buffers[image_index]];
+        let signal_semaphores = &[state.frames.render_finished()];
         let submit_info = vk::SubmitInfo::builder()
             .wait_semaphores(wait_semaphores)
             .wait_dst_stage_mask(wait_stages)
@@ -171,18 +195,50 @@ impl Renderer {
             in_flight_fence,
         )?;
 
-        let swapchains = &[self.swapchain.handle()];
+        let swapchains = &[state.swapchain.handle()];
         let image_indices = &[image_index as u32];
         let present_info = vk::PresentInfoKHR::builder()
             .wait_semaphores(signal_semaphores)
             .swapchains(swapchains)
             .image_indices(image_indices);
 
-        self.base
+        let result = self
+            .base
             .device()
-            .queue_present_khr(self.base.queues().present_queue, &present_info)?;
+            .queue_present_khr(self.base.queues().present_queue, &present_info);
+        let swapchain_changed = matches!(
+            &result,
+            Ok(vk::SuccessCode::SUBOPTIMAL_KHR) | Err(vk::ErrorCode::OUT_OF_DATE_KHR)
+        );
 
-        self.frames.next_frame();
+        state.frames.next_frame();
+
+        if self.resized || swapchain_changed {
+            self.resized = false;
+            self.recreate_swapchain(window)?;
+        } else if let Err(e) = result {
+            return Err(e.into());
+        }
+
+        Ok(())
+    }
+
+    pub unsafe fn recreate_swapchain(&mut self, window: &Window) -> Result<()> {
+        self.wait_idle()?;
+
+        if let Some(mut old_state) = self.state.take() {
+            old_state.swapchain_framebuffers.clear();
+            self.graphics_command_pool
+                .free_command_buffers(&old_state.command_buffers);
+        }
+
+        self.state = Some(Self::make_renderer_state(
+            &self.base,
+            &self.pipeline,
+            &self.graphics_command_pool,
+            window,
+        )?);
+
         Ok(())
     }
 }
