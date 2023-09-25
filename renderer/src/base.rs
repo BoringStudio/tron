@@ -56,6 +56,10 @@ impl RendererBase {
         })
     }
 
+    pub unsafe fn compute_swapchain_support(&self) -> Result<SwapchainSupport> {
+        SwapchainSupport::new(&self.instance, self.physical_device.handle, self.surface)
+    }
+
     #[inline]
     pub fn device(&self) -> &Device {
         &self.device
@@ -199,7 +203,6 @@ pub struct PhysicalDevice {
     pub present_queue_family_idx: u32,
     pub graphics_queue_family_idx: u32,
     pub compute_queue_family_idx: u32,
-    pub swapchain_support: SwapchainSupport,
 }
 
 impl PhysicalDevice {
@@ -251,8 +254,6 @@ impl PhysicalDevice {
             "Missing required device extensions"
         );
 
-        let swapchain_support = SwapchainSupport::new(instance, device, surface)?;
-
         let mut score = 0;
         if properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU {
             score += 1000;
@@ -263,18 +264,8 @@ impl PhysicalDevice {
             present_queue_family_idx,
             graphics_queue_family_idx,
             compute_queue_family_idx,
-            swapchain_support,
         };
         Ok((score, result))
-    }
-
-    pub unsafe fn update_swapchain_support(
-        &mut self,
-        instance: &Instance,
-        surface: vk::SurfaceKHR,
-    ) -> Result<()> {
-        self.swapchain_support = SwapchainSupport::new(instance, self.handle, surface)?;
-        Ok(())
     }
 
     unsafe fn create_logical_device(

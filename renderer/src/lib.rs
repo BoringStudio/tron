@@ -7,7 +7,7 @@ use winit::window::Window;
 
 use self::base::RendererBase;
 use self::command_buffer::GraphicsCommandPool;
-use self::pipeline::Pipeline;
+use self::pipeline::{Pipeline, SurfaceDescription};
 use self::swapchain::{Swapchain, SwapchainFramebuffer};
 use self::sync::{Fence, Semaphore};
 
@@ -27,7 +27,6 @@ pub struct RendererConfig {
 
 pub struct Renderer {
     base: Rc<RendererBase>,
-    pipeline: Pipeline,
     graphics_command_pool: GraphicsCommandPool,
     state: Option<RendererState>,
     resized: bool,
@@ -36,6 +35,7 @@ pub struct Renderer {
 struct RendererState {
     swapchain: Swapchain,
     swapchain_framebuffers: Vec<SwapchainFramebuffer>,
+    pipeline: Pipeline,
     frames: Frames,
     command_buffers: Vec<vk::CommandBuffer>,
 }
@@ -43,15 +43,12 @@ struct RendererState {
 impl Renderer {
     pub unsafe fn new(window: &Window, config: RendererConfig) -> Result<Self> {
         let base = Rc::new(RendererBase::new(window, config)?);
-
-        let pipeline = Pipeline::new(base.clone())?;
         let graphics_command_pool = GraphicsCommandPool::new(base.clone())?;
 
-        let state = Self::make_renderer_state(&base, &pipeline, &graphics_command_pool, window)?;
+        let state = Self::make_renderer_state(&base, &graphics_command_pool, window)?;
 
         Ok(Self {
             base,
-            pipeline,
             graphics_command_pool,
             state: Some(state),
             resized: false,
@@ -60,7 +57,6 @@ impl Renderer {
 
     unsafe fn make_renderer_state(
         base: &Rc<RendererBase>,
-        pipeline: &Pipeline,
         graphics_command_pool: &GraphicsCommandPool,
         window: &Window,
     ) -> Result<RendererState> {
@@ -68,6 +64,14 @@ impl Renderer {
 
         let mut swapchain = Swapchain::uninit(base.clone());
         swapchain.recreate(window)?;
+
+        let pipeline = Pipeline::new(
+            base.clone(),
+            &SurfaceDescription {
+                extent: swapchain.extent(),
+                format: swapchain.format(),
+            },
+        )?;
 
         let swapchain_framebuffers =
             swapchain.make_framebuffers(pipeline.render_pass().handle())?;
@@ -98,17 +102,6 @@ impl Renderer {
             device.begin_command_buffer(*command_buffer, &info)?;
 
             //
-            let viewport = vk::Viewport::builder()
-                .x(0.0)
-                .y(0.0)
-                .width(render_area.extent.width as f32)
-                .height(render_area.extent.height as f32)
-                .min_depth(0.0)
-                .max_depth(1.0);
-            device.cmd_set_viewport(*command_buffer, 0, std::slice::from_ref(&viewport));
-            device.cmd_set_scissor(*command_buffer, 0, std::slice::from_ref(&render_area));
-
-            //
             let info = vk::RenderPassBeginInfo::builder()
                 .render_pass(pipeline.render_pass().handle())
                 .framebuffer(swapchain_framebuffers[i].handle())
@@ -136,6 +129,7 @@ impl Renderer {
         Ok(RendererState {
             swapchain,
             swapchain_framebuffers,
+            pipeline,
             frames,
             command_buffers,
         })
@@ -234,7 +228,6 @@ impl Renderer {
 
         self.state = Some(Self::make_renderer_state(
             &self.base,
-            &self.pipeline,
             &self.graphics_command_pool,
             window,
         )?);

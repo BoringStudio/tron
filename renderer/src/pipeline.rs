@@ -7,6 +7,12 @@ use super::base::RendererBase;
 use super::pipeline_layout::PipelineLayout;
 use super::shader_module::ShaderModule;
 
+#[derive(Debug, Clone)]
+pub struct SurfaceDescription {
+    pub extent: vk::Extent2D,
+    pub format: vk::Format,
+}
+
 pub struct Pipeline {
     base: Rc<RendererBase>,
     pipeline_layout: PipelineLayout,
@@ -15,7 +21,7 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub unsafe fn new(base: Rc<RendererBase>) -> Result<Self> {
+    pub unsafe fn new(base: Rc<RendererBase>, surface: &SurfaceDescription) -> Result<Self> {
         let mesh_shader = ShaderModule::new(base.clone(), TRIANGLE_SHADER)?;
 
         let vert_stage = vk::PipelineShaderStageCreateInfo::builder()
@@ -32,9 +38,19 @@ impl Pipeline {
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
             .primitive_restart_enable(false);
 
+        let render_area = vk::Rect2D::builder()
+            .offset(vk::Offset2D::default())
+            .extent(surface.extent);
+        let viewport = vk::Viewport::builder()
+            .x(0.0)
+            .y(0.0)
+            .width(render_area.extent.width as f32)
+            .height(render_area.extent.height as f32)
+            .min_depth(0.0)
+            .max_depth(1.0);
         let viewport_state = vk::PipelineViewportStateCreateInfo::builder()
-            .viewport_count(1)
-            .scissor_count(1);
+            .viewports(std::slice::from_ref(&viewport))
+            .scissors(std::slice::from_ref(&render_area));
 
         let rasterization_state = vk::PipelineRasterizationStateCreateInfo::builder()
             .depth_clamp_enable(false)
@@ -65,13 +81,13 @@ impl Pipeline {
             .attachments(std::slice::from_ref(&attachment))
             .blend_constants([0.0, 0.0, 0.0, 0.0]);
 
-        let dynamic_states = &[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
-        let dynamic_state =
-            vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(dynamic_states);
+        // let dynamic_states = &[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
+        // let dynamic_state =
+        //     vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(dynamic_states);
 
         // TODO: use builders
         let pipeline_layout = PipelineLayout::new(base.clone())?;
-        let render_pass = SimpleRenderPass::new(base.clone())?;
+        let render_pass = SimpleRenderPass::new(base.clone(), surface)?;
 
         let stages = &[vert_stage, frag_stage];
         let info = vk::GraphicsPipelineCreateInfo::builder()
@@ -82,7 +98,7 @@ impl Pipeline {
             .rasterization_state(&rasterization_state)
             .multisample_state(&multisample_state)
             .color_blend_state(&color_blend_state)
-            .dynamic_state(&dynamic_state)
+            //.dynamic_state(&dynamic_state)
             .layout(pipeline_layout.handle())
             .render_pass(render_pass.handle())
             .subpass(0)
@@ -129,14 +145,9 @@ pub struct SimpleRenderPass {
 }
 
 impl SimpleRenderPass {
-    unsafe fn new(base: Rc<RendererBase>) -> Result<Self> {
+    unsafe fn new(base: Rc<RendererBase>, surface: &SurfaceDescription) -> Result<Self> {
         let color_attachment = vk::AttachmentDescription::builder()
-            .format(
-                base.physical_device()
-                    .swapchain_support
-                    .surface_format
-                    .format,
-            )
+            .format(surface.format)
             .samples(vk::SampleCountFlags::_1)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::STORE)

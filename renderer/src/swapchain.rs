@@ -11,16 +11,18 @@ pub struct Swapchain {
     base: Rc<RendererBase>,
     swapchain: vk::SwapchainKHR,
     swapchain_extent: vk::Extent2D,
+    swapchain_format: vk::Format,
     swapchain_images: Vec<vk::Image>,
     swapchain_image_views: Vec<vk::ImageView>,
     image_fence_handles: Vec<vk::Fence>,
 }
 
 impl Swapchain {
-    pub unsafe fn uninit(base: Rc<RendererBase>) -> Self {
+    pub fn uninit(base: Rc<RendererBase>) -> Self {
         Self {
             base,
             swapchain: vk::SwapchainKHR::null(),
+            swapchain_format: vk::Format::default(),
             swapchain_extent: Default::default(),
             swapchain_images: Default::default(),
             swapchain_image_views: Default::default(),
@@ -38,6 +40,10 @@ impl Swapchain {
 
     pub fn extent(&self) -> vk::Extent2D {
         self.swapchain_extent
+    }
+
+    pub fn format(&self) -> vk::Format {
+        self.swapchain_format
     }
 
     pub fn image_views(&self) -> &[vk::ImageView] {
@@ -87,8 +93,10 @@ impl Swapchain {
         let device = self.base.device();
         let physical_device = self.base.physical_device();
 
-        let swapchain_support = &physical_device.swapchain_support;
+        let swapchain_support = self.base.compute_swapchain_support()?;
         let extent = compute_swapchain_extent(&swapchain_support, window);
+
+        self.swapchain_format = swapchain_support.surface_format.format;
 
         let mut image_count = swapchain_support.capabilities.min_image_count + 1;
         if swapchain_support.capabilities.max_image_count != 0

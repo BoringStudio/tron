@@ -2,10 +2,8 @@ use std::rc::Rc;
 
 use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
-use vulkanalia::vk::KhrSwapchainExtension;
-use winit::window::Window;
 
-use crate::base::{RendererBase, SwapchainSupport};
+use crate::base::RendererBase;
 
 pub struct GraphicsCommandPool {
     base: Rc<RendererBase>,
