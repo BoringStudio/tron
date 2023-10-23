@@ -11,6 +11,7 @@ use self::pipeline::{Pipeline, SurfaceDescription};
 use self::swapchain::{Swapchain, SwapchainFramebuffer};
 use self::sync::{Fence, Semaphore};
 
+mod alloc;
 mod base;
 mod command_buffer;
 mod pipeline;

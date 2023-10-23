@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use anyhow::Result;
+use glam::{Vec2, Vec3};
 use vulkanalia::prelude::v1_0::*;
 
 use super::base::RendererBase;
@@ -22,7 +23,7 @@ pub struct Pipeline {
 
 impl Pipeline {
     pub unsafe fn new(base: Rc<RendererBase>, surface: &SurfaceDescription) -> Result<Self> {
-        let mesh_shader = ShaderModule::new(base.clone(), TRIANGLE_SHADER)?;
+        let mesh_shader = ShaderModule::new(base.clone(), SIMPLE_SHADER)?;
 
         let vert_stage = vk::PipelineShaderStageCreateInfo::builder()
             .stage(vk::ShaderStageFlags::VERTEX)
@@ -33,7 +34,11 @@ impl Pipeline {
             .module(mesh_shader.handle())
             .name(b"fs_main\0");
 
-        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder();
+        let binding_descriptions = &[Vertex::binding_description()];
+        let attribute_descriptions = Vertex::attribute_descriptions();
+        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder()
+            .vertex_binding_descriptions(binding_descriptions)
+            .vertex_attribute_descriptions(&attribute_descriptions);
         let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::builder()
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
             .primitive_restart_enable(false);
@@ -195,39 +200,74 @@ impl Drop for SimpleRenderPass {
     }
 }
 
-const TRIANGLE_SHADER: &[u32] = spirv::inline!(
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct Vertex {
+    position: Vec2,
+    color: Vec3,
+}
+
+impl Vertex {
+    const fn new(position: Vec2, color: Vec3) -> Self {
+        Self { position, color }
+    }
+
+    pub fn binding_description() -> vk::VertexInputBindingDescription {
+        vk::VertexInputBindingDescription::builder()
+            .binding(0)
+            .stride(std::mem::size_of::<Self>() as u32)
+            .input_rate(vk::VertexInputRate::VERTEX)
+            .build()
+    }
+
+    pub fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
+        let position = vk::VertexInputAttributeDescription::builder()
+            .binding(0)
+            .location(0)
+            .format(vk::Format::R32G32_SFLOAT)
+            .offset(0)
+            .build();
+        let color = vk::VertexInputAttributeDescription::builder()
+            .binding(0)
+            .location(1)
+            .format(vk::Format::R32G32B32_SFLOAT)
+            .offset(std::mem::size_of::<Vec2> as u32)
+            .build();
+        [position, color]
+    }
+}
+
+const VERTICES: [Vertex; 3] = [
+    Vertex::new(Vec2::new(0.0, -0.5), Vec3::new(1.0, 0.0, 0.0)),
+    Vertex::new(Vec2::new(0.5, 0.5), Vec3::new(0.0, 1.0, 0.0)),
+    Vertex::new(Vec2::new(-0.5, 0.5), Vec3::new(0.0, 0.0, 1.0)),
+];
+
+const SIMPLE_SHADER: &[u32] = spirv::inline!(
     r#"
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) color: vec3<f32>,
+}
+
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) tex_coords: vec2<f32>,
+    @location(0) color: vec2<f32>,
 }
 
 @vertex
 fn vs_main(
-    @builtin(vertex_index) index: u32,
+    model: VertexInput
 ) -> VertexOutput {
-    var v: VertexOutput;
-    let low_bit = i32(index & 0x1u);
-    let high_bit = i32(index >> 1u);
-
-    v.position = vec4<f32>(
-        0.1 * f32(4 * low_bit - 1),
-        0.1 * f32(4 * high_bit - 1),
-        0.0,
-        1.0
-    );
-
-    v.tex_coords = vec2<f32>(
-        f32(2 * low_bit),
-        f32(1 - 2 * high_bit)
-    );
-
-    return v;
+    var out: VertexOutput;
+    out.color = model.color;
+    out.position = vec4<f32>(model.position, 0.0, 1.0);
+    return out;
 }
 
 @fragment
-fn fs_main(v: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(in.color, 1.0);
 }
 "#
 );

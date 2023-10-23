@@ -293,7 +293,7 @@ dependencies = [
  "anyhow",
  "argh",
  "bytemuck",
- "glam",
+ "glam 0.22.0",
  "renderer",
  "thiserror",
  "tracing",
@@ -308,6 +308,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12f597d56c1bd55a811a1be189459e8fad2bbc272616375602443bdfb37fa774"
 dependencies = [
  "bytemuck",
+]
+
+[[package]]
+name = "glam"
+version = "0.24.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5418c17512bdf42730f9032c74e1ae39afc408745ebb2acf72fbc4691c17945"
+dependencies = [
+ "bytemuck",
+]
+
+[[package]]
+name = "gpu-alloc"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fbcd2dba93594b227a1f57ee09b8b9da8892c34d55aa332e034a228d0fe6a171"
+dependencies = [
+ "bitflags 2.4.0",
+ "gpu-alloc-types",
+]
+
+[[package]]
+name = "gpu-alloc-types"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98ff03b468aa837d70984d55f5d3f846f6ec31fe34bbb97c4f85219caeee1ca4"
+dependencies = [
+ "bitflags 2.4.0",
 ]
 
 [[package]]
@@ -749,8 +777,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytemuck",
- "glam",
+ "glam 0.24.2",
+ "gpu-alloc",
  "shared",
+ "smallvec",
  "spirv 0.1.0",
  "thiserror",
  "tracing",
@@ -989,9 +1019,9 @@ checksum = "830b7e5d4d90034032940e4ace0d9a9a057e7a45cd94e6c007832e39edb82f6d"
 
 [[package]]
 name = "vulkanalia"
-version = "0.21.0"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "094c7942c8e56cd3e93aa2646e63d11dea8b2f2cb88813f4cc18a848a06b8b69"
+checksum = "ca701175fc8e6dba4fc0282e745b6c4184e98a63f07ca86030bbbfab16ad276a"
 dependencies = [
  "cocoa",
  "libloading",
@@ -1003,9 +1033,9 @@ dependencies = [
 
 [[package]]
 name = "vulkanalia-sys"
-version = "0.21.0"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0036ed6b5d95dd263ebd93dbba7aa13b8bc0c8bbbfb44d22d4535da8e29662ff"
+checksum = "b8cd7b4bab4d9425e6378927927c5887b0b9da25819377cd8111161d8ca62d01"
 dependencies = [
  "bitflags 1.3.2",
 ]

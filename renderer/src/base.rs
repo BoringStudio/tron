@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::ffi::{c_void, CStr, CString};
 
 use anyhow::{Context, Result};
+use gpu_alloc::GpuAllocator;
 use shared::util::WithDefer;
 use vulkanalia::loader::{LibloadingLoader, LIBRARY};
 use vulkanalia::prelude::v1_0::*;
@@ -10,6 +11,7 @@ use vulkanalia::window as vk_window;
 use winit::window::Window;
 
 use super::RendererConfig;
+use crate::alloc::{self, VkMemoryDevice};
 
 pub struct RendererBase {
     device: Device,
@@ -19,6 +21,7 @@ pub struct RendererBase {
     debug_utils_messenger: vk::DebugUtilsMessengerEXT,
     instance: Instance,
     loader_entry: Entry,
+    alloc: GpuAllocator<VkMemoryDevice>,
 }
 
 impl RendererBase {
@@ -43,7 +46,11 @@ impl RendererBase {
             .with_defer(|surface| instance.destroy_surface_khr(surface, None));
 
         let physical_device = find_physical_device(&instance, *surface)?;
+        let alloc_props = alloc::get_device_properties(&instance, physical_device.handle)?;
+
         let (device, queues) = physical_device.create_logical_device(&instance, &config)?;
+
+        let alloc = GpuAllocator::new(gpu_alloc::Config::i_am_potato(), alloc_props);
 
         Ok(Self {
             device,
@@ -53,6 +60,7 @@ impl RendererBase {
             debug_utils_messenger: debug_utils_messenger.disarm(),
             instance,
             loader_entry,
+            alloc,
         })
     }
 
