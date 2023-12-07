@@ -1,3 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["game", "renderer", "spirv", "shared"]
+
+[patch.crates-io]
+vulkanalia = { git = "https://github.com/rexagon/vulkanalia.git", branch = "winit-0-29" }
+vulkanalia-sys = { git = "https://github.com/rexagon/vulkanalia.git", branch = "winit-0-29" }

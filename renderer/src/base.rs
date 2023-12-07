@@ -1,8 +1,10 @@
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::ffi::{c_void, CStr, CString};
 
 use anyhow::{Context, Result};
 use gpu_alloc::GpuAllocator;
+use gpu_alloc_vulkanalia::{AsMemoryDevice, VulkanaliaMemoryDevice};
 use shared::util::WithDefer;
 use vulkanalia::loader::{LibloadingLoader, LIBRARY};
 use vulkanalia::prelude::v1_0::*;
@@ -11,7 +13,6 @@ use vulkanalia::window as vk_window;
 use winit::window::Window;
 
 use super::RendererConfig;
-use crate::alloc::{self, VkMemoryDevice};
 
 pub struct RendererBase {
     device: Device,
@@ -21,7 +22,7 @@ pub struct RendererBase {
     debug_utils_messenger: vk::DebugUtilsMessengerEXT,
     instance: Instance,
     loader_entry: Entry,
-    alloc: GpuAllocator<VkMemoryDevice>,
+    allocator: RefCell<GpuAllocator<vk::DeviceMemory>>,
 }
 
 impl RendererBase {
@@ -45,12 +46,15 @@ impl RendererBase {
         let surface = vk_window::create_surface(&instance, window, window)?
             .with_defer(|surface| instance.destroy_surface_khr(surface, None));
 
-        let physical_device = find_physical_device(&instance, *surface)?;
-        let alloc_props = alloc::get_device_properties(&instance, physical_device.handle)?;
+        let (physical_device, mut alloc_props) = find_physical_device(&instance, *surface)?;
+        alloc_props.buffer_device_address = false; // TODO: sync with instance extensions
 
         let (device, queues) = physical_device.create_logical_device(&instance, &config)?;
 
-        let alloc = GpuAllocator::new(gpu_alloc::Config::i_am_potato(), alloc_props);
+        let allocator = RefCell::new(GpuAllocator::new(
+            gpu_alloc::Config::i_am_potato(),
+            alloc_props,
+        ));
 
         Ok(Self {
             device,
@@ -60,7 +64,7 @@ impl RendererBase {
             debug_utils_messenger: debug_utils_messenger.disarm(),
             instance,
             loader_entry,
-            alloc,
+            allocator,
         })
     }
 
@@ -69,8 +73,18 @@ impl RendererBase {
     }
 
     #[inline]
+    pub fn allocator(&self) -> &RefCell<GpuAllocator<vk::DeviceMemory>> {
+        &self.allocator
+    }
+
+    #[inline]
     pub fn device(&self) -> &Device {
         &self.device
+    }
+
+    #[inline]
+    pub fn memory_device(&self) -> &VulkanaliaMemoryDevice {
+        self.device.as_memory_device()
     }
 
     #[inline]
@@ -130,7 +144,7 @@ unsafe fn create_instance(
         .application_version(app_version)
         .engine_name(b"No Engine\0")
         .engine_version(vk::make_version(0, 0, 1))
-        .api_version(vk::make_version(1, 0, 0));
+        .api_version(VK_API_VERSION);
 
     let available_layers = entry
         .enumerate_instance_layer_properties()?
@@ -143,6 +157,10 @@ unsafe fn create_instance(
         .iter()
         .map(|e| e.as_ptr())
         .collect::<Vec<_>>();
+
+    for extension in INSTANCE_EXTENSIONS {
+        extensions.push(extension.as_ptr());
+    }
 
     if config.validation_layer_enabled {
         anyhow::ensure!(
@@ -171,15 +189,15 @@ unsafe fn create_instance(
 unsafe fn find_physical_device(
     instance: &Instance,
     surface: vk::SurfaceKHR,
-) -> Result<PhysicalDevice> {
+) -> Result<(PhysicalDevice, gpu_alloc::DeviceProperties<'static>)> {
     let mut result = None;
     for device in instance.enumerate_physical_devices()? {
         let properties = instance.get_physical_device_properties(device);
 
         match PhysicalDevice::new(instance, device, &properties, surface) {
-            Ok((score, device)) => {
-                if !matches!(&result, Some((prev_score, _)) if *prev_score >= score) {
-                    result = Some((score, device));
+            Ok((score, device, alloc_props)) => {
+                if !matches!(&result, Some((prev_score, _, _)) if *prev_score >= score) {
+                    result = Some((score, device, alloc_props));
                 }
             }
             Err(e) => {
@@ -192,7 +210,7 @@ unsafe fn find_physical_device(
         }
     }
 
-    let (_, result) = result.context("No suitable physical device found")?;
+    let (_, result, alloc_props) = result.context("No suitable physical device found")?;
     let properties = instance.get_physical_device_properties(result.handle);
     tracing::info!(
         device = %properties.device_name,
@@ -203,7 +221,7 @@ unsafe fn find_physical_device(
         "found a suitable physical device"
     );
 
-    Ok(result)
+    Ok((result, alloc_props))
 }
 
 pub struct PhysicalDevice {
@@ -219,7 +237,7 @@ impl PhysicalDevice {
         device: vk::PhysicalDevice,
         properties: &vk::PhysicalDeviceProperties,
         surface: vk::SurfaceKHR,
-    ) -> Result<(usize, Self)> {
+    ) -> Result<(usize, Self, gpu_alloc::DeviceProperties<'static>)> {
         let queue_family_properties = instance.get_physical_device_queue_family_properties(device);
 
         let (present_queue_family_idx, graphics_queue_family_idx, compute_queue_family_idx) = {
@@ -267,13 +285,16 @@ impl PhysicalDevice {
             score += 1000;
         }
 
+        let alloc_props = gpu_alloc_vulkanalia::device_properties(instance, VK_API_VERSION, device)
+            .context("Failed to get memory device properties")?;
+
         let result = PhysicalDevice {
             handle: device,
             present_queue_family_idx,
             graphics_queue_family_idx,
             compute_queue_family_idx,
         };
-        Ok((score, result))
+        Ok((score, result, alloc_props))
     }
 
     unsafe fn create_logical_device(
@@ -423,7 +444,11 @@ extern "system" fn debug_callback(
     vk::FALSE
 }
 
-const VALIDATION_LAYER: vk::ExtensionName =
+static VALIDATION_LAYER: vk::ExtensionName =
     vk::ExtensionName::from_bytes(b"VK_LAYER_KHRONOS_validation");
 
-const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.name];
+static INSTANCE_EXTENSIONS: &[vk::ExtensionName] =
+    &[vk::KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_EXTENSION.name];
+static DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.name];
+
+const VK_API_VERSION: u32 = vk::make_version(1, 0, 0);

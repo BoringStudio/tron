@@ -1,7 +1,7 @@
 use anyhow::Result;
 use argh::FromArgs;
 use winit::event::*;
-use winit::event_loop::{ControlFlow, EventLoop};
+use winit::event_loop::EventLoop;
 use winit::platform::x11::{WindowBuilderExtX11, XWindowType};
 use winit::window::WindowBuilder;
 
@@ -33,7 +33,7 @@ impl App {
         let app_name = env!("CARGO_BIN_NAME").to_owned();
         let app_version = (0, 0, 1);
 
-        let event_loop = EventLoop::new();
+        let event_loop = EventLoop::new()?;
         let window = WindowBuilder::new()
             .with_x11_window_type(vec![XWindowType::Dialog, XWindowType::Normal])
             .with_title(&app_name)
@@ -51,37 +51,29 @@ impl App {
         };
 
         let mut minimized = false;
-        let mut destroying = false;
-        event_loop.run(move |event, _, control_flow| match event {
-            Event::MainEventsCleared => window.request_redraw(),
-            Event::WindowEvent {
-                event:
-                    WindowEvent::Resized(size)
-                    | WindowEvent::ScaleFactorChanged {
-                        new_inner_size: &mut size,
-                        ..
-                    },
-                ..
-            } => {
-                if size.width == 0 || size.height == 0 {
-                    minimized = true;
-                } else {
-                    minimized = false;
-                    renderer.mark_resized();
+        event_loop.run(move |event, elwt| match event {
+            Event::AboutToWait => window.request_redraw(),
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::RedrawRequested if !elwt.exiting() && !minimized => {
+                    unsafe { renderer.render(&window) }.unwrap();
                 }
-            }
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => {
-                *control_flow = ControlFlow::Exit;
-                destroying = true;
-                unsafe { renderer.wait_idle() }.unwrap();
-            }
-            Event::RedrawRequested(_) if !destroying && !minimized => {
-                unsafe { renderer.render(&window) }.unwrap();
-            }
+                WindowEvent::Resized(size) => {
+                    if size.width == 0 || size.height == 0 {
+                        minimized = true;
+                    } else {
+                        minimized = false;
+                        renderer.mark_resized();
+                    }
+                }
+                WindowEvent::CloseRequested => {
+                    elwt.exit();
+                    unsafe { renderer.wait_idle() }.unwrap();
+                }
+                _ => {}
+            },
             _ => {}
-        });
+        })?;
+
+        Ok(())
     }
 }

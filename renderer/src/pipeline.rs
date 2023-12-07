@@ -201,14 +201,14 @@ impl Drop for SimpleRenderPass {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
     position: Vec2,
     color: Vec3,
 }
 
 impl Vertex {
-    const fn new(position: Vec2, color: Vec3) -> Self {
+    pub const fn new(position: Vec2, color: Vec3) -> Self {
         Self { position, color }
     }
 
@@ -231,19 +231,13 @@ impl Vertex {
             .binding(0)
             .location(1)
             .format(vk::Format::R32G32B32_SFLOAT)
-            .offset(std::mem::size_of::<Vec2> as u32)
+            .offset(std::mem::size_of::<Vec2>() as u32)
             .build();
         [position, color]
     }
 }
 
-const VERTICES: [Vertex; 3] = [
-    Vertex::new(Vec2::new(0.0, -0.5), Vec3::new(1.0, 0.0, 0.0)),
-    Vertex::new(Vec2::new(0.5, 0.5), Vec3::new(0.0, 1.0, 0.0)),
-    Vertex::new(Vec2::new(-0.5, 0.5), Vec3::new(0.0, 0.0, 1.0)),
-];
-
-const SIMPLE_SHADER: &[u32] = spirv::inline!(
+static SIMPLE_SHADER: &[u32] = spirv::inline!(
     r#"
 struct VertexInput {
     @location(0) position: vec2<f32>,
@@ -252,7 +246,7 @@ struct VertexInput {
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) color: vec2<f32>,
+    @location(0) color: vec3<f32>,
 }
 
 @vertex

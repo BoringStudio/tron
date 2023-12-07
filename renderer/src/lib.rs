@@ -1,18 +1,20 @@
 use std::rc::Rc;
 
 use anyhow::Result;
+use glam::{Vec2, Vec3};
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::KhrSwapchainExtension;
 use winit::window::Window;
 
 use self::base::RendererBase;
+use self::buffer::{Buffer, BufferCreateInfoExt};
 use self::command_buffer::GraphicsCommandPool;
-use self::pipeline::{Pipeline, SurfaceDescription};
+use self::pipeline::{Pipeline, SurfaceDescription, Vertex};
 use self::swapchain::{Swapchain, SwapchainFramebuffer};
 use self::sync::{Fence, Semaphore};
 
-mod alloc;
 mod base;
+mod buffer;
 mod command_buffer;
 mod pipeline;
 mod pipeline_layout;
@@ -31,6 +33,7 @@ pub struct Renderer {
     graphics_command_pool: GraphicsCommandPool,
     state: Option<RendererState>,
     resized: bool,
+    vertex_buffer: Buffer,
 }
 
 struct RendererState {
@@ -46,13 +49,26 @@ impl Renderer {
         let base = Rc::new(RendererBase::new(window, config)?);
         let graphics_command_pool = GraphicsCommandPool::new(base.clone())?;
 
-        let state = Self::make_renderer_state(&base, &graphics_command_pool, window)?;
+        let vertex_buffer = {
+            let vertex_data = bytemuck::cast_slice(&VERTICES);
+            let mut buffer = vk::BufferCreateInfo::builder()
+                .size(vertex_data.len() as u64)
+                .usage(vk::BufferUsageFlags::VERTEX_BUFFER)
+                .sharing_mode(vk::SharingMode::EXCLUSIVE)
+                .make_buffer(base.clone())?;
+            buffer.write_bytes(0, vertex_data)?;
+            buffer
+        };
+
+        let state =
+            Self::make_renderer_state(&base, &graphics_command_pool, window, &vertex_buffer)?;
 
         Ok(Self {
             base,
             graphics_command_pool,
             state: Some(state),
             resized: false,
+            vertex_buffer,
         })
     }
 
@@ -60,6 +76,7 @@ impl Renderer {
         base: &Rc<RendererBase>,
         graphics_command_pool: &GraphicsCommandPool,
         window: &Window,
+        vertex_buffer: &Buffer,
     ) -> Result<RendererState> {
         const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
@@ -118,7 +135,8 @@ impl Renderer {
             );
 
             //
-            device.cmd_draw(*command_buffer, 3, 1, 0, 0);
+            device.cmd_bind_vertex_buffers(*command_buffer, 0, &[vertex_buffer.handle()], &[0]);
+            device.cmd_draw(*command_buffer, VERTICES.len() as u32, 1, 0, 0);
 
             //
             device.cmd_end_render_pass(*command_buffer);
@@ -231,6 +249,7 @@ impl Renderer {
             &self.base,
             &self.graphics_command_pool,
             window,
+            &self.vertex_buffer,
         )?);
 
         Ok(())
@@ -284,3 +303,9 @@ impl Frames {
         self.in_flight_fences[self.current].handle()
     }
 }
+
+const VERTICES: [Vertex; 3] = [
+    Vertex::new(Vec2::new(0.0, -0.5), Vec3::new(1.0, 0.0, 0.0)),
+    Vertex::new(Vec2::new(0.5, 0.5), Vec3::new(0.0, 1.0, 0.0)),
+    Vertex::new(Vec2::new(-0.5, 0.5), Vec3::new(0.0, 0.0, 1.0)),
+];
