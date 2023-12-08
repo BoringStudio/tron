@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::ffi::{c_void, CStr, CString};
+use std::rc::Rc;
 
 use anyhow::{Context, Result};
 use gpu_alloc::GpuAllocator;
@@ -15,21 +16,22 @@ use winit::window::Window;
 use super::RendererConfig;
 
 pub struct RendererBase {
+    window: Rc<Window>,
     device: Device,
     queues: Queues,
     physical_device: PhysicalDevice,
+    allocator: RefCell<GpuAllocator<vk::DeviceMemory>>,
     surface: vk::SurfaceKHR,
     debug_utils_messenger: vk::DebugUtilsMessengerEXT,
     instance: Instance,
     loader_entry: Entry,
-    allocator: RefCell<GpuAllocator<vk::DeviceMemory>>,
 }
 
 impl RendererBase {
-    pub unsafe fn new(window: &Window, config: RendererConfig) -> Result<Self> {
+    pub unsafe fn new(window: Rc<Window>, config: RendererConfig) -> Result<Self> {
         let loader = LibloadingLoader::new(LIBRARY)?;
         let loader_entry = Entry::new(loader).map_err(anyhow::Error::msg)?;
-        let instance = create_instance(window, &loader_entry, &config)?;
+        let instance = create_instance(&window, &loader_entry, &config)?;
 
         let debug_utils_messenger = if config.validation_layer_enabled {
             let debug_info = make_debug_callback_info();
@@ -43,7 +45,7 @@ impl RendererBase {
             }
         });
 
-        let surface = vk_window::create_surface(&instance, window, window)?
+        let surface = vk_window::create_surface(&instance, &window, &window)?
             .with_defer(|surface| instance.destroy_surface_khr(surface, None));
 
         let (physical_device, mut alloc_props) = find_physical_device(&instance, *surface)?;
@@ -52,11 +54,12 @@ impl RendererBase {
         let (device, queues) = physical_device.create_logical_device(&instance, &config)?;
 
         let allocator = RefCell::new(GpuAllocator::new(
-            gpu_alloc::Config::i_am_potato(),
+            gpu_alloc::Config::i_am_prototyping(),
             alloc_props,
         ));
 
         Ok(Self {
+            window,
             device,
             queues,
             physical_device,
@@ -72,37 +75,34 @@ impl RendererBase {
         SwapchainSupport::new(&self.instance, self.physical_device.handle, self.surface)
     }
 
-    #[inline]
+    pub fn window(&self) -> &Rc<Window> {
+        &self.window
+    }
+
     pub fn allocator(&self) -> &RefCell<GpuAllocator<vk::DeviceMemory>> {
         &self.allocator
     }
 
-    #[inline]
     pub fn device(&self) -> &Device {
         &self.device
     }
 
-    #[inline]
     pub fn memory_device(&self) -> &VulkanaliaMemoryDevice {
         self.device.as_memory_device()
     }
 
-    #[inline]
     pub fn queues(&self) -> &Queues {
         &self.queues
     }
 
-    #[inline]
     pub fn physical_device(&self) -> &PhysicalDevice {
         &self.physical_device
     }
 
-    #[inline]
     pub fn surface(&self) -> vk::SurfaceKHR {
         self.surface
     }
 
-    #[inline]
     pub fn instance(&self) -> &Instance {
         &self.instance
     }
@@ -111,6 +111,8 @@ impl RendererBase {
 impl Drop for RendererBase {
     fn drop(&mut self) {
         unsafe {
+            self.allocator.borrow_mut().cleanup(self.memory_device());
+
             self.device.destroy_device(None);
 
             if !self.surface.is_null() {

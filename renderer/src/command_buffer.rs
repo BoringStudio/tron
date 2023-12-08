@@ -5,17 +5,38 @@ use vulkanalia::prelude::v1_0::*;
 
 use crate::base::RendererBase;
 
-pub struct GraphicsCommandPool {
+pub struct CommandPool {
     base: Rc<RendererBase>,
     handle: vk::CommandPool,
 }
 
-impl GraphicsCommandPool {
-    pub unsafe fn new(base: Rc<RendererBase>) -> Result<Self> {
-        // TODO: use TRANSIENT flag to record a lot of unique buffers from the single pool
+impl CommandPool {
+    pub unsafe fn new_graphics_command_pool(base: Rc<RendererBase>) -> Result<Self> {
+        let queue_family_index = base.physical_device().graphics_queue_family_idx;
+        Self::new(
+            base,
+            vk::CommandPoolCreateFlags::empty(),
+            queue_family_index,
+        )
+    }
+
+    pub unsafe fn new_transient_command_pool(base: Rc<RendererBase>) -> Result<Self> {
+        let queue_family_index = base.physical_device().graphics_queue_family_idx;
+        Self::new(
+            base,
+            vk::CommandPoolCreateFlags::TRANSIENT,
+            queue_family_index,
+        )
+    }
+
+    pub unsafe fn new(
+        base: Rc<RendererBase>,
+        flags: vk::CommandPoolCreateFlags,
+        queue_family_index: u32,
+    ) -> Result<Self> {
         let info = vk::CommandPoolCreateInfo::builder()
-            .flags(vk::CommandPoolCreateFlags::empty())
-            .queue_family_index(base.physical_device().graphics_queue_family_idx);
+            .flags(flags)
+            .queue_family_index(queue_family_index);
 
         let handle = base.device().create_command_pool(&info, None)?;
 
@@ -49,7 +70,7 @@ impl GraphicsCommandPool {
     }
 }
 
-impl Drop for GraphicsCommandPool {
+impl Drop for CommandPool {
     fn drop(&mut self) {
         unsafe {
             self.base.device().destroy_command_pool(self.handle, None);

@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use anyhow::Result;
 use argh::FromArgs;
 use winit::event::*;
@@ -37,11 +39,12 @@ impl App {
         let window = WindowBuilder::new()
             .with_x11_window_type(vec![XWindowType::Dialog, XWindowType::Normal])
             .with_title(&app_name)
-            .build(&event_loop)?;
+            .build(&event_loop)
+            .map(Rc::new)?;
 
         let mut renderer = unsafe {
             Renderer::new(
-                &window,
+                window.clone(),
                 RendererConfig {
                     app_name,
                     app_version,
@@ -55,7 +58,7 @@ impl App {
             Event::AboutToWait => window.request_redraw(),
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::RedrawRequested if !elwt.exiting() && !minimized => {
-                    unsafe { renderer.render(&window) }.unwrap();
+                    unsafe { renderer.render() }.unwrap();
                 }
                 WindowEvent::Resized(size) => {
                     if size.width == 0 || size.height == 0 {

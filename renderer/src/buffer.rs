@@ -4,14 +4,23 @@ use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::base::RendererBase;
+use crate::command_buffer::CommandPool;
 
 pub trait BufferCreateInfoExt {
-    unsafe fn make_buffer(&self, base: Rc<RendererBase>) -> Result<Buffer>;
+    unsafe fn make_buffer(
+        &self,
+        base: Rc<RendererBase>,
+        flags: gpu_alloc::UsageFlags,
+    ) -> Result<Buffer>;
 }
 
 impl BufferCreateInfoExt for vk::BufferCreateInfo {
-    unsafe fn make_buffer(&self, base: Rc<RendererBase>) -> Result<Buffer> {
-        Buffer::new(base, self)
+    unsafe fn make_buffer(
+        &self,
+        base: Rc<RendererBase>,
+        flags: gpu_alloc::UsageFlags,
+    ) -> Result<Buffer> {
+        Buffer::new(base, self, flags)
     }
 }
 
@@ -22,7 +31,11 @@ pub struct Buffer {
 }
 
 impl Buffer {
-    pub unsafe fn new(base: Rc<RendererBase>, create_info: &vk::BufferCreateInfo) -> Result<Self> {
+    pub unsafe fn new(
+        base: Rc<RendererBase>,
+        create_info: &vk::BufferCreateInfo,
+        flags: gpu_alloc::UsageFlags,
+    ) -> Result<Self> {
         let device = base.device();
         let handle = device.create_buffer(create_info, None)?;
 
@@ -32,7 +45,7 @@ impl Buffer {
             gpu_alloc::Request {
                 size: req.size,
                 align_mask: req.alignment,
-                usage: gpu_alloc::UsageFlags::HOST_ACCESS,
+                usage: flags,
                 memory_types: !0,
             },
         )?;
@@ -53,6 +66,44 @@ impl Buffer {
     pub unsafe fn write_bytes(&mut self, offset: u64, data: &[u8]) -> Result<()> {
         let memory = self.memory.as_mut().unwrap();
         memory.write_bytes(self.base.memory_device(), offset, data)?;
+        Ok(())
+    }
+
+    pub unsafe fn copy_from(
+        &mut self,
+        other: &Buffer,
+        size: u64,
+        command_pool: &CommandPool,
+    ) -> Result<()> {
+        let device = self.base.device();
+        let queue = self.base.queues().graphics_queue;
+
+        let info = vk::CommandBufferAllocateInfo::builder()
+            .level(vk::CommandBufferLevel::PRIMARY)
+            .command_pool(command_pool.handle())
+            .command_buffer_count(1);
+
+        let command_buffer = device.allocate_command_buffers(&info)?[0];
+
+        let info = vk::CommandBufferBeginInfo::builder()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        device.begin_command_buffer(command_buffer, &info)?;
+
+        let regions = vk::BufferCopy::builder().size(size);
+        device.cmd_copy_buffer(command_buffer, other.handle, self.handle, &[regions]);
+
+        device.end_command_buffer(command_buffer)?;
+
+        let command_buffers = &[command_buffer];
+        let info = vk::SubmitInfo::builder().command_buffers(command_buffers);
+        device.queue_submit(queue, &[info], vk::Fence::null())?;
+
+        // TODO: use fences instead
+        device.queue_wait_idle(queue)?;
+
+        device.free_command_buffers(command_pool.handle(), command_buffers);
+
         Ok(())
     }
 }

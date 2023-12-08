@@ -8,7 +8,7 @@ use winit::window::Window;
 
 use self::base::RendererBase;
 use self::buffer::{Buffer, BufferCreateInfoExt};
-use self::command_buffer::GraphicsCommandPool;
+use self::command_buffer::CommandPool;
 use self::pipeline::{Pipeline, SurfaceDescription, Vertex};
 use self::swapchain::{Swapchain, SwapchainFramebuffer};
 use self::sync::{Fence, Semaphore};
@@ -30,7 +30,8 @@ pub struct RendererConfig {
 
 pub struct Renderer {
     base: Rc<RendererBase>,
-    graphics_command_pool: GraphicsCommandPool,
+    graphics_command_pool: CommandPool,
+    transfer_command_pool: CommandPool,
     state: Option<RendererState>,
     resized: bool,
     vertex_buffer: Buffer,
@@ -39,52 +40,67 @@ pub struct Renderer {
 struct RendererState {
     swapchain: Swapchain,
     swapchain_framebuffers: Vec<SwapchainFramebuffer>,
-    pipeline: Pipeline,
+    _pipeline: Pipeline,
     frames: Frames,
     command_buffers: Vec<vk::CommandBuffer>,
 }
 
 impl Renderer {
-    pub unsafe fn new(window: &Window, config: RendererConfig) -> Result<Self> {
+    pub unsafe fn new(window: Rc<Window>, config: RendererConfig) -> Result<Self> {
+        use gpu_alloc::UsageFlags;
+
         let base = Rc::new(RendererBase::new(window, config)?);
-        let graphics_command_pool = GraphicsCommandPool::new(base.clone())?;
+        let graphics_command_pool = CommandPool::new_graphics_command_pool(base.clone())?;
+        let transfer_command_pool = CommandPool::new_transient_command_pool(base.clone())?;
 
         let vertex_buffer = {
             let vertex_data = bytemuck::cast_slice(&VERTICES);
+
             let mut buffer = vk::BufferCreateInfo::builder()
                 .size(vertex_data.len() as u64)
-                .usage(vk::BufferUsageFlags::VERTEX_BUFFER)
+                .usage(vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST)
                 .sharing_mode(vk::SharingMode::EXCLUSIVE)
-                .make_buffer(base.clone())?;
-            buffer.write_bytes(0, vertex_data)?;
+                .make_buffer(base.clone(), UsageFlags::empty())?;
+
+            let mut staging_buffer = vk::BufferCreateInfo::builder()
+                .size(vertex_data.len() as u64)
+                .usage(vk::BufferUsageFlags::TRANSFER_SRC)
+                .sharing_mode(vk::SharingMode::EXCLUSIVE)
+                .make_buffer(base.clone(), UsageFlags::UPLOAD)?;
+            staging_buffer.write_bytes(0, vertex_data)?;
+
+            buffer.copy_from(
+                &staging_buffer,
+                vertex_data.len() as u64,
+                &transfer_command_pool,
+            )?;
+
             buffer
         };
 
-        let state =
-            Self::make_renderer_state(&base, &graphics_command_pool, window, &vertex_buffer)?;
-
-        Ok(Self {
+        let mut this = Self {
             base,
             graphics_command_pool,
-            state: Some(state),
+            transfer_command_pool,
+            state: None,
             resized: false,
             vertex_buffer,
-        })
+        };
+        this.rebuild_renderer_state(None)?;
+
+        Ok(this)
     }
 
-    unsafe fn make_renderer_state(
-        base: &Rc<RendererBase>,
-        graphics_command_pool: &GraphicsCommandPool,
-        window: &Window,
-        vertex_buffer: &Buffer,
-    ) -> Result<RendererState> {
+    unsafe fn rebuild_renderer_state(&mut self, old_state: Option<RendererState>) -> Result<()> {
         const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
-        let mut swapchain = Swapchain::uninit(base.clone());
-        swapchain.recreate(window)?;
+        drop(old_state);
+
+        let mut swapchain = Swapchain::uninit(self.base.clone());
+        swapchain.recreate(self.base.window())?;
 
         let pipeline = Pipeline::new(
-            base.clone(),
+            self.base.clone(),
             &SurfaceDescription {
                 extent: swapchain.extent(),
                 format: swapchain.format(),
@@ -94,10 +110,11 @@ impl Renderer {
         let swapchain_framebuffers =
             swapchain.make_framebuffers(pipeline.render_pass().handle())?;
 
-        let frames = Frames::new(base.clone(), MAX_FRAMES_IN_FLIGHT)?;
+        let frames = Frames::new(self.base.clone(), MAX_FRAMES_IN_FLIGHT)?;
 
-        let command_buffers =
-            graphics_command_pool.allocate_command_buffers(swapchain.image_views().len())?;
+        let command_buffers = self
+            .graphics_command_pool
+            .allocate_command_buffers(swapchain.image_views().len())?;
 
         let render_area = vk::Rect2D::builder()
             .offset(vk::Offset2D::default())
@@ -109,9 +126,8 @@ impl Renderer {
             },
         };
 
+        let device = self.base.device();
         for (i, command_buffer) in command_buffers.iter().enumerate() {
-            let device = base.device();
-
             //
             let inheritance = vk::CommandBufferInheritanceInfo::builder();
             let info = vk::CommandBufferBeginInfo::builder()
@@ -135,7 +151,12 @@ impl Renderer {
             );
 
             //
-            device.cmd_bind_vertex_buffers(*command_buffer, 0, &[vertex_buffer.handle()], &[0]);
+            device.cmd_bind_vertex_buffers(
+                *command_buffer,
+                0,
+                &[self.vertex_buffer.handle()],
+                &[0],
+            );
             device.cmd_draw(*command_buffer, VERTICES.len() as u32, 1, 0, 0);
 
             //
@@ -145,13 +166,14 @@ impl Renderer {
             device.end_command_buffer(*command_buffer)?;
         }
 
-        Ok(RendererState {
+        self.state = Some(RendererState {
             swapchain,
             swapchain_framebuffers,
-            pipeline,
+            _pipeline: pipeline,
             frames,
             command_buffers,
-        })
+        });
+        Ok(())
     }
 
     pub fn mark_resized(&mut self) {
@@ -163,7 +185,7 @@ impl Renderer {
         Ok(())
     }
 
-    pub unsafe fn render(&mut self, window: &Window) -> Result<()> {
+    pub unsafe fn render(&mut self) -> Result<()> {
         let Some(state) = self.state.as_mut() else {
             return Ok(());
         };
@@ -181,7 +203,7 @@ impl Renderer {
             vk::Fence::null(),
         ) {
             Ok((image_index, _)) => image_index,
-            Err(vk::ErrorCode::OUT_OF_DATE_KHR) => return self.recreate_swapchain(window),
+            Err(vk::ErrorCode::OUT_OF_DATE_KHR) => return self.recreate_swapchain(),
             Err(e) => return Err(e.into()),
         };
         let image_index = image_index as usize;
@@ -228,7 +250,7 @@ impl Renderer {
 
         if self.resized || swapchain_changed {
             self.resized = false;
-            self.recreate_swapchain(window)?;
+            self.recreate_swapchain()?;
         } else if let Err(e) = result {
             return Err(e.into());
         }
@@ -236,23 +258,17 @@ impl Renderer {
         Ok(())
     }
 
-    pub unsafe fn recreate_swapchain(&mut self, window: &Window) -> Result<()> {
+    pub unsafe fn recreate_swapchain(&mut self) -> Result<()> {
         self.wait_idle()?;
 
-        if let Some(mut old_state) = self.state.take() {
+        if let Some(old_state) = self.state.as_mut() {
             old_state.swapchain_framebuffers.clear();
             self.graphics_command_pool
                 .free_command_buffers(&old_state.command_buffers);
         }
 
-        self.state = Some(Self::make_renderer_state(
-            &self.base,
-            &self.graphics_command_pool,
-            window,
-            &self.vertex_buffer,
-        )?);
-
-        Ok(())
+        let old_state = self.state.take();
+        self.rebuild_renderer_state(old_state)
     }
 }
 
