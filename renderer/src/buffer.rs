@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use anyhow::Result;
+use shared::util::WithDefer;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::base::RendererBase;
@@ -37,24 +38,27 @@ impl Buffer {
         flags: gpu_alloc::UsageFlags,
     ) -> Result<Self> {
         let device = base.device();
-        let handle = device.create_buffer(create_info, None)?;
+        let buffer = device
+            .create_buffer(create_info, None)?
+            .with_defer(|buffer| device.destroy_buffer(buffer, None));
 
-        let req = device.get_buffer_memory_requirements(handle);
+        let req = device.get_buffer_memory_requirements(*buffer);
+
         let memory = base.allocator().borrow_mut().alloc(
             base.memory_device(),
             gpu_alloc::Request {
                 size: req.size,
                 align_mask: req.alignment,
                 usage: flags,
-                memory_types: !0,
+                memory_types: req.memory_type_bits,
             },
         )?;
 
-        device.bind_buffer_memory(handle, *memory.memory(), 0)?;
+        device.bind_buffer_memory(*buffer, *memory.memory(), memory.offset())?;
 
         Ok(Self {
+            handle: buffer.disarm(),
             base,
-            handle,
             memory: Some(memory),
         })
     }

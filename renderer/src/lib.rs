@@ -66,7 +66,7 @@ impl Renderer {
                 .size(vertex_data.len() as u64)
                 .usage(vk::BufferUsageFlags::TRANSFER_SRC)
                 .sharing_mode(vk::SharingMode::EXCLUSIVE)
-                .make_buffer(base.clone(), UsageFlags::UPLOAD)?;
+                .make_buffer(base.clone(), UsageFlags::UPLOAD | UsageFlags::TRANSIENT)?;
             staging_buffer.write_bytes(0, vertex_data)?;
 
             buffer.copy_from(

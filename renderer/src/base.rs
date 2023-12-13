@@ -434,13 +434,13 @@ extern "system" fn debug_callback(
 
     // TODO: optimize
     if severity >= vk::DebugUtilsMessageSeverityFlagsEXT::ERROR {
-        tracing::error!(?ty, "{message}");
+        tracing::error!(target: "validation", ?ty, "{message}");
     } else if severity >= vk::DebugUtilsMessageSeverityFlagsEXT::WARNING {
-        tracing::warn!(?ty, "{message}");
+        tracing::warn!(target: "validation", ?ty, "{message}");
     } else if severity >= vk::DebugUtilsMessageSeverityFlagsEXT::INFO {
-        tracing::debug!(?ty, "{message}");
+        tracing::debug!(target: "validation", ?ty, "{message}");
     } else {
-        tracing::trace!(?ty, "{message}");
+        tracing::trace!(target: "validation", ?ty, "{message}");
     };
 
     vk::FALSE
