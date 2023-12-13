@@ -35,6 +35,7 @@ pub struct Renderer {
     state: Option<RendererState>,
     resized: bool,
     vertex_buffer: Buffer,
+    index_buffer: Buffer,
 }
 
 struct RendererState {
@@ -78,6 +79,31 @@ impl Renderer {
             buffer
         };
 
+        let index_buffer = {
+            let index_data = bytemuck::cast_slice(&INDICES);
+
+            let mut buffer = vk::BufferCreateInfo::builder()
+                .size(index_data.len() as u64)
+                .usage(vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST)
+                .sharing_mode(vk::SharingMode::EXCLUSIVE)
+                .make_buffer(base.clone(), UsageFlags::empty())?;
+
+            let mut staging_buffer = vk::BufferCreateInfo::builder()
+                .size(index_data.len() as u64)
+                .usage(vk::BufferUsageFlags::TRANSFER_SRC)
+                .sharing_mode(vk::SharingMode::EXCLUSIVE)
+                .make_buffer(base.clone(), UsageFlags::UPLOAD | UsageFlags::TRANSIENT)?;
+            staging_buffer.write_bytes(0, index_data)?;
+
+            buffer.copy_from(
+                &staging_buffer,
+                index_data.len() as u64,
+                &transfer_command_pool,
+            )?;
+
+            buffer
+        };
+
         let mut this = Self {
             base,
             graphics_command_pool,
@@ -85,6 +111,7 @@ impl Renderer {
             state: None,
             resized: false,
             vertex_buffer,
+            index_buffer,
         };
         this.rebuild_renderer_state(None)?;
 
@@ -157,7 +184,14 @@ impl Renderer {
                 &[self.vertex_buffer.handle()],
                 &[0],
             );
-            device.cmd_draw(*command_buffer, VERTICES.len() as u32, 1, 0, 0);
+            device.cmd_bind_index_buffer(
+                *command_buffer,
+                self.index_buffer.handle(),
+                0,
+                vk::IndexType::UINT16,
+            );
+
+            device.cmd_draw_indexed(*command_buffer, INDICES.len() as u32, 1, 0, 0, 0);
 
             //
             device.cmd_end_render_pass(*command_buffer);
@@ -320,8 +354,10 @@ impl Frames {
     }
 }
 
-const VERTICES: [Vertex; 3] = [
-    Vertex::new(Vec2::new(0.0, -0.5), Vec3::new(1.0, 0.0, 0.0)),
-    Vertex::new(Vec2::new(0.5, 0.5), Vec3::new(0.0, 1.0, 0.0)),
-    Vertex::new(Vec2::new(-0.5, 0.5), Vec3::new(0.0, 0.0, 1.0)),
+const VERTICES: [Vertex; 4] = [
+    Vertex::new(Vec2::new(-0.5, -0.5), Vec3::new(1.0, 0.0, 0.0)),
+    Vertex::new(Vec2::new(0.5, -0.5), Vec3::new(0.0, 1.0, 0.0)),
+    Vertex::new(Vec2::new(0.5, 0.5), Vec3::new(0.0, 1.0, 1.0)),
+    Vertex::new(Vec2::new(-0.5, 0.5), Vec3::new(1.0, 1.0, 1.0)),
 ];
+const INDICES: &[u16] = &[0, 1, 2, 2, 3, 0];
