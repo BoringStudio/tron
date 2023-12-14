@@ -13,14 +13,20 @@ use self::pipeline::{Pipeline, SurfaceDescription, Vertex};
 use self::swapchain::{Swapchain, SwapchainFramebuffer};
 use self::sync::{Fence, Semaphore};
 
+pub use self::graphics::{Graphics, InstanceConfig};
+
 mod base;
 mod buffer;
 mod command_buffer;
+mod graphics;
+mod physical_device;
 mod pipeline;
 mod pipeline_layout;
+mod resources;
 mod shader_module;
 mod swapchain;
 mod sync;
+mod types;
 
 pub struct RendererConfig {
     pub app_name: String,
