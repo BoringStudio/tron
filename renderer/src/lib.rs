@@ -18,6 +18,7 @@ pub use self::graphics::{Graphics, InstanceConfig};
 mod base;
 mod buffer;
 mod command_buffer;
+mod device;
 mod graphics;
 mod physical_device;
 mod pipeline;

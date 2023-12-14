@@ -1,12 +1,16 @@
+use anyhow::{Context, Result};
 use shared::FastHashSet;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::InstanceV1_1;
 
 use crate::Graphics;
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Feature {
     BufferDeviceAddress,
+    DisplayTiming,
     ScalarBlockLayout,
+    SurfacePresentation,
 }
 
 #[derive(Debug)]
@@ -30,28 +34,137 @@ impl PhysicalDevice {
         // `PhysicalDevice` can only be created from `Graphics` instance
         unsafe { Graphics::get_unchecked() }
     }
+
+    pub fn create_device(self, features: &[Feature]) -> Result<()> {
+        let graphics = self.graphics();
+
+        let mut requested_features = features.iter().copied().collect::<FastHashSet<_>>();
+
+        let mut device_create_info = vk::DeviceCreateInfo::builder();
+
+        // Collect requested features
+        let mut extensions = Vec::new();
+        let mut require_ext = {
+            let supported_extensions = &self.properties.extensions;
+            |ext: &vk::Extension| -> Result<()> {
+                let ext = &ext.name;
+                let supported = supported_extensions.contains(ext);
+                anyhow::ensure!(supported, "extension {ext} is missing");
+                if extensions.contains(&ext.as_ptr()) {
+                    extensions.push(ext.as_ptr());
+                }
+                Ok(())
+            }
+        };
+
+        let mut features_v1_0 = vk::PhysicalDeviceFeatures::builder();
+        let mut features_v1_2 = vk::PhysicalDeviceVulkan12Features::builder();
+        let mut features_sbl = vk::PhysicalDeviceScalarBlockLayoutFeatures::builder();
+        let mut features_bda = vk::PhysicalDeviceBufferAddressFeaturesEXT::builder();
+
+        let mut include_features_v1_2 = false;
+        let mut include_features_sbl = false;
+        let mut include_features_bda = false;
+
+        // === Begin fill feature requirements ===
+        if requested_features.remove(&Feature::SurfacePresentation) {
+            require_ext(&vk::KHR_SWAPCHAIN_EXTENSION)
+                .context("SurfacePresentation feature is required but not supported")?;
+        }
+
+        if requested_features.remove(&Feature::ScalarBlockLayout) {
+            anyhow::ensure!(
+                self.features.v1_2.scalar_block_layout != 0,
+                "ScalarBlockLayout feature is required but not supported"
+            );
+            features_v1_2.scalar_block_layout = 1;
+            include_features_v1_2 = true;
+            features_sbl.scalar_block_layout = 1;
+            include_features_sbl = true;
+        }
+
+        if requested_features.remove(&Feature::BufferDeviceAddress) {
+            anyhow::ensure!(
+                self.features.v1_2.buffer_device_address != 0,
+                "BufferDeviceAddress feature is required but not supported"
+            );
+            features_v1_2.buffer_device_address = 1;
+            include_features_v1_2 = true;
+            features_bda.buffer_device_address = 1;
+            include_features_bda = true;
+        }
+
+        if requested_features.remove(&Feature::DisplayTiming) {
+            require_ext(&vk::GOOGLE_DISPLAY_TIMING_EXTENSION)
+                .context("DisplayTiming feature is required but not supported")?;
+        }
+        // === End fill feature requirements ===
+
+        device_create_info = device_create_info.enabled_features(&features_v1_0);
+
+        // Prevent requiring duplicate blocks
+        if graphics.vk1_2() {
+            include_features_sbl = false;
+            include_features_bda = false;
+        } else {
+            include_features_v1_2 = false;
+        }
+
+        // Require requested blocks
+        if include_features_v1_2 {
+            device_create_info = device_create_info.push_next(&mut features_v1_2);
+        }
+        if include_features_sbl {
+            require_ext(&vk::EXT_SCALAR_BLOCK_LAYOUT_EXTENSION)?;
+            device_create_info = device_create_info.push_next(&mut features_sbl);
+        }
+        if include_features_bda {
+            require_ext(&vk::KHR_BUFFER_DEVICE_ADDRESS_EXTENSION)?;
+            device_create_info = device_create_info.push_next(&mut features_bda);
+        }
+
+        // Ensure all required features are supported
+        anyhow::ensure!(
+            requested_features.is_empty(),
+            "some features are required but not supported: {}",
+            requested_features
+                .into_iter()
+                .map(|f| format!("{f:?}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+
+        // Create device
+        let device = unsafe {
+            graphics
+                .instance()
+                .create_device(self.handle, &device_create_info, None)?
+        };
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
-struct Properties {
-    extensions: FastHashSet<vk::ExtensionName>,
-    queue_families: Vec<vk::QueueFamilyProperties>,
-    memory: vk::PhysicalDeviceMemoryProperties,
-    v1_0: vk::PhysicalDeviceProperties,
-    v1_1: vk::PhysicalDeviceVulkan11Properties,
-    v1_2: vk::PhysicalDeviceVulkan12Properties,
-    v1_3: vk::PhysicalDeviceVulkan13Properties,
+pub struct Properties {
+    pub extensions: FastHashSet<vk::ExtensionName>,
+    pub queue_families: Vec<vk::QueueFamilyProperties>,
+    pub memory: vk::PhysicalDeviceMemoryProperties,
+    pub v1_0: vk::PhysicalDeviceProperties,
+    pub v1_1: vk::PhysicalDeviceVulkan11Properties,
+    pub v1_2: vk::PhysicalDeviceVulkan12Properties,
+    pub v1_3: vk::PhysicalDeviceVulkan13Properties,
 }
 
 unsafe impl Sync for Properties {}
 unsafe impl Send for Properties {}
 
 #[derive(Debug)]
-struct Features {
-    v1_0: vk::PhysicalDeviceFeatures,
-    v1_1: vk::PhysicalDeviceVulkan11Features,
-    v1_2: vk::PhysicalDeviceVulkan12Features,
-    v1_3: vk::PhysicalDeviceVulkan13Features,
+pub struct Features {
+    pub v1_0: vk::PhysicalDeviceFeatures,
+    pub v1_1: vk::PhysicalDeviceVulkan11Features,
+    pub v1_2: vk::PhysicalDeviceVulkan12Features,
+    pub v1_3: vk::PhysicalDeviceVulkan13Features,
 }
 
 unsafe impl Sync for Features {}
@@ -60,14 +173,7 @@ unsafe impl Send for Features {}
 unsafe fn collect_info(handle: vk::PhysicalDevice) -> (Properties, Features) {
     let graphics = Graphics::get_unchecked();
     let instance = graphics.instance();
-    let (vk1_1, vk1_2, vk1_3) = {
-        let v = graphics.api_version();
-        (
-            vk::version_major(v) >= 1 && vk::version_minor(v) >= 1,
-            vk::version_major(v) >= 1 && vk::version_minor(v) >= 2,
-            vk::version_major(v) >= 1 && vk::version_minor(v) >= 3,
-        )
-    };
+    let (vk1_1, vk1_2, vk1_3) = (graphics.vk1_1(), graphics.vk1_2(), graphics.vk1_3());
 
     let extensions = instance
         .enumerate_device_extension_properties(handle, None)

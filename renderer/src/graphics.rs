@@ -180,6 +180,18 @@ impl Graphics {
     pub fn api_version(&self) -> u32 {
         self.api_version
     }
+
+    pub fn vk1_1(&self) -> bool {
+        vk::version_major(self.api_version) >= 1 && vk::version_minor(self.api_version) >= 1
+    }
+
+    pub fn vk1_2(&self) -> bool {
+        vk::version_major(self.api_version) >= 1 && vk::version_minor(self.api_version) >= 2
+    }
+
+    pub fn vk1_3(&self) -> bool {
+        vk::version_major(self.api_version) >= 1 && vk::version_minor(self.api_version) >= 3
+    }
 }
 
 impl Drop for Graphics {

@@ -988,6 +988,7 @@ dependencies = [
  "gpu-alloc-vulkanalia",
  "once_cell",
  "shared",
+ "slab",
  "smallvec",
  "spirv 0.1.0",
  "thiserror",
