@@ -3,11 +3,14 @@ use std::sync::{Arc, Mutex, Weak};
 use anyhow::Result;
 use gpu_alloc::{GpuAllocator, MemoryBlock};
 use gpu_alloc_vulkanalia::AsMemoryDevice;
+use shared::util::WithDefer;
 use slab::Slab;
 use vulkanalia::prelude::v1_0::*;
+use vulkanalia::vk::{DeviceV1_1, DeviceV1_2};
 
 use crate::physical_device::{Features, Properties};
 use crate::resources::{Buffer, BufferInfo, MappableBuffer};
+use crate::types::DeviceAddress;
 use crate::Graphics;
 
 #[derive(Clone)]
@@ -123,7 +126,90 @@ impl Device {
         info: BufferInfo,
         memory_usage: Option<gpu_alloc::UsageFlags>,
     ) -> Result<MappableBuffer> {
-        
+        let logical = &self.inner.logical;
+
+        let mut memory_usage = memory_usage.unwrap_or_else(gpu_alloc::UsageFlags::empty);
+        let has_device_address = info
+            .usage
+            .contains(vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS);
+        if has_device_address {
+            anyhow::ensure!(
+                self.inner.features.v1_2.buffer_device_address != 0,
+                "`SHADER_DEVICE_ADDRESS` buffer usage requires `BufferDeviceAddress`
+                feature"
+            );
+            memory_usage |= gpu_alloc::UsageFlags::DEVICE_ADDRESS;
+        }
+
+        let handle = {
+            let info = vk::BufferCreateInfo::builder()
+                .size(info.size)
+                .usage(info.usage)
+                .sharing_mode(vk::SharingMode::EXCLUSIVE);
+            unsafe { logical.create_buffer(&info, None)? }
+        }
+        .with_defer(|handle| unsafe { logical.destroy_buffer(handle, None) });
+
+        let mut dedicated = vk::MemoryDedicatedRequirements::builder();
+        let mut reqs = vk::MemoryRequirements2::builder().push_next(&mut dedicated);
+        if self.graphics().vk1_1() {
+            let info = vk::BufferMemoryRequirementsInfo2::builder().buffer(*handle);
+            unsafe { logical.get_buffer_memory_requirements2(&info, &mut reqs) }
+        } else {
+            reqs.memory_requirements = unsafe { logical.get_buffer_memory_requirements(*handle) };
+        }
+
+        debug_assert!(reqs.memory_requirements.alignment.is_power_of_two());
+
+        let block = {
+            let request = gpu_alloc::Request {
+                size: reqs.memory_requirements.size,
+                align_mask: (reqs.memory_requirements.alignment - 1) | info.align,
+                usage: memory_usage,
+                memory_types: reqs.memory_requirements.memory_type_bits,
+            };
+
+            let dedicated = if dedicated.requires_dedicated_allocation != 0 {
+                Some(gpu_alloc::Dedicated::Required)
+            } else if dedicated.prefers_dedicated_allocation != 0 {
+                Some(gpu_alloc::Dedicated::Preferred)
+            } else {
+                None
+            };
+
+            let logical = logical.as_memory_device();
+            let mut allocator = self.inner.allocator.lock().unwrap();
+            unsafe {
+                match dedicated {
+                    None => allocator.alloc(logical, request),
+                    Some(dedicated) => allocator.alloc_with_dedicated(logical, request, dedicated),
+                }
+            }
+        }?;
+
+        unsafe { logical.bind_buffer_memory(*handle, *block.memory(), block.offset())? };
+
+        let address = if has_device_address {
+            let info = vk::BufferDeviceAddressInfo::builder().buffer(*handle);
+            let address = unsafe { logical.get_buffer_device_address(&info) };
+            Some(DeviceAddress::new(address).unwrap())
+        } else {
+            None
+        };
+
+        let index = self.inner.buffers.lock().unwrap().insert(*handle);
+
+        tracing::debug!(buffer = ?*handle, "created buffer");
+
+        Ok(MappableBuffer::new(
+            handle.disarm(),
+            info,
+            memory_usage,
+            address,
+            self.downgrade(),
+            index,
+            block,
+        ))
     }
 
     pub unsafe fn destroy_buffer(&self, index: usize, block: MemoryBlock<vk::DeviceMemory>) {
