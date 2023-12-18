@@ -1,8 +1,9 @@
 use anyhow::{Context, Result};
-use shared::FastHashSet;
+use shared::{FastHashMap, FastHashSet};
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::InstanceV1_1;
 
+use crate::queue::QueuesQuery;
 use crate::Graphics;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -35,14 +36,48 @@ impl PhysicalDevice {
         unsafe { Graphics::get_unchecked() }
     }
 
-    pub fn create_device(self, features: &[Feature]) -> Result<()> {
+    pub fn create_device<Q>(self, features: &[Feature], queues: Q) -> Result<()>
+    where
+        Q: QueuesQuery,
+    {
         let graphics = self.graphics();
 
-        let mut requested_features = features.iter().copied().collect::<FastHashSet<_>>();
+        let (queue_families, queues_query_state) = queues.query(&self.properties.queue_families)?;
+        let queue_families = queue_families.as_ref();
 
         let mut device_create_info = vk::DeviceCreateInfo::builder();
 
+        // Collect queries
+        let mut priorities = FastHashMap::<usize, Vec<f32>>::default();
+        for &(family_idx, count) in queue_families {
+            let Some(family) = self.properties.queue_families.get(family_idx) else {
+                anyhow::bail!("requested queue family not found: {family_idx}");
+            };
+            let priorities = priorities.entry(family_idx).or_default();
+            let queue_count = priorities.len() + count;
+            anyhow::ensure!(
+                queue_count <= family.queue_count as usize,
+                "too many queues requested for the queue family {family_idx}: {queue_count} out of {}",
+                family.queue_count
+            );
+
+            priorities.resize(queue_count, 1.0f32);
+        }
+
+        let queue_create_infos = priorities
+            .iter()
+            .map(|(&family_idx, priorities)| {
+                vk::DeviceQueueCreateInfo::builder()
+                    .queue_family_index(family_idx as u32)
+                    .queue_priorities(priorities)
+            })
+            .collect::<Vec<_>>();
+
+        device_create_info = device_create_info.queue_create_infos(&queue_create_infos);
+
         // Collect requested features
+        let mut requested_features = features.iter().copied().collect::<FastHashSet<_>>();
+
         let mut extensions = Vec::new();
         let mut require_ext = {
             let supported_extensions = &self.properties.extensions;

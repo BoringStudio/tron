@@ -23,6 +23,7 @@ mod graphics;
 mod physical_device;
 mod pipeline;
 mod pipeline_layout;
+mod queue;
 mod resources;
 mod shader_module;
 mod swapchain;
