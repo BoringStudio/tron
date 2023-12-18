@@ -57,10 +57,39 @@ pub struct QueueId {
 
 pub struct Queue {
     handle: vk::Queue,
-    pool: vk::CommandPool,
     id: QueueId,
-    device: crate::device::Device,
     capabilities: vk::QueueFlags,
+    device: crate::device::Device,
+
+    pool: vk::CommandPool,
 }
 
-impl Queue {}
+impl Queue {
+    pub fn new(
+        handle: vk::Queue,
+        family_idx: usize,
+        queue_idx: usize,
+        capabilities: vk::QueueFlags,
+        device: crate::device::Device,
+    ) -> Self {
+        Self {
+            handle,
+            id: QueueId {
+                family: family_idx as u32,
+                index: queue_idx as u32,
+            },
+            capabilities,
+            device,
+            pool: vk::CommandPool::null(),
+        }
+    }
+
+    pub fn id(&self) -> &QueueId {
+        &self.id
+    }
+
+    pub fn wait_idle(&self) -> Result<()> {
+        unsafe { self.device.logical().queue_wait_idle(self.handle) }?;
+        Ok(())
+    }
+}

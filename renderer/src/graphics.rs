@@ -9,6 +9,9 @@ use vulkanalia::loader::{LibloadingLoader, LIBRARY};
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::ExtDebugUtilsExtension as _;
 use vulkanalia::Instance;
+use winit::raw_window_handle::{
+    HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
+};
 
 #[derive(Debug, Clone)]
 pub struct InstanceConfig {
@@ -171,6 +174,112 @@ impl Graphics {
             debug_utils_messenger,
             _entry: entry,
         })
+    }
+
+    pub fn create_surface<W>(&self, window: &W) -> Result<vk::SurfaceKHR>
+    where
+        W: HasDisplayHandle + HasWindowHandle,
+    {
+        let require_extension = |ext: &vk::Extension| -> Result<()> {
+            anyhow::ensure!(
+                self.instance.extensions().contains(&ext.name),
+                "`{}` is not supported",
+                ext.name
+            );
+            Ok(())
+        };
+
+        match (
+            window.display_handle().map(|handle| handle.as_raw())?,
+            window.window_handle().map(|handle| handle.as_raw())?,
+        ) {
+            #[cfg(target_os = "windows")]
+            (RawDisplayHandle::Windows(_), RawWindowHandle::Win32(window)) => {
+                use vk::KhrWin32SurfaceExtension;
+
+                require_extension(&vk::KHR_WIN32_SURFACE_EXTENSION)?;
+
+                let hinstance_ptr = window
+                    .hinstance
+                    .map(|hinstance| hinstance.get() as vk::HINSTANCE)
+                    .unwrap_or(std::ptr::null_mut());
+                let hwnd_ptr = window.hwnd.get() as vk::HWND;
+
+                let info = vk::Win32SurfaceCreateInfoKHR::builder()
+                    .hinstance(hinstance_ptr)
+                    .hwnd(hwnd_ptr);
+
+                unsafe { self.instance.create_win32_surface_khr(&info, None) }
+            }
+            #[cfg(any(
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "linux",
+                target_os = "netbsd",
+                target_os = "openbsd"
+            ))]
+            (RawDisplayHandle::Xcb(display), RawWindowHandle::Xcb(window)) => {
+                use vk::KhrXcbSurfaceExtension;
+
+                require_extension(&vk::KHR_XCB_SURFACE_EXTENSION)?;
+
+                let connection_ptr = display
+                    .connection
+                    .map(|connection| connection.as_ptr())
+                    .unwrap_or(std::ptr::null_mut());
+
+                let info = vk::XcbSurfaceCreateInfoKHR::builder()
+                    .window(window.window.get())
+                    .connection(connection_ptr);
+
+                unsafe { self.instance.create_xcb_surface_khr(&info, None) }
+            }
+            #[cfg(any(
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "linux",
+                target_os = "netbsd",
+                target_os = "openbsd"
+            ))]
+            (RawDisplayHandle::Xlib(display), RawWindowHandle::Xlib(window)) => {
+                use vk::KhrXlibSurfaceExtension;
+
+                require_extension(&vk::KHR_XLIB_SURFACE_EXTENSION)?;
+
+                let display_ptr = display
+                    .display
+                    .map(|display| display.as_ptr())
+                    .unwrap_or(std::ptr::null_mut());
+
+                let info = vk::XlibSurfaceCreateInfoKHR {
+                    dpy: display_ptr.cast(),
+                    window: window.window,
+                    ..Default::default()
+                };
+
+                unsafe { self.instance.create_xlib_surface_khr(&info, None) }
+            }
+            #[cfg(any(
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "linux",
+                target_os = "netbsd",
+                target_os = "openbsd"
+            ))]
+            (RawDisplayHandle::Wayland(display), RawWindowHandle::Wayland(window)) => {
+                use vk::KhrWaylandSurfaceExtension;
+
+                require_extension(&vk::KHR_WAYLAND_SURFACE_EXTENSION)?;
+
+                let info = vk::WaylandSurfaceCreateInfoKHR::builder()
+                    .display(display.display.as_ptr())
+                    .surface(window.surface.as_ptr());
+
+                unsafe { self.instance.create_wayland_surface_khr(&info, None) }
+            }
+            _ => anyhow::bail!("unsupported window and display kind combination"),
+        }
+        .map_err(Into::into)
     }
 
     pub fn instance(&self) -> &Instance {
