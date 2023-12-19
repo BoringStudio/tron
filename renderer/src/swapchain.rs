@@ -132,6 +132,8 @@ impl Swapchain {
             .clipped(true)
             .old_swapchain(vk::SwapchainKHR::null());
 
+        // NOTE: move into `surface.rs`
+
         self.swapchain = device.create_swapchain_khr(&info, None)?;
         self.swapchain_images = device.get_swapchain_images_khr(self.swapchain)?;
         self.swapchain_extent = extent;
@@ -224,27 +226,4 @@ impl Drop for SwapchainFramebuffer {
             self.base.device().destroy_framebuffer(self.handle, None);
         }
     }
-}
-
-fn compute_swapchain_extent(swapchain_support: &SwapchainSupport, window: &Window) -> vk::Extent2D {
-    let capabilities = &swapchain_support.capabilities;
-
-    if capabilities.current_extent.width != u32::MAX {
-        return capabilities.current_extent;
-    }
-
-    let size = window.inner_size();
-    let clamp = |min: u32, max: u32, v: u32| min.max(max.min(v));
-    vk::Extent2D::builder()
-        .width(clamp(
-            capabilities.min_image_extent.width,
-            capabilities.max_image_extent.width,
-            size.width,
-        ))
-        .height(clamp(
-            capabilities.min_image_extent.height,
-            capabilities.max_image_extent.height,
-            size.height,
-        ))
-        .build()
 }

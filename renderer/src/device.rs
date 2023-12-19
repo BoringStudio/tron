@@ -324,6 +324,16 @@ impl Device {
 
         self.inner.logical.destroy_buffer(handle, None);
     }
+
+    pub unsafe fn destroy_image(&self, handle: vk::Image, block: MemoryBlock<vk::DeviceMemory>) {
+        self.inner
+            .allocator
+            .lock()
+            .unwrap()
+            .dealloc(self.inner.logical.as_memory_device(), block);
+
+        self.inner.logical.destroy_image(handle, None)
+    }
 }
 
 impl std::fmt::Debug for Device {
