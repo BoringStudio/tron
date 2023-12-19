@@ -18,7 +18,6 @@ pub struct BufferInfo {
 
 #[derive(Clone)]
 pub struct Buffer {
-    handle: vk::Buffer,
     info: BufferInfo,
     memory_usage: gpu_alloc::UsageFlags,
     address: Option<DeviceAddress>,
@@ -35,7 +34,7 @@ impl Buffer {
     }
 
     pub fn handle(&self) -> vk::Buffer {
-        self.handle
+        self.inner.handle
     }
 
     pub fn try_into_mappable(mut self) -> Result<MappableBuffer, Self> {
@@ -70,15 +69,14 @@ impl std::fmt::Debug for Buffer {
             f.debug_struct("Buffer")
                 .field("info", &self.info)
                 .field("owner", &self.inner.owner)
-                .field("handle", &self.handle)
+                .field("handle", &self.inner.handle)
                 .field("address", &self.address)
-                .field("index", &self.inner.index)
                 .field("memory_handle", &self.inner.memory)
                 .field("memory_offset", &memory_block.offset())
                 .field("memory_size", &memory_block.size())
                 .finish()
         } else {
-            std::fmt::Debug::fmt(&self.handle, f)
+            std::fmt::Debug::fmt(&self.inner.handle, f)
         }
     }
 }
@@ -127,18 +125,16 @@ impl MappableBuffer {
         memory_usage: gpu_alloc::UsageFlags,
         address: Option<DeviceAddress>,
         owner: WeakDevice,
-        index: usize,
         memory_block: MemoryBlock<vk::DeviceMemory>,
     ) -> Self {
         Self {
             buffer: Buffer {
-                handle,
                 info,
                 memory_usage,
                 address,
                 inner: Arc::new(Inner {
+                    handle,
                     owner,
-                    index,
                     memory: *memory_block.memory(),
                     memory_block: UnsafeCell::new(ManuallyDrop::new(memory_block)),
                 }),
@@ -164,8 +160,8 @@ impl MappableBuffer {
 }
 
 struct Inner {
+    handle: vk::Buffer,
     owner: WeakDevice,
-    index: usize,
     memory: vk::DeviceMemory,
     memory_block: UnsafeCell<ManuallyDrop<MemoryBlock<vk::DeviceMemory>>>,
 }
@@ -176,7 +172,7 @@ impl Drop for Inner {
             let block = ManuallyDrop::take(self.memory_block.get_mut());
 
             if let Some(device) = self.owner.upgrade() {
-                device.destroy_buffer(self.index, block);
+                device.destroy_buffer(self.handle, block);
             }
 
             // NOTE: `Relevant` will println error here if device was already destroyed

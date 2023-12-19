@@ -4,7 +4,6 @@ use anyhow::Result;
 use gpu_alloc::{GpuAllocator, MemoryBlock};
 use gpu_alloc_vulkanalia::AsMemoryDevice;
 use shared::util::WithDefer;
-use slab::Slab;
 use smallvec::SmallVec;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::{DeviceV1_1, DeviceV1_2};
@@ -76,9 +75,6 @@ impl Device {
                 features,
                 api_version,
                 allocator,
-                semaphores: Mutex::new(Slab::with_capacity(128)),
-                fences: Mutex::new(Slab::with_capacity(128)),
-                buffers: Mutex::new(Slab::with_capacity(4096)),
             }),
         }
     }
@@ -117,15 +113,12 @@ impl Device {
         let info = vk::SemaphoreCreateInfo::builder();
         let handle = unsafe { logical.create_semaphore(&info, None) }?;
 
-        let index = self.inner.semaphores.lock().unwrap().insert(handle);
-
         tracing::debug!(semaphore = ?handle, "created semaphore");
 
-        Ok(Semaphore::new(handle, self.downgrade(), index))
+        Ok(Semaphore::new(handle, self.downgrade()))
     }
 
-    pub unsafe fn destroy_semaphore(&self, index: usize) {
-        let handle = self.inner.semaphores.lock().unwrap().remove(index);
+    pub unsafe fn destroy_semaphore(&self, handle: vk::Semaphore) {
         self.inner.logical.destroy_semaphore(handle, None);
     }
 
@@ -135,15 +128,12 @@ impl Device {
         let info = vk::FenceCreateInfo::builder();
         let handle = unsafe { logical.create_fence(&info, None) }?;
 
-        let index = self.inner.fences.lock().unwrap().insert(handle);
-
         tracing::debug!(fence = ?handle, "created fence");
 
-        Ok(Fence::new(handle, self.downgrade(), index))
+        Ok(Fence::new(handle, self.downgrade()))
     }
 
-    pub unsafe fn destroy_fence(&self, index: usize) {
-        let handle = self.inner.fences.lock().unwrap().remove(index);
+    pub unsafe fn destroy_fence(&self, handle: vk::Fence) {
         self.inner.logical.destroy_fence(handle, None);
     }
 
@@ -313,8 +303,6 @@ impl Device {
             None
         };
 
-        let index = self.inner.buffers.lock().unwrap().insert(*handle);
-
         tracing::debug!(buffer = ?*handle, "created buffer");
 
         Ok(MappableBuffer::new(
@@ -323,19 +311,17 @@ impl Device {
             memory_usage,
             address,
             self.downgrade(),
-            index,
             block,
         ))
     }
 
-    pub unsafe fn destroy_buffer(&self, index: usize, block: MemoryBlock<vk::DeviceMemory>) {
+    pub unsafe fn destroy_buffer(&self, handle: vk::Buffer, block: MemoryBlock<vk::DeviceMemory>) {
         self.inner
             .allocator
             .lock()
             .unwrap()
             .dealloc(self.inner.logical.as_memory_device(), block);
 
-        let handle = self.inner.buffers.lock().unwrap().remove(index);
         self.inner.logical.destroy_buffer(handle, None);
     }
 }
@@ -378,10 +364,6 @@ struct Inner {
     features: Features,
     api_version: u32,
     allocator: Mutex<GpuAllocator<vk::DeviceMemory>>,
-
-    semaphores: Mutex<Slab<vk::Semaphore>>,
-    fences: Mutex<Slab<vk::Fence>>,
-    buffers: Mutex<Slab<vk::Buffer>>,
 }
 
 impl Inner {

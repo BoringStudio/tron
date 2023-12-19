@@ -5,16 +5,11 @@ use crate::device::WeakDevice;
 pub struct Semaphore {
     handle: vk::Semaphore,
     owner: WeakDevice,
-    index: usize,
 }
 
 impl Semaphore {
-    pub fn new(handle: vk::Semaphore, owner: WeakDevice, index: usize) -> Self {
-        Self {
-            handle,
-            owner,
-            index,
-        }
+    pub fn new(handle: vk::Semaphore, owner: WeakDevice) -> Self {
+        Self { handle, owner }
     }
 
     pub fn handle(&self) -> vk::Semaphore {
@@ -25,7 +20,7 @@ impl Semaphore {
 impl Drop for Semaphore {
     fn drop(&mut self) {
         if let Some(device) = self.owner.upgrade() {
-            unsafe { device.destroy_semaphore(self.index) };
+            unsafe { device.destroy_semaphore(self.handle) };
         }
     }
 }

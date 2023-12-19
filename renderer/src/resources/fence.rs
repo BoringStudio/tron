@@ -18,16 +18,14 @@ pub enum FenceState {
 pub struct Fence {
     handle: vk::Fence,
     owner: WeakDevice,
-    index: usize,
     state: FenceState,
 }
 
 impl Fence {
-    pub fn new(handle: vk::Fence, owner: WeakDevice, index: usize) -> Self {
+    pub fn new(handle: vk::Fence, owner: WeakDevice) -> Self {
         Self {
             handle,
             owner,
-            index,
             state: FenceState::Unsignalled,
         }
     }
@@ -86,7 +84,15 @@ impl Fence {
 }
 
 impl Drop for Fence {
-    fn drop(&mut self) {}
+    fn drop(&mut self) {
+        if let Some(device) = self.owner.upgrade() {
+            if let FenceState::Armed { .. } = &self.state {
+                _ = device.wait_fences(&mut [self], true);
+            }
+
+            unsafe { device.destroy_fence(self.handle) };
+        }
+    }
 }
 
 impl Eq for Fence {}
