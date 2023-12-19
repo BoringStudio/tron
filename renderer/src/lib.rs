@@ -26,6 +26,7 @@ mod pipeline_layout;
 mod queue;
 mod resources;
 mod shader_module;
+mod surface;
 mod swapchain;
 mod sync;
 mod types;

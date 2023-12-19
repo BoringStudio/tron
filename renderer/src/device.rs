@@ -5,11 +5,12 @@ use gpu_alloc::{GpuAllocator, MemoryBlock};
 use gpu_alloc_vulkanalia::AsMemoryDevice;
 use shared::util::WithDefer;
 use slab::Slab;
+use smallvec::SmallVec;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::{DeviceV1_1, DeviceV1_2};
 
 use crate::physical_device::{Features, Properties};
-use crate::resources::{Buffer, BufferInfo, MappableBuffer};
+use crate::resources::{Buffer, BufferInfo, Fence, FenceState, MappableBuffer, Semaphore};
 use crate::types::DeviceAddress;
 use crate::Graphics;
 
@@ -75,6 +76,8 @@ impl Device {
                 features,
                 api_version,
                 allocator,
+                semaphores: Mutex::new(Slab::with_capacity(128)),
+                fences: Mutex::new(Slab::with_capacity(128)),
                 buffers: Mutex::new(Slab::with_capacity(4096)),
             }),
         }
@@ -106,6 +109,60 @@ impl Device {
 
     pub fn wait_idle(&self) -> Result<()> {
         self.inner.wait_idle()
+    }
+
+    pub fn create_semaphore(&self) -> Result<Semaphore> {
+        let logical = &self.inner.logical;
+
+        let info = vk::SemaphoreCreateInfo::builder();
+        let handle = unsafe { logical.create_semaphore(&info, None) }?;
+
+        let index = self.inner.semaphores.lock().unwrap().insert(handle);
+
+        tracing::debug!(semaphore = ?handle, "created semaphore");
+
+        Ok(Semaphore::new(handle, self.downgrade(), index))
+    }
+
+    pub unsafe fn destroy_semaphore(&self, index: usize) {
+        let handle = self.inner.semaphores.lock().unwrap().remove(index);
+        self.inner.logical.destroy_semaphore(handle, None);
+    }
+
+    pub fn create_fence(&self) -> Result<Fence> {
+        let logical = &self.inner.logical;
+
+        let info = vk::FenceCreateInfo::builder();
+        let handle = unsafe { logical.create_fence(&info, None) }?;
+
+        let index = self.inner.fences.lock().unwrap().insert(handle);
+
+        tracing::debug!(fence = ?handle, "created fence");
+
+        Ok(Fence::new(handle, self.downgrade(), index))
+    }
+
+    pub unsafe fn destroy_fence(&self, index: usize) {
+        let handle = self.inner.fences.lock().unwrap().remove(index);
+        self.inner.logical.destroy_fence(handle, None);
+    }
+
+    pub fn wait_fences(&self, fences: &mut [&mut Fence], all: bool) -> Result<()> {
+        if fences.is_empty() {
+            return Ok(());
+        }
+
+        let handles = fences
+            .iter()
+            .filter_map(|fence| match fence.state() {
+                FenceState::Unsignalled => {
+                    // TODO: panic?
+                    None
+                }
+                FenceState::Signalled => None,
+                FenceState::Armed { .. } => Some(fence.handle()),
+            })
+            .collect::<SmallVec<[_; 16]>>();
     }
 
     pub fn create_buffer(&self, info: BufferInfo) -> Result<Buffer> {
@@ -263,6 +320,8 @@ struct Inner {
     api_version: u32,
     allocator: Mutex<GpuAllocator<vk::DeviceMemory>>,
 
+    semaphores: Mutex<Slab<vk::Semaphore>>,
+    fences: Mutex<Slab<vk::Fence>>,
     buffers: Mutex<Slab<vk::Buffer>>,
 }
 
