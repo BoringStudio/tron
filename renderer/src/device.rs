@@ -147,22 +147,81 @@ impl Device {
         self.inner.logical.destroy_fence(handle, None);
     }
 
-    pub fn wait_fences(&self, fences: &mut [&mut Fence], all: bool) -> Result<()> {
-        if fences.is_empty() {
-            return Ok(());
+    pub fn update_armed_fence_state(&self, fence: &mut Fence) -> Result<bool> {
+        let status = unsafe { self.inner.logical.get_fence_status(fence.handle()) }?;
+        match status {
+            vk::SuccessCode::SUCCESS => {
+                let _epoch = fence.set_signalled()?;
+                // TODO: update epoch
+                Ok(true)
+            }
+            vk::SuccessCode::NOT_READY => Ok(false),
+            c => panic!("unexpected status code"),
+        }
+    }
+
+    pub fn reset_fences(&self, fences: &mut [&mut Fence]) -> Result<()> {
+        let handles = fences
+            .iter_mut()
+            .map(|fence| {
+                if matches!(fence.state(), FenceState::Armed { .. }) {
+                    match self.update_armed_fence_state(*fence) {
+                        // Signalled -> ok
+                        Ok(true) => {}
+                        // Armed and not signalled yet -> error
+                        Ok(false) => return Err(anyhow::anyhow!("armed fence cannot be reset")),
+                        // Failed to check -> error
+                        Err(e) => return Err(e),
+                    }
+                }
+                Ok(fence.handle())
+            })
+            .collect::<Result<SmallVec<[_; 16]>>>()?;
+
+        unsafe { self.inner.logical.reset_fences(&handles) }?;
+
+        for fence in fences {
+            fence.set_unsignalled()?;
         }
 
+        Ok(())
+    }
+
+    pub fn wait_fences(&self, fences: &mut [&mut Fence], wait_all: bool) -> Result<()> {
         let handles = fences
             .iter()
             .filter_map(|fence| match fence.state() {
+                // Waiting for an unarmed fence -> error (preventing deadlock)
                 FenceState::Unsignalled => {
-                    // TODO: panic?
-                    None
+                    Some(Err(anyhow::anyhow!("waiting for an unarmed fence")))
                 }
+                // Waiting for an armed fence -> ok
+                FenceState::Armed { .. } => Some(Ok(fence.handle())),
+                // Already signalled fences could be skipped
                 FenceState::Signalled => None,
-                FenceState::Armed { .. } => Some(fence.handle()),
             })
-            .collect::<SmallVec<[_; 16]>>();
+            .collect::<Result<SmallVec<[_; 16]>>>()?;
+
+        if handles.is_empty() {
+            return Ok(());
+        }
+
+        unsafe {
+            self.inner
+                .logical
+                .wait_for_fences(&handles, wait_all, u64::MAX)
+        }?;
+
+        let all_signalled = wait_all || handles.len() == 1;
+        for fence in fences {
+            if all_signalled || self.update_armed_fence_state(fence)? {
+                fence.set_signalled()?;
+            }
+        }
+
+        // TODO: update epochs
+
+        Ok(())
     }
 
     pub fn create_buffer(&self, info: BufferInfo) -> Result<Buffer> {

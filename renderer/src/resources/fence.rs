@@ -1,3 +1,4 @@
+use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::device::WeakDevice;
@@ -37,6 +38,50 @@ impl Fence {
 
     pub fn state(&self) -> FenceState {
         self.state
+    }
+
+    pub fn set_unsignalled(&mut self) -> Result<()> {
+        if let FenceState::Armed { .. } = &self.state {
+            anyhow::bail!("armed fence cannot be marked as an unsignalled");
+        }
+        self.state = FenceState::Unsignalled;
+        Ok(())
+    }
+
+    pub fn set_armed(
+        &mut self,
+        queue: QueueId,
+        epoch: u64,
+        device: &crate::device::Device,
+    ) -> Result<()> {
+        match &self.state {
+            FenceState::Unsignalled => {
+                self.state = FenceState::Armed { queue, epoch };
+                Ok(())
+            }
+            FenceState::Armed { .. } => {
+                let signalled = device.update_armed_fence_state(self)?;
+                anyhow::ensure!(signalled, "trying to arm an already armed fence");
+
+                // TODO: update previous epoch
+                self.state = FenceState::Armed { queue, epoch };
+                Ok(())
+            }
+            FenceState::Signalled => {
+                anyhow::bail!("arming a signalled fence")
+            }
+        }
+    }
+
+    pub fn set_signalled(&mut self) -> Result<Option<(QueueId, u64)>> {
+        match self.state {
+            FenceState::Unsignalled => anyhow::bail!("signalling an unarmed fence"),
+            FenceState::Armed { queue, epoch } => {
+                self.state = FenceState::Signalled;
+                Ok(Some((queue, epoch)))
+            }
+            FenceState::Signalled => Ok(None),
+        }
     }
 }
 
