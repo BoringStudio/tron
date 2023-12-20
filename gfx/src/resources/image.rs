@@ -97,12 +97,38 @@ pub struct Image {
 }
 
 impl Image {
+    pub fn new_surface(
+        handle: vk::Image,
+        info: ImageInfo,
+        owner: WeakDevice,
+        id: NonZeroU64,
+    ) -> Self {
+        Self {
+            info,
+            inner: Arc::new(Inner {
+                handle,
+                owner,
+                source: ImageSource::Surface { id },
+            }),
+        }
+    }
+
     pub fn info(&self) -> &ImageInfo {
         &self.info
     }
 
     pub fn handle(&self) -> vk::Image {
         self.inner.handle
+    }
+
+    pub fn try_dispose_as_surface(mut self) -> Result<(), Self> {
+        if matches!(&self.inner.source, ImageSource::Surface { .. })
+            && Arc::get_mut(&mut self.inner).is_some()
+        {
+            Ok(())
+        } else {
+            Err(self)
+        }
     }
 }
 
@@ -177,11 +203,12 @@ impl std::fmt::Debug for ImageSource {
                 .debug_struct("ImageSource::Device")
                 .field("memory_handle", memory_block.memory())
                 .field("memory_offset", &memory_block.offset())
-                .field("memory_size", &memory_block.size()),
+                .field("memory_size", &memory_block.size())
+                .finish(),
             Self::Surface { id } => f
                 .debug_struct("ImageSource::Surface")
-                .field("id", &id.get()),
+                .field("id", &id.get())
+                .finish(),
         }
-        .finish()
     }
 }

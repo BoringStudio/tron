@@ -7,11 +7,16 @@ use shared::util::WithDefer;
 use smallvec::SmallVec;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::{DeviceV1_1, DeviceV1_2};
+use winit::window::Window;
 
-use crate::physical_device::{Features, Properties};
-use crate::resources::{Buffer, BufferInfo, Fence, FenceState, MappableBuffer, Semaphore};
+use crate::graphics::Graphics;
+use crate::physical_device::{DeviceFeatures, DeviceProperties};
+use crate::resources::{
+    Buffer, BufferInfo, Fence, FenceState, MappableBuffer, Semaphore, ShaderModule,
+    ShaderModuleInfo,
+};
+use crate::surface::Surface;
 use crate::types::DeviceAddress;
-use crate::Graphics;
 
 #[derive(Clone)]
 #[repr(transparent)]
@@ -58,9 +63,8 @@ impl Device {
     pub fn new(
         logical: vulkanalia::Device,
         physical: vk::PhysicalDevice,
-        properties: Properties,
-        features: Features,
-        api_version: u32,
+        properties: DeviceProperties,
+        features: DeviceFeatures,
     ) -> Self {
         let allocator = Mutex::new(GpuAllocator::new(
             gpu_alloc::Config::i_am_prototyping(),
@@ -73,7 +77,6 @@ impl Device {
                 physical,
                 properties,
                 features,
-                api_version,
                 allocator,
             }),
         }
@@ -91,11 +94,11 @@ impl Device {
         self.inner.physical
     }
 
-    pub fn properties(&self) -> &Properties {
+    pub fn properties(&self) -> &DeviceProperties {
         &self.inner.properties
     }
 
-    pub fn features(&self) -> &Features {
+    pub fn features(&self) -> &DeviceFeatures {
         &self.inner.features
     }
 
@@ -146,7 +149,7 @@ impl Device {
                 Ok(true)
             }
             vk::SuccessCode::NOT_READY => Ok(false),
-            c => panic!("unexpected status code"),
+            c => panic!("unexpected status code: {c:?}"),
         }
     }
 
@@ -334,6 +337,32 @@ impl Device {
 
         self.inner.logical.destroy_image(handle, None)
     }
+
+    pub fn create_shader_module(&self, info: ShaderModuleInfo) -> Result<ShaderModule> {
+        let handle = {
+            let info = vk::ShaderModuleCreateInfo::builder()
+                .code_size(info.data.len() * 4)
+                .code(&info.data);
+
+            unsafe { self.logical().create_shader_module(&info, None) }?
+        };
+
+        tracing::debug!(shader_module = ?handle, "created shader module");
+
+        Ok(ShaderModule::new(handle, info, self.downgrade()))
+    }
+
+    pub unsafe fn destroy_shader_module(&self, handle: vk::ShaderModule) {
+        self.inner.logical.destroy_shader_module(handle, None);
+    }
+
+    pub fn create_surface(&self, window: Arc<Window>) -> Result<Surface> {
+        let handle = self.graphics().create_raw_surface(&window)?;
+
+        tracing::debug!(surface = ?handle, "created surface");
+
+        Surface::new(handle, window, self)
+    }
 }
 
 impl std::fmt::Debug for Device {
@@ -370,9 +399,8 @@ impl PartialEq<WeakDevice> for &Device {
 struct Inner {
     logical: vulkanalia::Device,
     physical: vk::PhysicalDevice,
-    properties: Properties,
-    features: Features,
-    api_version: u32,
+    properties: DeviceProperties,
+    features: DeviceFeatures,
     allocator: Mutex<GpuAllocator<vk::DeviceMemory>>,
 }
 
@@ -414,8 +442,8 @@ impl Drop for Inner {
 }
 
 fn map_memory_device_properties(
-    propertis: &Properties,
-    features: &Features,
+    propertis: &DeviceProperties,
+    features: &DeviceFeatures,
 ) -> gpu_alloc::DeviceProperties<'static> {
     let memory = &propertis.memory;
     let limits = &propertis.v1_0.limits;

@@ -3,11 +3,11 @@ use shared::{FastHashMap, FastHashSet};
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::InstanceV1_1;
 
-use crate::queue::QueuesQuery;
+use crate::queue::{Queue, QueueFamily, QueuesQuery};
 use crate::Graphics;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum Feature {
+pub enum DeviceFeature {
     BufferDeviceAddress,
     DisplayTiming,
     ScalarBlockLayout,
@@ -17,8 +17,8 @@ pub enum Feature {
 #[derive(Debug)]
 pub struct PhysicalDevice {
     handle: vk::PhysicalDevice,
-    properties: Properties,
-    features: Features,
+    properties: DeviceProperties,
+    features: DeviceFeatures,
 }
 
 impl PhysicalDevice {
@@ -36,7 +36,19 @@ impl PhysicalDevice {
         unsafe { Graphics::get_unchecked() }
     }
 
-    pub fn create_device<Q>(self, features: &[Feature], queues: Q) -> Result<()>
+    pub fn properties(&self) -> &DeviceProperties {
+        &self.properties
+    }
+
+    pub fn features(&self) -> &DeviceFeatures {
+        &self.features
+    }
+
+    pub fn create_device<Q>(
+        self,
+        features: &[DeviceFeature],
+        queues: Q,
+    ) -> Result<(crate::device::Device, Q::Queues)>
     where
         Q: QueuesQuery,
     {
@@ -85,15 +97,17 @@ impl PhysicalDevice {
                 let ext = &ext.name;
                 let supported = supported_extensions.contains(ext);
                 anyhow::ensure!(supported, "extension {ext} is missing");
-                if extensions.contains(&ext.as_ptr()) {
+                if !extensions.contains(&ext.as_ptr()) {
                     extensions.push(ext.as_ptr());
                 }
                 Ok(())
             }
         };
 
-        let mut features_v1_0 = vk::PhysicalDeviceFeatures::builder();
+        let features_v1_0 = vk::PhysicalDeviceFeatures::builder();
+        let features_v1_1 = vk::PhysicalDeviceVulkan11Features::builder();
         let mut features_v1_2 = vk::PhysicalDeviceVulkan12Features::builder();
+        let features_v1_3 = vk::PhysicalDeviceVulkan13Features::builder();
         let mut features_sbl = vk::PhysicalDeviceScalarBlockLayoutFeatures::builder();
         let mut features_bda = vk::PhysicalDeviceBufferAddressFeaturesEXT::builder();
 
@@ -102,12 +116,12 @@ impl PhysicalDevice {
         let mut include_features_bda = false;
 
         // === Begin fill feature requirements ===
-        if requested_features.remove(&Feature::SurfacePresentation) {
+        if requested_features.remove(&DeviceFeature::SurfacePresentation) {
             require_ext(&vk::KHR_SWAPCHAIN_EXTENSION)
                 .context("SurfacePresentation feature is required but not supported")?;
         }
 
-        if requested_features.remove(&Feature::ScalarBlockLayout) {
+        if requested_features.remove(&DeviceFeature::ScalarBlockLayout) {
             anyhow::ensure!(
                 self.features.v1_2.scalar_block_layout != 0,
                 "ScalarBlockLayout feature is required but not supported"
@@ -118,7 +132,7 @@ impl PhysicalDevice {
             include_features_sbl = true;
         }
 
-        if requested_features.remove(&Feature::BufferDeviceAddress) {
+        if requested_features.remove(&DeviceFeature::BufferDeviceAddress) {
             anyhow::ensure!(
                 self.features.v1_2.buffer_device_address != 0,
                 "BufferDeviceAddress feature is required but not supported"
@@ -129,7 +143,7 @@ impl PhysicalDevice {
             include_features_bda = true;
         }
 
-        if requested_features.remove(&Feature::DisplayTiming) {
+        if requested_features.remove(&DeviceFeature::DisplayTiming) {
             require_ext(&vk::GOOGLE_DISPLAY_TIMING_EXTENSION)
                 .context("DisplayTiming feature is required but not supported")?;
         }
@@ -169,19 +183,58 @@ impl PhysicalDevice {
                 .join(", ")
         );
 
+        device_create_info = device_create_info.enabled_extension_names(&extensions);
+
         // Create device
-        let device = unsafe {
+        let logical = unsafe {
             graphics
                 .instance()
                 .create_device(self.handle, &device_create_info, None)?
         };
+        let device = crate::device::Device::new(
+            logical,
+            self.handle,
+            self.properties,
+            DeviceFeatures {
+                v1_0: features_v1_0.build(),
+                v1_1: features_v1_1.build(),
+                v1_2: features_v1_2.build(),
+                v1_3: features_v1_3.build(),
+            },
+        );
 
-        Ok(())
+        tracing::debug!(?device, "created device");
+
+        // Create queues
+        let queue_families = queue_families
+            .iter()
+            .map(|&(family_idx, count)| {
+                let capabilities = device.properties().queue_families[family_idx].queue_flags;
+
+                QueueFamily {
+                    capabilities,
+                    queues: (0..count)
+                        .map(|index| {
+                            let family_idx = family_idx as u32;
+                            let queue_idx = index as u32;
+                            let handle =
+                                unsafe { device.logical().get_device_queue(family_idx, queue_idx) };
+
+                            Queue::new(handle, family_idx, queue_idx, capabilities, device.clone())
+                        })
+                        .collect(),
+                }
+            })
+            .collect();
+
+        let queues = Q::collect(queues_query_state, queue_families);
+
+        Ok((device, queues))
     }
 }
 
 #[derive(Debug)]
-pub struct Properties {
+pub struct DeviceProperties {
     pub extensions: FastHashSet<vk::ExtensionName>,
     pub queue_families: Vec<vk::QueueFamilyProperties>,
     pub memory: vk::PhysicalDeviceMemoryProperties,
@@ -191,21 +244,21 @@ pub struct Properties {
     pub v1_3: vk::PhysicalDeviceVulkan13Properties,
 }
 
-unsafe impl Sync for Properties {}
-unsafe impl Send for Properties {}
+unsafe impl Sync for DeviceProperties {}
+unsafe impl Send for DeviceProperties {}
 
 #[derive(Debug)]
-pub struct Features {
+pub struct DeviceFeatures {
     pub v1_0: vk::PhysicalDeviceFeatures,
     pub v1_1: vk::PhysicalDeviceVulkan11Features,
     pub v1_2: vk::PhysicalDeviceVulkan12Features,
     pub v1_3: vk::PhysicalDeviceVulkan13Features,
 }
 
-unsafe impl Sync for Features {}
-unsafe impl Send for Features {}
+unsafe impl Sync for DeviceFeatures {}
+unsafe impl Send for DeviceFeatures {}
 
-unsafe fn collect_info(handle: vk::PhysicalDevice) -> (Properties, Features) {
+unsafe fn collect_info(handle: vk::PhysicalDevice) -> (DeviceProperties, DeviceFeatures) {
     let graphics = Graphics::get_unchecked();
     let instance = graphics.instance();
     let (vk1_1, vk1_2, vk1_3) = (graphics.vk1_1(), graphics.vk1_2(), graphics.vk1_3());
@@ -239,48 +292,52 @@ unsafe fn collect_info(handle: vk::PhysicalDevice) -> (Properties, Features) {
             .extensions()
             .contains(&vk::KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_EXTENSION.name)
     {
-        let mut properties2 = vk::PhysicalDeviceProperties2::builder();
-        let mut features2 = vk::PhysicalDeviceFeatures2::builder();
+        {
+            let mut properties2 = vk::PhysicalDeviceProperties2::builder();
+            let mut features2 = vk::PhysicalDeviceFeatures2::builder();
 
-        // Core properties and features
-        if vk1_1 {
-            properties2 = properties2.push_next(&mut properties_v1_1);
-            features2 = features2.push_next(&mut features_v1_1);
-        }
-        if vk1_2 {
-            properties2 = properties2.push_next(&mut properties_v1_2);
-            features2 = features2.push_next(&mut features_v1_2);
-        }
-        if vk1_3 {
-            properties2 = properties2.push_next(&mut properties_v1_3);
-            features2 = features2.push_next(&mut features_v1_3);
-        }
+            // Core properties and features
+            if vk1_1 {
+                properties2 = properties2.push_next(&mut properties_v1_1);
+                features2 = features2.push_next(&mut features_v1_1);
+            }
+            if vk1_2 {
+                properties2 = properties2.push_next(&mut properties_v1_2);
+                features2 = features2.push_next(&mut features_v1_2);
+            }
+            if vk1_3 {
+                properties2 = properties2.push_next(&mut properties_v1_3);
+                features2 = features2.push_next(&mut features_v1_3);
+            }
 
-        // Extension properties and features
-        if !vk1_1 && has_device_ext(&vk::KHR_MAINTENANCE3_EXTENSION) {
-            properties2 = properties2.push_next(&mut properties_mt3);
-        }
-        if !vk1_2 && has_device_ext(&vk::EXT_DESCRIPTOR_INDEXING_EXTENSION) {
-            properties2 = properties2.push_next(&mut properties_di);
-            features2 = features2.push_next(&mut features_di);
-        }
-        if !vk1_2 && has_device_ext(&vk::EXT_SCALAR_BLOCK_LAYOUT_EXTENSION) {
-            features2 = features2.push_next(&mut features_sbl);
-        }
-        if !vk1_2 && has_device_ext(&vk::KHR_BUFFER_DEVICE_ADDRESS_EXTENSION) {
-            features2 = features2.push_next(&mut features_bda);
-        }
+            // Extension properties and features
+            if !vk1_1 && has_device_ext(&vk::KHR_MAINTENANCE3_EXTENSION) {
+                properties2 = properties2.push_next(&mut properties_mt3);
+            }
+            if !vk1_2 && has_device_ext(&vk::EXT_DESCRIPTOR_INDEXING_EXTENSION) {
+                properties2 = properties2.push_next(&mut properties_di);
+                features2 = features2.push_next(&mut features_di);
+            }
+            if !vk1_2 && has_device_ext(&vk::EXT_SCALAR_BLOCK_LAYOUT_EXTENSION) {
+                features2 = features2.push_next(&mut features_sbl);
+            }
+            if !vk1_2 && has_device_ext(&vk::KHR_BUFFER_DEVICE_ADDRESS_EXTENSION) {
+                features2 = features2.push_next(&mut features_bda);
+            }
 
-        // Query extended info
-        instance.get_physical_device_properties2(handle, &mut properties2);
-        instance.get_physical_device_features2(handle, &mut features2);
+            // Query extended info
+            instance.get_physical_device_properties2(handle, &mut properties2);
+            instance.get_physical_device_features2(handle, &mut features2);
+
+            properties_v1_0 = properties2.properties;
+            features_v1_0 = features2.features;
+        }
 
         properties_di.next = std::ptr::null_mut();
         properties_mt3.next = std::ptr::null_mut();
         properties_v1_3.next = std::ptr::null_mut();
         properties_v1_2.next = std::ptr::null_mut();
         properties_v1_1.next = std::ptr::null_mut();
-        properties_v1_0 = properties2.properties;
 
         features_bda.next = std::ptr::null_mut();
         features_sbl.next = std::ptr::null_mut();
@@ -288,7 +345,6 @@ unsafe fn collect_info(handle: vk::PhysicalDevice) -> (Properties, Features) {
         features_v1_3.next = std::ptr::null_mut();
         features_v1_2.next = std::ptr::null_mut();
         features_v1_1.next = std::ptr::null_mut();
-        features_v1_0 = features2.features;
     } else {
         // Query basic info
         properties_v1_0 = instance.get_physical_device_properties(handle);
@@ -402,7 +458,7 @@ unsafe fn collect_info(handle: vk::PhysicalDevice) -> (Properties, Features) {
             features_bda.buffer_device_address_multi_device;
     }
 
-    let properties = Properties {
+    let properties = DeviceProperties {
         extensions,
         queue_families,
         memory: memory_properties,
@@ -411,7 +467,7 @@ unsafe fn collect_info(handle: vk::PhysicalDevice) -> (Properties, Features) {
         v1_2: properties_v1_2.build(),
         v1_3: properties_v1_3.build(),
     };
-    let features = Features {
+    let features = DeviceFeatures {
         v1_0: features_v1_0,
         v1_1: features_v1_1.build(),
         v1_2: features_v1_2.build(),

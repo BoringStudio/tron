@@ -13,6 +13,8 @@ use winit::raw_window_handle::{
     HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
 };
 
+use crate::PhysicalDevice;
+
 #[derive(Debug, Clone)]
 pub struct InstanceConfig {
     pub app_name: Cow<'static, str>,
@@ -176,7 +178,20 @@ impl Graphics {
         })
     }
 
-    pub fn create_surface<W>(&self, window: &W) -> Result<vk::SurfaceKHR>
+    pub fn config(&self) -> &InstanceConfig {
+        &self.config
+    }
+
+    pub fn get_physical_devices(&self) -> Result<Vec<PhysicalDevice>> {
+        let devices = unsafe { self.instance.enumerate_physical_devices() }?;
+
+        Ok(devices
+            .into_iter()
+            .map(|handle| unsafe { PhysicalDevice::new(handle) })
+            .collect())
+    }
+
+    pub(crate) fn create_raw_surface<W>(&self, window: &W) -> Result<vk::SurfaceKHR>
     where
         W: HasDisplayHandle + HasWindowHandle,
     {

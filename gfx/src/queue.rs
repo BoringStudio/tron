@@ -39,7 +39,7 @@ impl QueuesQuery for SingleQueueQuery {
         anyhow::bail!("queue not found {:?}", self.0);
     }
 
-    fn collect(state: Self::QueryState, mut families: Vec<QueueFamily>) -> Self::Queues {
+    fn collect(_state: Self::QueryState, mut families: Vec<QueueFamily>) -> Self::Queues {
         families.remove(0).queues.remove(0)
     }
 }
@@ -58,29 +58,29 @@ pub struct QueueId {
 pub struct Queue {
     handle: vk::Queue,
     id: QueueId,
-    capabilities: vk::QueueFlags,
+    _capabilities: vk::QueueFlags,
     device: crate::device::Device,
 
-    pool: vk::CommandPool,
+    _pool: vk::CommandPool,
 }
 
 impl Queue {
     pub fn new(
         handle: vk::Queue,
-        family_idx: usize,
-        queue_idx: usize,
+        family_idx: u32,
+        queue_idx: u32,
         capabilities: vk::QueueFlags,
         device: crate::device::Device,
     ) -> Self {
         Self {
             handle,
             id: QueueId {
-                family: family_idx as u32,
-                index: queue_idx as u32,
+                family: family_idx,
+                index: queue_idx,
             },
-            capabilities,
+            _capabilities: capabilities,
             device,
-            pool: vk::CommandPool::null(),
+            _pool: vk::CommandPool::null(),
         }
     }
 
