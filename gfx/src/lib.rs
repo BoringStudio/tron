@@ -3,8 +3,9 @@ pub use self::graphics::{Graphics, InstanceConfig};
 pub use self::physical_device::{DeviceFeature, DeviceFeatures, DeviceProperties, PhysicalDevice};
 pub use self::queue::{Queue, QueueFamily, QueueId, QueuesQuery, SingleQueueQuery};
 pub use self::resources::{
-    Buffer, BufferInfo, Fence, FenceState, Image, ImageExtent, ImageInfo, MappableBuffer, Samples,
-    Semaphore,
+    Buffer, BufferInfo, ComponentMapping, Fence, FenceState, FormatExt, Image, ImageExtent,
+    ImageInfo, ImageView, ImageViewInfo, ImageViewType, MappableBuffer, Samples, Semaphore,
+    ShaderModule, ShaderModuleInfo, Swizzle,
 };
 pub use self::surface::{Surface, SurfaceImage, SwapchainSupport};
 

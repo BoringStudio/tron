@@ -22,7 +22,7 @@ pub struct PhysicalDevice {
 }
 
 impl PhysicalDevice {
-    pub unsafe fn new(handle: vk::PhysicalDevice) -> Self {
+    pub(crate) unsafe fn new(handle: vk::PhysicalDevice) -> Self {
         let (properties, features) = collect_info(handle);
         PhysicalDevice {
             handle,

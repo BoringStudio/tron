@@ -113,8 +113,7 @@ impl Surface {
             self.swapchain_support
                 .present_modes
                 .iter()
-                .find(|item| **item == mode)
-                .is_some(),
+                .any(|item| *item == mode),
             "present mode {mode:?} is not supported"
         );
 
@@ -175,7 +174,7 @@ impl Surface {
                     format,
                     mip_levels: 1,
                     samples: Samples::_1,
-                    layers: 1,
+                    array_layers: 1,
                     usage,
                 };
                 let id = IMAGE_ID.fetch_add(1, Ordering::Relaxed).try_into().unwrap();
@@ -447,4 +446,4 @@ impl SwapchainSupport {
     }
 }
 
-const IMAGE_ID: AtomicU64 = AtomicU64::new(1);
+static IMAGE_ID: AtomicU64 = AtomicU64::new(1);

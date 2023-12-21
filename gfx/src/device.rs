@@ -12,8 +12,8 @@ use winit::window::Window;
 use crate::graphics::Graphics;
 use crate::physical_device::{DeviceFeatures, DeviceProperties};
 use crate::resources::{
-    Buffer, BufferInfo, Fence, FenceState, MappableBuffer, Semaphore, ShaderModule,
-    ShaderModuleInfo,
+    Buffer, BufferInfo, Fence, FenceState, Image, ImageInfo, ImageView, ImageViewInfo,
+    MappableBuffer, Semaphore, ShaderModule, ShaderModuleInfo,
 };
 use crate::surface::Surface;
 use crate::types::DeviceAddress;
@@ -121,7 +121,7 @@ impl Device {
         Ok(Semaphore::new(handle, self.downgrade()))
     }
 
-    pub unsafe fn destroy_semaphore(&self, handle: vk::Semaphore) {
+    pub(crate) unsafe fn destroy_semaphore(&self, handle: vk::Semaphore) {
         self.inner.logical.destroy_semaphore(handle, None);
     }
 
@@ -136,7 +136,7 @@ impl Device {
         Ok(Fence::new(handle, self.downgrade()))
     }
 
-    pub unsafe fn destroy_fence(&self, handle: vk::Fence) {
+    pub(crate) unsafe fn destroy_fence(&self, handle: vk::Fence) {
         self.inner.logical.destroy_fence(handle, None);
     }
 
@@ -158,7 +158,7 @@ impl Device {
             .iter_mut()
             .map(|fence| {
                 if matches!(fence.state(), FenceState::Armed { .. }) {
-                    match self.update_armed_fence_state(*fence) {
+                    match self.update_armed_fence_state(fence) {
                         // Signalled -> ok
                         Ok(true) => {}
                         // Armed and not signalled yet -> error
@@ -215,6 +215,14 @@ impl Device {
         // TODO: update epochs
 
         Ok(())
+    }
+
+    pub fn create_surface(&self, window: Arc<Window>) -> Result<Surface> {
+        let handle = self.graphics().create_raw_surface(&window)?;
+
+        tracing::debug!(surface = ?handle, "created surface");
+
+        Surface::new(handle, window, self)
     }
 
     pub fn create_buffer(&self, info: BufferInfo) -> Result<Buffer> {
@@ -318,7 +326,11 @@ impl Device {
         ))
     }
 
-    pub unsafe fn destroy_buffer(&self, handle: vk::Buffer, block: MemoryBlock<vk::DeviceMemory>) {
+    pub(crate) unsafe fn destroy_buffer(
+        &self,
+        handle: vk::Buffer,
+        block: MemoryBlock<vk::DeviceMemory>,
+    ) {
         self.inner
             .allocator
             .lock()
@@ -328,7 +340,75 @@ impl Device {
         self.inner.logical.destroy_buffer(handle, None);
     }
 
-    pub unsafe fn destroy_image(&self, handle: vk::Image, block: MemoryBlock<vk::DeviceMemory>) {
+    pub fn create_image(&self, info: ImageInfo) -> Result<Image> {
+        let logical = &self.inner.logical;
+
+        let handle = {
+            let info = vk::ImageCreateInfo::builder()
+                .image_type(info.extent.into())
+                .format(info.format)
+                .extent(vk::Extent3D::from(info.extent))
+                .mip_levels(info.mip_levels)
+                .samples(info.samples.into())
+                .array_layers(info.array_layers)
+                .tiling(vk::ImageTiling::OPTIMAL)
+                .usage(info.usage)
+                .sharing_mode(vk::SharingMode::EXCLUSIVE)
+                .initial_layout(vk::ImageLayout::UNDEFINED);
+
+            unsafe { logical.create_image(&info, None) }?
+        }
+        .with_defer(|image| unsafe { logical.destroy_image(image, None) });
+
+        let mut dedicated = vk::MemoryDedicatedRequirements::builder();
+        let mut reqs = vk::MemoryRequirements2::builder().push_next(&mut dedicated);
+        if self.graphics().vk1_1() {
+            let info = vk::ImageMemoryRequirementsInfo2::builder().image(*handle);
+            unsafe { logical.get_image_memory_requirements2(&info, &mut reqs) }
+        } else {
+            reqs.memory_requirements = unsafe { logical.get_image_memory_requirements(*handle) };
+        }
+
+        debug_assert!(reqs.memory_requirements.alignment.is_power_of_two());
+
+        let block = {
+            let request = gpu_alloc::Request {
+                size: reqs.memory_requirements.size,
+                align_mask: reqs.memory_requirements.alignment - 1,
+                usage: gpu_alloc::UsageFlags::empty(),
+                memory_types: reqs.memory_requirements.memory_type_bits,
+            };
+
+            let dedicated = if dedicated.requires_dedicated_allocation != 0 {
+                Some(gpu_alloc::Dedicated::Required)
+            } else if dedicated.prefers_dedicated_allocation != 0 {
+                Some(gpu_alloc::Dedicated::Preferred)
+            } else {
+                None
+            };
+
+            let logical = logical.as_memory_device();
+            let mut allocator = self.inner.allocator.lock().unwrap();
+            unsafe {
+                match dedicated {
+                    None => allocator.alloc(logical, request),
+                    Some(dedicated) => allocator.alloc_with_dedicated(logical, request, dedicated),
+                }
+            }
+        }?;
+
+        unsafe { logical.bind_image_memory(*handle, *block.memory(), block.offset())? };
+
+        tracing::debug!(image = ?*handle, "created image");
+
+        Ok(Image::new(handle.disarm(), info, self.downgrade(), block))
+    }
+
+    pub(crate) unsafe fn destroy_image(
+        &self,
+        handle: vk::Image,
+        block: MemoryBlock<vk::DeviceMemory>,
+    ) {
         self.inner
             .allocator
             .lock()
@@ -336,6 +416,36 @@ impl Device {
             .dealloc(self.inner.logical.as_memory_device(), block);
 
         self.inner.logical.destroy_image(handle, None)
+    }
+
+    pub fn create_image_view(&self, info: ImageViewInfo) -> Result<ImageView> {
+        let logical = &self.inner.logical;
+
+        let handle = {
+            let info = vk::ImageViewCreateInfo::builder()
+                .image(info.image.handle())
+                .format(info.image.info().format)
+                .view_type(info.ty.into())
+                .subresource_range(
+                    vk::ImageSubresourceRange::builder()
+                        .aspect_mask(info.range.aspect_mask)
+                        .base_mip_level(info.range.base_mip_level)
+                        .level_count(info.range.level_count)
+                        .base_array_layer(info.range.base_array_layer)
+                        .layer_count(info.range.layer_count),
+                )
+                .components(vk::ComponentMapping::from(info.mapping));
+
+            unsafe { logical.create_image_view(&info, None) }?
+        };
+
+        tracing::debug!(image_view = ?handle, "created image view");
+
+        Ok(ImageView::new(handle, info, self.downgrade()))
+    }
+
+    pub(crate) unsafe fn destroy_image_view(&self, handle: vk::ImageView) {
+        self.inner.logical.destroy_image_view(handle, None);
     }
 
     pub fn create_shader_module(&self, info: ShaderModuleInfo) -> Result<ShaderModule> {
@@ -352,16 +462,8 @@ impl Device {
         Ok(ShaderModule::new(handle, info, self.downgrade()))
     }
 
-    pub unsafe fn destroy_shader_module(&self, handle: vk::ShaderModule) {
+    pub(crate) unsafe fn destroy_shader_module(&self, handle: vk::ShaderModule) {
         self.inner.logical.destroy_shader_module(handle, None);
-    }
-
-    pub fn create_surface(&self, window: Arc<Window>) -> Result<Surface> {
-        let handle = self.graphics().create_raw_surface(&window)?;
-
-        tracing::debug!(surface = ?handle, "created surface");
-
-        Surface::new(handle, window, self)
     }
 }
 

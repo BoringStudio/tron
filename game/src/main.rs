@@ -1,3 +1,5 @@
+#![allow(clippy::redundant_closure_call)]
+
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -81,6 +83,7 @@ impl App {
                             minimized = true;
                         } else {
                             minimized = false;
+                            // TODO: update window?
                         }
                     }
                     WindowEvent::CloseRequested => {

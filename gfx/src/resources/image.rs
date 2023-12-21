@@ -55,6 +55,16 @@ impl From<ImageExtent> for vk::Extent3D {
     }
 }
 
+impl From<ImageExtent> for vk::ImageType {
+    fn from(value: ImageExtent) -> Self {
+        match value {
+            ImageExtent::D1 { .. } => Self::_1D,
+            ImageExtent::D2 { .. } => Self::_2D,
+            ImageExtent::D3 { .. } => Self::_3D,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Samples {
     _1,
@@ -86,7 +96,7 @@ pub struct ImageInfo {
     pub format: vk::Format,
     pub mip_levels: u32,
     pub samples: Samples,
-    pub layers: u32,
+    pub array_layers: u32,
     pub usage: vk::ImageUsageFlags,
 }
 
@@ -97,7 +107,25 @@ pub struct Image {
 }
 
 impl Image {
-    pub fn new_surface(
+    pub(crate) fn new(
+        handle: vk::Image,
+        info: ImageInfo,
+        owner: WeakDevice,
+        block: gpu_alloc::MemoryBlock<vk::DeviceMemory>,
+    ) -> Self {
+        Self {
+            info,
+            inner: Arc::new(Inner {
+                handle,
+                owner,
+                source: ImageSource::Device {
+                    memory_block: ManuallyDrop::new(block),
+                },
+            }),
+        }
+    }
+
+    pub(crate) fn new_surface(
         handle: vk::Image,
         info: ImageInfo,
         owner: WeakDevice,
