@@ -258,6 +258,7 @@ impl Surface {
             handle: swapchain.handle,
             supported_families: &self.swapchain_support.supported_families,
             image: &image_state.image,
+            index,
             wait: &mut image_state.acquire,
             signal: &mut image_state.release,
             optimal: swapchain.optimal,
@@ -293,6 +294,7 @@ pub struct SurfaceImage<'a> {
     handle: vk::SwapchainKHR,
     supported_families: &'a [bool],
     image: &'a Image,
+    index: u32,
     wait: &'a mut Semaphore,
     signal: &'a mut Semaphore,
     optimal: bool,
@@ -300,7 +302,11 @@ pub struct SurfaceImage<'a> {
 }
 
 impl<'a> SurfaceImage<'a> {
-    pub fn handle(&self) -> vk::SwapchainKHR {
+    pub(crate) fn consume(mut self) {
+        self.used = true;
+    }
+
+    pub(crate) fn swapchain_handle(&self) -> vk::SwapchainKHR {
         self.handle
     }
 
@@ -312,16 +318,16 @@ impl<'a> SurfaceImage<'a> {
         self.image
     }
 
+    pub fn index(&self) -> u32 {
+        self.index
+    }
+
     pub fn wait_signal(&mut self) -> [&mut Semaphore; 2] {
         [&mut *self.wait, &mut *self.signal]
     }
 
     pub fn is_optimal(&self) -> bool {
         self.optimal
-    }
-
-    pub fn consume(mut self) {
-        self.used = true;
     }
 }
 

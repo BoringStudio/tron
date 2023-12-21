@@ -51,7 +51,7 @@ impl App {
 
         let graphics = gfx::Graphics::get_or_init()?;
         let physical = graphics.get_physical_devices()?.find_best()?;
-        let (device, _queue) = physical.create_device(
+        let (device, mut queue) = physical.create_device(
             &[gfx::DeviceFeature::SurfacePresentation],
             gfx::SingleQueueQuery::GRAPHICS,
         )?;
@@ -62,6 +62,7 @@ impl App {
         tracing::debug!("starting event loop");
 
         let mut minimized = false;
+        let mut non_optimal_count = 0;
         event_loop.run(move |event, elwt| {
             // elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
@@ -70,9 +71,28 @@ impl App {
                 Event::WindowEvent { event, .. } => match event {
                     WindowEvent::RedrawRequested if !elwt.exiting() && !minimized => {
                         (|| -> anyhow::Result<()> {
-                            // let mut image = surface.aquire_image()?;
+                            let mut image = surface.aquire_image()?;
 
-                            // let [wait, signal] = image.wait_signal();
+                            // TODO: record and submit buffer
+
+                            let [wait, signal] = image.wait_signal();
+                            std::mem::swap(wait, signal); // temp
+
+                            let mut is_optimal = image.is_optimal();
+                            match queue.present(image)? {
+                                gfx::PresentStatus::Ok => {}
+                                gfx::PresentStatus::Suboptimal => is_optimal = false,
+                                gfx::PresentStatus::OutOfDate => {
+                                    is_optimal = false;
+                                    non_optimal_count += NON_OPTIMAL_LIMIT;
+                                }
+                            }
+
+                            non_optimal_count += !is_optimal as u32;
+                            if non_optimal_count >= NON_OPTIMAL_LIMIT {
+                                surface.update()?;
+                                non_optimal_count = 0;
+                            }
 
                             Ok(())
                         })()
@@ -137,3 +157,5 @@ impl PhysicalDevicesExt for Vec<gfx::PhysicalDevice> {
         Ok(self.swap_remove(index))
     }
 }
+
+const NON_OPTIMAL_LIMIT: u32 = 100u32;

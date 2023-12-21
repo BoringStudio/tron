@@ -1,5 +1,8 @@
 use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
+use vulkanalia::vk::KhrSwapchainExtension;
+
+use crate::surface::SurfaceImage;
 
 pub trait QueuesQuery {
     type QueryState;
@@ -92,4 +95,47 @@ impl Queue {
         unsafe { self.device.logical().queue_wait_idle(self.handle) }?;
         Ok(())
     }
+
+    pub fn present(&mut self, mut image: SurfaceImage<'_>) -> Result<PresentStatus> {
+        anyhow::ensure!(
+            image
+                .supported_families()
+                .get(self.id.family as usize)
+                .copied()
+                .unwrap_or_default(),
+            "queue family {} does not support presentation to surface",
+            self.id.family
+        );
+
+        let [_, signal] = image.wait_signal();
+
+        let res = {
+            let logical = self.device.logical();
+            unsafe {
+                logical.queue_present_khr(
+                    self.handle,
+                    &vk::PresentInfoKHR::builder()
+                        .wait_semaphores(&[signal.handle()])
+                        .swapchains(&[image.swapchain_handle()])
+                        .image_indices(&[image.index()]),
+                )
+            }
+        };
+
+        image.consume();
+
+        match res {
+            Ok(vk::SuccessCode::SUBOPTIMAL_KHR) => Ok(PresentStatus::Suboptimal),
+            Ok(_) => Ok(PresentStatus::Ok),
+            Err(vk::ErrorCode::OUT_OF_DATE_KHR) => Ok(PresentStatus::OutOfDate),
+            Err(e) => anyhow::bail!(e),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum PresentStatus {
+    Ok,
+    Suboptimal,
+    OutOfDate,
 }

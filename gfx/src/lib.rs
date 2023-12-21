@@ -1,7 +1,7 @@
 pub use self::device::{Device, WeakDevice};
 pub use self::graphics::{Graphics, InstanceConfig};
 pub use self::physical_device::{DeviceFeature, DeviceFeatures, DeviceProperties, PhysicalDevice};
-pub use self::queue::{Queue, QueueFamily, QueueId, QueuesQuery, SingleQueueQuery};
+pub use self::queue::{PresentStatus, Queue, QueueFamily, QueueId, QueuesQuery, SingleQueueQuery};
 pub use self::resources::{
     Buffer, BufferInfo, ComponentMapping, Fence, FenceState, FormatExt, Image, ImageExtent,
     ImageInfo, ImageView, ImageViewInfo, ImageViewType, MappableBuffer, Samples, Semaphore,
