@@ -12,8 +12,9 @@ use winit::window::Window;
 use crate::graphics::Graphics;
 use crate::physical_device::{DeviceFeatures, DeviceProperties};
 use crate::resources::{
-    Buffer, BufferInfo, Fence, FenceState, Image, ImageInfo, ImageView, ImageViewInfo,
-    MappableBuffer, Semaphore, ShaderModule, ShaderModuleInfo,
+    Buffer, BufferInfo, Fence, FenceState, Framebuffer, FramebufferInfo, Image, ImageInfo,
+    ImageView, ImageViewInfo, ImageViewType, MappableBuffer, RenderPass, RenderPassInfo, Semaphore,
+    ShaderModule, ShaderModuleInfo,
 };
 use crate::surface::Surface;
 use crate::types::DeviceAddress;
@@ -464,6 +465,151 @@ impl Device {
 
     pub(crate) unsafe fn destroy_shader_module(&self, handle: vk::ShaderModule) {
         self.inner.logical.destroy_shader_module(handle, None);
+    }
+
+    pub fn create_render_pass(&self, info: RenderPassInfo) -> Result<RenderPass> {
+        let mut subpass_attachments = Vec::new();
+
+        let mut subpasses = SmallVec::<[_; 4]>::with_capacity(info.subpasses.len());
+        for (subpass_index, subpass) in info.subpasses.iter().enumerate() {
+            let color_offset = subpass_attachments.len();
+            subpass_attachments.reserve(subpass.colors.len() + subpass.depth.is_some() as usize);
+
+            for (color_index, &(i, layout)) in subpass.colors.iter().enumerate() {
+                anyhow::ensure!(
+                    (i as usize) < info.attachments.len(),
+                    "attachment index {i} is out of bounds for the color input {color_index} \
+                    in the subpass {subpass_index}"
+                );
+                subpass_attachments.push(
+                    vk::AttachmentReference::builder()
+                        .attachment(i)
+                        .layout(layout.into()),
+                );
+            }
+
+            let depths_offset = subpass_attachments.len();
+            if let Some((i, layout)) = subpass.depth {
+                anyhow::ensure!(
+                    (i as usize) < info.attachments.len(),
+                    "attachment index {i} is out of bounds for the depths input \
+                    in the subpass {subpass_index}"
+                );
+                subpass_attachments.push(
+                    vk::AttachmentReference::builder()
+                        .attachment(i)
+                        .layout(layout.into()),
+                );
+            }
+
+            subpasses.push((color_offset, depths_offset));
+        }
+        let subpasses = info
+            .subpasses
+            .iter()
+            .zip(subpasses)
+            .into_iter()
+            .map(|(subpass, (color_offset, depths_offset))| {
+                let descr = vk::SubpassDescription::builder()
+                    .color_attachments(&subpass_attachments[color_offset..depths_offset]);
+                if subpass.depth.is_some() {
+                    descr.depth_stencil_attachment(&subpass_attachments[depths_offset])
+                } else {
+                    descr
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let attachments = info
+            .attachments
+            .iter()
+            .map(|info| {
+                vk::AttachmentDescription::builder()
+                    .format(info.format)
+                    .load_op(info.load_op.into())
+                    .store_op(info.store_op.into())
+                    .initial_layout(
+                        info.initial_layout
+                            .map(Into::into)
+                            .unwrap_or(vk::ImageLayout::UNDEFINED),
+                    )
+                    .final_layout(info.final_layout.into())
+                    .samples(vk::SampleCountFlags::_1)
+            })
+            .collect::<Vec<_>>();
+
+        let dependencies = info
+            .dependencies
+            .iter()
+            .map(|info| {
+                vk::SubpassDependency::builder()
+                    .src_subpass(info.src.unwrap_or(vk::SUBPASS_EXTERNAL))
+                    .dst_subpass(info.dst.unwrap_or(vk::SUBPASS_EXTERNAL))
+                    .src_stage_mask(info.src_stages)
+                    .dst_stage_mask(info.dst_stages)
+                    .build()
+            })
+            .collect::<Vec<_>>();
+
+        let handle = {
+            let info = vk::RenderPassCreateInfo::builder()
+                .attachments(&attachments)
+                .subpasses(&subpasses)
+                .dependencies(&dependencies);
+
+            unsafe { self.logical().create_render_pass(&info, None) }?
+        };
+
+        tracing::debug!(render_pass = ?handle, "created render pass");
+
+        Ok(RenderPass::new(handle, info, self.downgrade()))
+    }
+
+    pub(crate) unsafe fn destroy_render_pass(&self, handle: vk::RenderPass) {
+        self.logical().destroy_render_pass(handle, None);
+    }
+
+    pub fn create_framebuffer(&self, info: FramebufferInfo) -> Result<Framebuffer> {
+        anyhow::ensure!(
+            info.attachments
+                .iter()
+                .all(|view| view.info().ty == ImageViewType::D2),
+            "all image views must be 2d images"
+        );
+
+        anyhow::ensure!(
+            info.attachments.iter().all(|view| {
+                let extent: vk::Extent2D = view.info().image.info().extent.into();
+                extent.width >= info.extent.width && extent.height >= info.extent.height
+            }),
+            "all image views must have at least the framebuffer extent"
+        );
+
+        let render_pass = info.render_pass.handle();
+        let attachments = info
+            .attachments
+            .iter()
+            .map(ImageView::handle)
+            .collect::<SmallVec<[_; 8]>>();
+
+        let handle = {
+            let info = vk::FramebufferCreateInfo::builder()
+                .render_pass(render_pass)
+                .attachments(&attachments)
+                .width(info.extent.width)
+                .height(info.extent.height)
+                .layers(1);
+
+            unsafe { self.logical().create_framebuffer(&info, None) }?
+        };
+
+        tracing::debug!(framebuffer = ?handle, "created framebuffer");
+
+        Ok(Framebuffer::new(handle, info, self.downgrade()))
+    }
+
+    pub(crate) unsafe fn destroy_framebuffer(&self, handle: vk::Framebuffer) {
+        self.logical().destroy_framebuffer(handle, None);
     }
 }
 

@@ -9,7 +9,7 @@ pub enum FenceState {
     #[default]
     Unsignalled,
     Armed {
-        queue: QueueId,
+        queue_id: QueueId,
         epoch: u64,
     },
     Signalled,
@@ -48,13 +48,13 @@ impl Fence {
 
     pub fn set_armed(
         &mut self,
-        queue: QueueId,
+        queue_id: QueueId,
         epoch: u64,
         device: &crate::device::Device,
     ) -> Result<()> {
         match &self.state {
             FenceState::Unsignalled => {
-                self.state = FenceState::Armed { queue, epoch };
+                self.state = FenceState::Armed { queue_id, epoch };
                 Ok(())
             }
             FenceState::Armed { .. } => {
@@ -62,7 +62,7 @@ impl Fence {
                 anyhow::ensure!(signalled, "trying to arm an already armed fence");
 
                 // TODO: update previous epoch
-                self.state = FenceState::Armed { queue, epoch };
+                self.state = FenceState::Armed { queue_id, epoch };
                 Ok(())
             }
             FenceState::Signalled => {
@@ -74,7 +74,10 @@ impl Fence {
     pub fn set_signalled(&mut self) -> Result<Option<(QueueId, u64)>> {
         match self.state {
             FenceState::Unsignalled => anyhow::bail!("signalling an unarmed fence"),
-            FenceState::Armed { queue, epoch } => {
+            FenceState::Armed {
+                queue_id: queue,
+                epoch,
+            } => {
                 self.state = FenceState::Signalled;
                 Ok(Some((queue, epoch)))
             }

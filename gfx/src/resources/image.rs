@@ -39,6 +39,18 @@ impl From<vk::Extent3D> for ImageExtent {
     }
 }
 
+impl From<ImageExtent> for vk::Extent2D {
+    fn from(value: ImageExtent) -> Self {
+        let e = vk::Extent2D::builder();
+        match value {
+            ImageExtent::D1 { width } => e.width(width),
+            ImageExtent::D2 { width, height } => e.width(width).height(height),
+            ImageExtent::D3 { width, height, .. } => e.width(width).height(height),
+        }
+        .build()
+    }
+}
+
 impl From<ImageExtent> for vk::Extent3D {
     fn from(value: ImageExtent) -> Self {
         let e = vk::Extent3D::builder();
@@ -86,6 +98,33 @@ impl From<Samples> for vk::SampleCountFlags {
             Samples::_16 => vk::SampleCountFlags::_16,
             Samples::_32 => vk::SampleCountFlags::_32,
             Samples::_64 => vk::SampleCountFlags::_64,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum ImageLayout {
+    General,
+    ColorAttachmentOptimal,
+    DepthStencilAttachmentOptimal,
+    DepthStencilReadOnlyOptimal,
+    ShaderReadOnlyOptimal,
+    TransferSrcOptimal,
+    TransferDstOptimal,
+    Present,
+}
+
+impl From<ImageLayout> for vk::ImageLayout {
+    fn from(value: ImageLayout) -> Self {
+        match value {
+            ImageLayout::General => Self::GENERAL,
+            ImageLayout::ColorAttachmentOptimal => Self::COLOR_ATTACHMENT_OPTIMAL,
+            ImageLayout::DepthStencilAttachmentOptimal => Self::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            ImageLayout::DepthStencilReadOnlyOptimal => Self::DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+            ImageLayout::ShaderReadOnlyOptimal => Self::SHADER_READ_ONLY_OPTIMAL,
+            ImageLayout::TransferSrcOptimal => Self::TRANSFER_SRC_OPTIMAL,
+            ImageLayout::TransferDstOptimal => Self::TRANSFER_DST_OPTIMAL,
+            ImageLayout::Present => Self::PRESENT_SRC_KHR,
         }
     }
 }
