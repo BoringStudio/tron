@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
+use glam::Vec4;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::device::WeakDevice;
-use crate::resources::{ImageLayout, Samples};
+use crate::resources::{Format, ImageLayout, Samples};
 
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum LoadOp<T = ()> {
@@ -41,9 +42,52 @@ impl From<StoreOp> for vk::AttachmentStoreOp {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ClearValue {
+    Color(Vec4),
+    DepthStencil(f32, u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ClearColor(f32, f32, f32, f32);
+
+impl From<ClearColor> for Vec4 {
+    #[inline]
+    fn from(ClearColor(r, g, b, a): ClearColor) -> Self {
+        Self::new(r, g, b, a)
+    }
+}
+
+impl From<ClearColor> for ClearValue {
+    #[inline]
+    fn from(value: ClearColor) -> Self {
+        Self::Color(value.into())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ClearDepth(pub f32);
+
+impl From<ClearDepth> for ClearValue {
+    #[inline]
+    fn from(value: ClearDepth) -> Self {
+        Self::DepthStencil(value.0, 0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ClearDepthStencil(pub f32, pub u32);
+
+impl From<ClearDepthStencil> for ClearValue {
+    #[inline]
+    fn from(value: ClearDepthStencil) -> Self {
+        Self::DepthStencil(value.0, value.1)
+    }
+}
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct AttachmentInfo {
-    pub format: vk::Format,
+    pub format: Format,
     pub samples: Samples,
     pub load_op: LoadOp,
     pub store_op: StoreOp,

@@ -4,7 +4,7 @@ use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::device::{Device, WeakDevice};
-use crate::resources::{FormatExt, Image, ImageExtent, ImageInfo};
+use crate::resources::{Image, ImageExtent, ImageInfo};
 
 pub trait MakeImageView {
     fn make_image_view(&self, device: &Device) -> Result<ImageView>;

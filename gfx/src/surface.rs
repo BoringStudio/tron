@@ -9,7 +9,7 @@ use vulkanalia::vk::{KhrSurfaceExtension, KhrSwapchainExtension};
 use winit::window::Window;
 
 use crate::device::WeakDevice;
-use crate::resources::{Image, ImageInfo, Samples, Semaphore};
+use crate::resources::{Format, Image, ImageInfo, Samples, Semaphore};
 
 pub struct Surface {
     window: Arc<Window>,
@@ -65,24 +65,20 @@ impl Surface {
     }
 
     pub fn configure(&mut self) -> Result<()> {
-        let surface_format = self
+        let format = self
             .swapchain_support
             .find_best_surface_format()
             .context("no suitable surface format found")?;
 
         let mode = self.swapchain_support.find_best_present_mode();
 
-        self.configure_ext(
-            vk::ImageUsageFlags::COLOR_ATTACHMENT,
-            surface_format.format,
-            mode,
-        )
+        self.configure_ext(vk::ImageUsageFlags::COLOR_ATTACHMENT, format, mode)
     }
 
     pub fn configure_ext(
         &mut self,
         usage: vk::ImageUsageFlags,
-        format: vk::Format,
+        format: Format,
         mode: vk::PresentModeKHR,
     ) -> Result<()> {
         let device = self.owner.upgrade().context("device was already dropped")?;
@@ -106,7 +102,7 @@ impl Surface {
             .swapchain_support
             .surface_formats
             .iter()
-            .find(|item| item.format == format)
+            .find(|item| Format::from_vk(item.format) == Some(format))
             .with_context(|| format!("surface format {format:?} is not supported"))?;
 
         anyhow::ensure!(
@@ -341,7 +337,7 @@ impl Drop for SurfaceImage<'_> {
 
 struct Swapchain {
     handle: vk::SwapchainKHR,
-    format: vk::Format,
+    format: Format,
     usage: vk::ImageUsageFlags,
     mode: vk::PresentModeKHR,
     images: Vec<SwapchainImageState>,
@@ -401,20 +397,27 @@ impl SwapchainSupport {
         })
     }
 
-    pub fn find_best_surface_format(&self) -> Option<vk::SurfaceFormatKHR> {
-        const TARGET: vk::Format = vk::Format::B8G8R8A8_SRGB;
+    pub fn find_best_surface_format(&self) -> Option<Format> {
+        const TARGET: Format = Format::BGRA8Srgb;
         const COLOR_SPACE: vk::ColorSpaceKHR = vk::ColorSpaceKHR::SRGB_NONLINEAR;
 
         let mut alternative_target = None;
         for &item in &self.surface_formats {
-            if item.format == TARGET && item.color_space == COLOR_SPACE {
-                return Some(item);
+            let Some(format) = Format::from_vk(item.format) else {
+                continue;
+            };
+
+            if format == TARGET && item.color_space == COLOR_SPACE {
+                return Some(format);
             } else if alternative_target.is_none() && item.color_space == COLOR_SPACE {
-                alternative_target = Some(item);
+                alternative_target = Some(format);
             }
         }
 
-        alternative_target.or(self.surface_formats.first().copied())
+        alternative_target.or(self
+            .surface_formats
+            .iter()
+            .find_map(|item| Format::from_vk(item.format)))
     }
 
     pub fn find_best_present_mode(&self) -> vk::PresentModeKHR {

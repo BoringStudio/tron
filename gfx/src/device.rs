@@ -347,7 +347,7 @@ impl Device {
         let handle = {
             let info = vk::ImageCreateInfo::builder()
                 .image_type(info.extent.into())
-                .format(info.format)
+                .format(info.format.into())
                 .extent(vk::Extent3D::from(info.extent))
                 .mip_levels(info.mip_levels)
                 .samples(info.samples.into())
@@ -425,7 +425,7 @@ impl Device {
         let handle = {
             let info = vk::ImageViewCreateInfo::builder()
                 .image(info.image.handle())
-                .format(info.image.info().format)
+                .format(info.image.info().format.into())
                 .view_type(info.ty.into())
                 .subresource_range(
                     vk::ImageSubresourceRange::builder()
@@ -525,7 +525,7 @@ impl Device {
             .iter()
             .map(|info| {
                 vk::AttachmentDescription::builder()
-                    .format(info.format)
+                    .format(info.format.into())
                     .load_op(info.load_op.into())
                     .store_op(info.store_op.into())
                     .initial_layout(

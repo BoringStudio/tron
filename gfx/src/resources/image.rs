@@ -2,6 +2,7 @@ use std::mem::ManuallyDrop;
 use std::num::NonZeroU64;
 use std::sync::Arc;
 
+use glam::{UVec2, UVec3};
 use gpu_alloc::MemoryBlock;
 use vulkanalia::prelude::v1_0::*;
 
@@ -29,12 +30,31 @@ impl From<vk::Extent2D> for ImageExtent {
     }
 }
 
+impl From<UVec2> for ImageExtent {
+    fn from(value: UVec2) -> Self {
+        Self::D2 {
+            width: value.x,
+            height: value.y,
+        }
+    }
+}
+
 impl From<vk::Extent3D> for ImageExtent {
     fn from(value: vk::Extent3D) -> Self {
         Self::D3 {
             width: value.width,
             height: value.height,
             depth: value.depth,
+        }
+    }
+}
+
+impl From<UVec3> for ImageExtent {
+    fn from(value: UVec3) -> Self {
+        Self::D3 {
+            width: value.x,
+            height: value.y,
+            depth: value.z,
         }
     }
 }
@@ -51,6 +71,16 @@ impl From<ImageExtent> for vk::Extent2D {
     }
 }
 
+impl From<ImageExtent> for UVec2 {
+    fn from(value: ImageExtent) -> Self {
+        match value {
+            ImageExtent::D1 { width } => UVec2::new(width, 0),
+            ImageExtent::D2 { width, height } => UVec2::new(width, height),
+            ImageExtent::D3 { width, height, .. } => UVec2::new(width, height),
+        }
+    }
+}
+
 impl From<ImageExtent> for vk::Extent3D {
     fn from(value: ImageExtent) -> Self {
         let e = vk::Extent3D::builder();
@@ -64,6 +94,20 @@ impl From<ImageExtent> for vk::Extent3D {
             } => e.width(width).height(height).depth(depth),
         }
         .build()
+    }
+}
+
+impl From<ImageExtent> for UVec3 {
+    fn from(value: ImageExtent) -> Self {
+        match value {
+            ImageExtent::D1 { width } => UVec3::new(width, 0, 0),
+            ImageExtent::D2 { width, height } => UVec3::new(width, height, 0),
+            ImageExtent::D3 {
+                width,
+                height,
+                depth,
+            } => UVec3::new(width, height, depth),
+        }
     }
 }
 
@@ -132,7 +176,7 @@ impl From<ImageLayout> for vk::ImageLayout {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ImageInfo {
     pub extent: ImageExtent,
-    pub format: vk::Format,
+    pub format: Format,
     pub mip_levels: u32,
     pub samples: Samples,
     pub array_layers: u32,
@@ -277,5 +321,248 @@ impl std::fmt::Debug for ImageSource {
                 .field("id", &id.get())
                 .finish(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum FormatChannels {
+    R,
+    RG,
+    RGB,
+    BGR,
+    RGBA,
+    BGRA,
+    D,
+    S,
+    DS,
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum FormatType {
+    Uint,
+    Sint,
+    Srgb,
+    Unorm,
+    Snorm,
+    Uscaled,
+    Sscaled,
+    Sfloat,
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct FormatDescription<Channels, Bits, Type> {
+    pub channels: Channels,
+    pub bits: Bits,
+    pub ty: Type,
+}
+
+macro_rules! declare_format {
+    (
+        $enum_name:ident,
+        {
+            $($ident:ident => $orig:ident as ($channels:ident, $bits:literal, $ty:ident)),*$(,)?
+        }) => {
+        #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+        pub enum $enum_name {
+            $($ident),*,
+        }
+
+        impl $enum_name {
+            pub fn description(&self) -> FormatDescription<FormatChannels, u32, FormatType> {
+                match self {
+                    $(Self::$ident => FormatDescription {
+                        channels: FormatChannels::$channels,
+                        bits: $bits,
+                        ty: FormatType::$ty,
+                    }),*,
+                }
+            }
+
+            pub fn from_vk(format: vk::Format) -> Option<Self> {
+                match format {
+                    $(vk::Format::$orig => Some($enum_name::$ident)),*,
+                    _ => None,
+                }
+            }
+        }
+
+        impl From<$enum_name> for vk::Format {
+            fn from(value: $enum_name) -> Self {
+                match value {
+                    $($enum_name::$ident => vk::Format::$orig),*,
+                }
+            }
+        }
+    };
+}
+
+declare_format! {
+    Format, {
+        R8Unorm => R8_UNORM as (R, 8, Unorm),
+        R8Snorm => R8_SNORM as (R, 8, Snorm),
+        R8Uscaled => R8_USCALED as (R, 8, Uscaled),
+        R8Sscaled => R8_SSCALED as (R, 8, Sscaled),
+        R8Uint => R8_UINT as (R, 8, Uint),
+        R8Sint => R8_SINT as (R, 8, Sint),
+        R8Srgb => R8_SRGB as (R, 8, Srgb),
+
+        RG8Unorm => R8G8_UNORM as (RG, 8, Unorm),
+        RG8Snorm => R8G8_SNORM as (RG, 8, Snorm),
+        RG8Uscaled => R8G8_USCALED as (RG, 8, Uscaled),
+        RG8Sscaled => R8G8_SSCALED as (RG, 8, Sscaled),
+        RG8Uint => R8G8_UINT as (RG, 8, Uint),
+        RG8Sint => R8G8_SINT as (RG, 8, Sint),
+        RG8Srgb => R8G8_SRGB as (RG, 8, Srgb),
+
+        RGB8Unorm => R8G8B8_UNORM as (RGB, 8, Unorm),
+        RGB8Snorm => R8G8B8_SNORM as (RGB, 8, Snorm),
+        RGB8Uscaled => R8G8B8_USCALED as (RGB, 8, Uscaled),
+        RGB8Sscaled => R8G8B8_SSCALED as (RGB, 8, Sscaled),
+        RGB8Uint => R8G8B8_UINT as (RGB, 8, Uint),
+        RGB8Sint => R8G8B8_SINT as (RGB, 8, Sint),
+        RGB8Srgb => R8G8B8_SRGB as (RGB, 8, Srgb),
+
+        BGR8Unorm => B8G8R8_UNORM as (BGR, 8, Unorm),
+        BGR8Snorm => B8G8R8_SNORM as (BGR, 8, Snorm),
+        BGR8Uscaled => B8G8R8_USCALED as (BGR, 8, Uscaled),
+        BGR8Sscaled => B8G8R8_SSCALED as (BGR, 8, Sscaled),
+        BGR8Uint => B8G8R8_UINT as (BGR, 8, Uint),
+        BGR8Sint => B8G8R8_SINT as (BGR, 8, Sint),
+        BGR8Srgb => B8G8R8_SRGB as (BGR, 8, Srgb),
+
+        RGBA8Unorm => R8G8B8A8_UNORM as (RGBA, 8, Unorm),
+        RGBA8Snorm => R8G8B8A8_SNORM as (RGBA, 8, Snorm),
+        RGBA8Uscaled => R8G8B8A8_USCALED as (RGBA, 8, Uscaled),
+        RGBA8Sscaled => R8G8B8A8_SSCALED as (RGBA, 8, Sscaled),
+        RGBA8Uint => R8G8B8A8_UINT as (RGBA, 8, Uint),
+        RGBA8Sint => R8G8B8A8_SINT as (RGBA, 8, Sint),
+        RGBA8Srgb => R8G8B8A8_SRGB as (RGBA, 8, Srgb),
+
+        BGRA8Unorm => B8G8R8A8_UNORM as (BGRA, 8, Unorm),
+        BGRA8Snorm => B8G8R8A8_SNORM as (BGRA, 8, Snorm),
+        BGRA8Uscaled => B8G8R8A8_USCALED as (BGRA, 8, Uscaled),
+        BGRA8Sscaled => B8G8R8A8_SSCALED as (BGRA, 8, Sscaled),
+        BGRA8Uint => B8G8R8A8_UINT as (BGRA, 8, Uint),
+        BGRA8Sint => B8G8R8A8_SINT as (BGRA, 8, Sint),
+        BGRA8Srgb => B8G8R8A8_SRGB as (BGRA, 8, Srgb),
+
+        R16Unorm => R16_UNORM as (R, 16, Unorm),
+        R16Snorm => R16_SNORM as (R, 16, Snorm),
+        R16Uscaled => R16_USCALED as (R, 16, Uscaled),
+        R16Sscaled => R16_SSCALED as (R, 16, Sscaled),
+        R16Uint => R16_UINT as (R, 16, Uint),
+        R16Sint => R16_SINT as (R, 16, Sint),
+        R16Sfloat => R16_SFLOAT as (R, 16, Sfloat),
+
+        RG16Unorm => R16G16_UNORM as (RG, 16, Unorm),
+        RG16Snorm => R16G16_SNORM as (RG, 16, Snorm),
+        RG16Uscaled => R16G16_USCALED as (RG, 16, Uscaled),
+        RG16Sscaled => R16G16_SSCALED as (RG, 16, Sscaled),
+        RG16Uint => R16G16_UINT as (RG, 16, Uint),
+        RG16Sint => R16G16_SINT as (RG, 16, Sint),
+        RG16Sfloat => R16G16_SFLOAT as (RG, 16, Sfloat),
+
+        RGB16Unorm => R16G16B16_UNORM as (RGB, 16, Unorm),
+        RGB16Snorm => R16G16B16_SNORM as (RGB, 16, Snorm),
+        RGB16Uscaled => R16G16B16_USCALED as (RGB, 16, Uscaled),
+        RGB16Sscaled => R16G16B16_SSCALED as (RGB, 16, Sscaled),
+        RGB16Uint => R16G16B16_UINT as (RGB, 16, Uint),
+        RGB16Sint => R16G16B16_SINT as (RGB, 16, Sint),
+        RGB16Sfloat => R16G16B16_SFLOAT as (RGB, 16, Sfloat),
+
+        RGBA16Unorm => R16G16B16A16_UNORM as (RGBA, 16, Unorm),
+        RGBA16Snorm => R16G16B16A16_SNORM as (RGBA, 16, Snorm),
+        RGBA16Uscaled => R16G16B16A16_USCALED as (RGBA, 16, Uscaled),
+        RGBA16Sscaled => R16G16B16A16_SSCALED as (RGBA, 16, Sscaled),
+        RGBA16Uint => R16G16B16A16_UINT as (RGBA, 16, Uint),
+        RGBA16Sint => R16G16B16A16_SINT as (RGBA, 16, Sint),
+        RGBA16Sfloat => R16G16B16A16_SFLOAT as (RGBA, 16, Sfloat),
+
+        R32Uint => R32_UINT as (R, 32, Uint),
+        R32Sint => R32_SINT as (R, 32, Sint),
+        R32Sfloat => R32_SFLOAT as (R, 32, Sfloat),
+
+        RG32Uint => R32G32_UINT as (RG, 32, Uint),
+        RG32Sint => R32G32_SINT as (RG, 32, Sint),
+        RG32Sfloat => R32G32_SFLOAT as (RG, 32, Sfloat),
+
+        RGB32Uint => R32G32B32_UINT as (RGB, 32, Uint),
+        RGB32Sint => R32G32B32_SINT as (RGB, 32, Sint),
+        RGB32Sfloat => R32G32B32_SFLOAT as (RGB, 32, Sfloat),
+
+        RGBA32Uint => R32G32B32A32_UINT as (RGBA, 32, Uint),
+        RGBA32Sint => R32G32B32A32_SINT as (RGBA, 32, Sint),
+        RGBA32Sfloat => R32G32B32A32_SFLOAT as (RGBA, 32, Sfloat),
+
+        R64Uint => R64_UINT as (R, 64, Uint),
+        R64Sint => R64_SINT as (R, 64, Sint),
+        R64Sfloat => R64_SFLOAT as (R, 64, Sfloat),
+
+        RG64Uint => R64G64_UINT as (RG, 64, Uint),
+        RG64Sint => R64G64_SINT as (RG, 64, Sint),
+        RG64Sfloat => R64G64_SFLOAT as (RG, 64, Sfloat),
+
+        RGB64Uint => R64G64B64_UINT as (RGB, 64, Uint),
+        RGB64Sint => R64G64B64_SINT as (RGB, 64, Sint),
+        RGB64Sfloat => R64G64B64_SFLOAT as (RGB, 64, Sfloat),
+
+        RGBA64Uint => R64G64B64A64_UINT as (RGBA, 64, Uint),
+        RGBA64Sint => R64G64B64A64_SINT as (RGBA, 64, Sint),
+        RGBA64Sfloat => R64G64B64A64_SFLOAT as (RGBA, 64, Sfloat),
+
+        D16Unorm => D16_UNORM as (D, 16, Unorm),
+        D32Sfloat => D32_SFLOAT as (D, 32, Sfloat),
+        S8Uint => S8_UINT as (S, 8, Uint),
+        D16UnormS8Uint => D16_UNORM_S8_UINT as (DS, 16, Unorm),
+        D24UnormS8Uint => D24_UNORM_S8_UINT as (DS, 24, Unorm),
+        D32SfloatS8Uint => D32_SFLOAT_S8_UINT as (DS, 32, Sfloat),
+    }
+}
+
+impl Format {
+    pub fn aspect_flags(&self) -> vk::ImageAspectFlags {
+        let mut flags = vk::ImageAspectFlags::empty();
+        let is_depth = self.is_depth();
+        let is_stencil = self.is_stencil();
+        if !is_depth && !is_stencil {
+            flags |= vk::ImageAspectFlags::COLOR;
+        }
+        if is_depth {
+            flags |= vk::ImageAspectFlags::DEPTH;
+        }
+        if is_stencil {
+            flags |= vk::ImageAspectFlags::STENCIL;
+        }
+        flags
+    }
+
+    pub fn is_color(&self) -> bool {
+        !matches!(
+            *self,
+            Self::S8Uint
+                | Self::D16Unorm
+                | Self::D16UnormS8Uint
+                | Self::D24UnormS8Uint
+                | Self::D32Sfloat
+                | Self::D32SfloatS8Uint
+        )
+    }
+
+    pub fn is_depth(&self) -> bool {
+        matches!(
+            *self,
+            Self::D16Unorm
+                | Self::D16UnormS8Uint
+                | Self::D24UnormS8Uint
+                | Self::D32Sfloat
+                | Self::D32SfloatS8Uint
+        )
+    }
+
+    pub fn is_stencil(&self) -> bool {
+        matches!(
+            *self,
+            Self::S8Uint | Self::D16UnormS8Uint | Self::D24UnormS8Uint | Self::D32SfloatS8Uint
+        )
     }
 }
