@@ -1,4 +1,4 @@
-pub use self::buffer::{Buffer, BufferInfo, MappableBuffer};
+pub use self::buffer::{Buffer, BufferInfo, IndexType, MappableBuffer};
 pub use self::fence::{Fence, FenceState};
 pub use self::framebuffer::{Framebuffer, FramebufferInfo};
 pub use self::image::{

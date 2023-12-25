@@ -475,6 +475,7 @@ version = "0.1.0"
 dependencies = [
  "ahash",
  "anyhow",
+ "bumpalo",
  "bytemuck",
  "glam",
  "gpu-alloc",

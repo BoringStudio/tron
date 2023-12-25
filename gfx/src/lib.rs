@@ -10,6 +10,9 @@ pub use self::resources::{
 };
 pub use self::surface::{Surface, SurfaceImage, SwapchainSupport};
 
+// temp
+pub use self::command_buffer::{Command, CommandBuffer, References};
+
 mod command_buffer;
 mod device;
 mod graphics;

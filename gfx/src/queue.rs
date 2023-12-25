@@ -2,6 +2,7 @@ use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::KhrSwapchainExtension;
 
+use crate::command_buffer::CommandBuffer;
 use crate::surface::SurfaceImage;
 
 pub trait QueuesQuery {
@@ -64,7 +65,7 @@ pub struct Queue {
     _capabilities: vk::QueueFlags,
     device: crate::device::Device,
 
-    _pool: vk::CommandPool,
+    pool: vk::CommandPool,
 }
 
 impl Queue {
@@ -83,7 +84,7 @@ impl Queue {
             },
             _capabilities: capabilities,
             device,
-            _pool: vk::CommandPool::null(),
+            pool: vk::CommandPool::null(),
         }
     }
 
@@ -94,6 +95,33 @@ impl Queue {
     pub fn wait_idle(&self) -> Result<()> {
         unsafe { self.device.logical().queue_wait_idle(self.handle) }?;
         Ok(())
+    }
+
+    pub fn create_command_buffer(&mut self) -> Result<CommandBuffer> {
+        let logical = self.device.logical();
+
+        if self.pool.is_null() {
+            let info = vk::CommandPoolCreateInfo::builder()
+                .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+                .queue_family_index(self.id.family);
+
+            self.pool = unsafe { logical.create_command_pool(&info, None) }?;
+        }
+
+        let handle = {
+            let info = vk::CommandBufferAllocateInfo::builder()
+                .command_pool(self.pool)
+                .level(vk::CommandBufferLevel::PRIMARY)
+                .command_buffer_count(1);
+
+            let mut buffers = unsafe { logical.allocate_command_buffers(&info) }?;
+            buffers.remove(0)
+        };
+
+        let mut command_buffer = CommandBuffer::new(handle, self.id, self.device.clone());
+        command_buffer.begin()?;
+
+        Ok(command_buffer)
     }
 
     pub fn present(&mut self, mut image: SurfaceImage<'_>) -> Result<PresentStatus> {

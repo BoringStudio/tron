@@ -9,7 +9,32 @@ use vulkanalia::prelude::v1_0::*;
 use crate::device::WeakDevice;
 use crate::types::DeviceAddress;
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum IndexType {
+    U16,
+    U32,
+}
+
+impl IndexType {
+    pub const fn from_vk(value: vk::IndexType) -> Option<Self> {
+        match value {
+            vk::IndexType::UINT16 => Some(Self::U16),
+            vk::IndexType::UINT32 => Some(Self::U32),
+            _ => None,
+        }
+    }
+}
+
+impl From<IndexType> for vk::IndexType {
+    fn from(value: IndexType) -> Self {
+        match value {
+            IndexType::U16 => vk::IndexType::UINT16,
+            IndexType::U32 => vk::IndexType::UINT32,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct BufferInfo {
     pub align: u64,
     pub size: u64,
