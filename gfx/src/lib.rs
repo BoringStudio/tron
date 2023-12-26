@@ -21,7 +21,7 @@ pub use self::surface::{Surface, SurfaceImage, SwapchainSupport};
 pub use self::types::{DeviceAddress, State};
 
 // temp
-pub use self::command_buffer::{Command, CommandBuffer, References};
+pub use self::command_buffer::{CommandBuffer, References};
 
 mod command_buffer;
 mod device;

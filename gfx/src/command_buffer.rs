@@ -5,7 +5,9 @@ use bumpalo::Bump;
 
 use crate::device::{Device, WeakDevice};
 use crate::queue::QueueId;
-use crate::resources::{Buffer, ClearValue, Framebuffer, IndexType, LoadOp};
+use crate::resources::{
+    Buffer, ClearValue, ComputePipeline, Framebuffer, GraphicsPipeline, IndexType, LoadOp,
+};
 
 pub struct CommandBuffer {
     handle: vk::CommandBuffer,
@@ -74,146 +76,180 @@ impl CommandBuffer {
         Ok(())
     }
 
-    pub fn write(&mut self, command: Command<'_>) -> Result<()> {
-        let device = match &self.state {
-            CommandBufferState::Full { owner } => owner,
-            CommandBufferState::Finished { .. } => return Ok(()),
+    pub fn begin_render_pass(
+        &mut self,
+        framebuffer: &Framebuffer,
+        clear: &[ClearValue],
+    ) -> Result<()> {
+        let Some(device) = self.state.device_from_full() else {
+            return Ok(());
         };
         let logical = device.logical();
 
-        let references = &mut self.references;
+        self.references.framebuffers.push(framebuffer.clone());
 
-        match command {
-            Command::BeginRenderPass { framebuffer, clear } => {
-                references.framebuffers.push(framebuffer.clone());
+        let pass = &framebuffer.info().render_pass;
 
-                let pass = &framebuffer.info().render_pass;
-
-                let mut clear = clear.iter();
-                let mut clear_values_invalid = false;
-                let clear_values =
-                    self.alloc
-                        .alloc_slice_fill_iter(pass.info().attachments.iter().map(|attachment| {
-                            if attachment.load_op == LoadOp::Clear(()) {
-                                if let Some(clear) =
-                                    clear.next().and_then(|v| v.to_vk(attachment.format))
-                                {
-                                    return clear;
-                                } else {
-                                    clear_values_invalid = true;
-                                }
-                            }
-
-                            vk::ClearValue::default()
-                        }));
-                anyhow::ensure!(
-                    !clear_values_invalid && clear.next().is_none(),
-                    "clear values are invalid"
-                );
-
-                let info = vk::RenderPassBeginInfo::builder()
-                    .render_pass(pass.handle())
-                    .framebuffer(framebuffer.handle())
-                    .clear_values(clear_values)
-                    .render_area(vk::Rect2D {
-                        offset: vk::Offset2D::default(),
-                        extent: framebuffer.info().extent,
-                    });
-
-                unsafe {
-                    logical.cmd_begin_render_pass(self.handle, &info, vk::SubpassContents::INLINE)
-                }
-                Ok(())
-            }
-            Command::EndRenderPass => {
-                unsafe { logical.cmd_end_render_pass(self.handle) };
-                Ok(())
-            }
-            Command::SetViewport { ref viewport } => {
-                unsafe { logical.cmd_set_viewport(self.handle, 0, std::slice::from_ref(viewport)) }
-                Ok(())
-            }
-            Command::SetScissor { ref scissors } => {
-                unsafe { logical.cmd_set_scissor(self.handle, 0, std::slice::from_ref(scissors)) }
-                Ok(())
-            }
-            Command::Draw {
-                vertices,
-                instances,
-            } => {
-                unsafe {
-                    logical.cmd_draw(
-                        self.handle,
-                        vertices.end - vertices.start,
-                        instances.end - instances.start,
-                        vertices.start,
-                        instances.start,
-                    )
-                }
-                Ok(())
-            }
-            Command::DrawIndexed {
-                indices,
-                vertex_offset,
-                instances,
-            } => {
-                unsafe {
-                    logical.cmd_draw_indexed(
-                        self.handle,
-                        indices.end - indices.start,
-                        instances.end - instances.start,
-                        indices.start,
-                        vertex_offset,
-                        instances.start,
-                    )
-                }
-                Ok(())
-            }
-            Command::UpdateBuffer {
-                buffer,
-                offset,
-                data,
-            } => {
-                anyhow::ensure!(offset % 4 == 0, "unaligned buffer offset");
-                anyhow::ensure!(data.len() % 4 == 0, "unaligned buffer data length");
-                anyhow::ensure!(data.len() <= 65536, "too much data to update");
-
-                unsafe { logical.cmd_update_buffer(self.handle, buffer.handle(), offset, data) }
-                Ok(())
-            }
-            Command::BindVertexBuffers { first, buffers } => {
-                for &(buffer, _) in buffers {
-                    references.buffers.push(buffer.clone());
+        let mut clear = clear.iter();
+        let mut clear_values_invalid = false;
+        let clear_values = self
+            .alloc
+            .alloc_slice_fill_iter(pass.info().attachments.iter().map(|attachment| {
+                if attachment.load_op == LoadOp::Clear(()) {
+                    if let Some(clear) = clear.next().and_then(|v| v.to_vk(attachment.format)) {
+                        return clear;
+                    } else {
+                        clear_values_invalid = true;
+                    }
                 }
 
-                let offsets = self
-                    .alloc
-                    .alloc_slice_fill_iter(buffers.iter().map(|&(_, offset)| offset));
-                let buffers = self
-                    .alloc
-                    .alloc_slice_fill_iter(buffers.iter().map(|&(buffer, _)| buffer.handle()));
+                vk::ClearValue::default()
+            }));
+        anyhow::ensure!(
+            !clear_values_invalid && clear.next().is_none(),
+            "clear values are invalid"
+        );
 
-                unsafe { logical.cmd_bind_vertex_buffers(self.handle, first, buffers, offsets) };
+        let info = vk::RenderPassBeginInfo::builder()
+            .render_pass(pass.handle())
+            .framebuffer(framebuffer.handle())
+            .clear_values(clear_values)
+            .render_area(vk::Rect2D {
+                offset: vk::Offset2D::default(),
+                extent: framebuffer.info().extent,
+            });
 
-                self.alloc.reset();
-                Ok(())
+        unsafe { logical.cmd_begin_render_pass(self.handle, &info, vk::SubpassContents::INLINE) }
+        Ok(())
+    }
+
+    pub fn end_render_pass(&mut self) {
+        if let Some(device) = self.state.device_from_full() {
+            unsafe { device.logical().cmd_end_render_pass(self.handle) }
+        }
+    }
+
+    pub fn bind_graphics_pipeline(&mut self, pipeline: &GraphicsPipeline) {
+        if let Some(device) = self.state.device_from_full() {
+            self.references.graphics_pipelines.push(pipeline.clone());
+
+            unsafe {
+                device.logical().cmd_bind_pipeline(
+                    self.handle,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    pipeline.handle(),
+                )
             }
-            Command::BindIndexBuffer {
-                buffer,
-                offset,
-                index_type,
-            } => {
-                references.buffers.push(buffer.clone());
+        }
+    }
 
-                unsafe {
-                    logical.cmd_bind_index_buffer(
-                        self.handle,
-                        buffer.handle(),
-                        offset,
-                        index_type.into(),
-                    )
-                }
-                Ok(())
+    pub fn bind_compute_pipeline(&mut self, pipeline: &ComputePipeline) {
+        if let Some(device) = self.state.device_from_full() {
+            self.references.compute_pipelines.push(pipeline.clone());
+
+            unsafe {
+                device.logical().cmd_bind_pipeline(
+                    self.handle,
+                    vk::PipelineBindPoint::COMPUTE,
+                    pipeline.handle(),
+                )
+            }
+        }
+    }
+
+    pub fn set_viewport(&mut self, viewport: &vk::Viewport) {
+        if let Some(device) = self.state.device_from_full() {
+            let logical = device.logical();
+            unsafe { logical.cmd_set_viewport(self.handle, 0, std::slice::from_ref(viewport)) }
+        }
+    }
+
+    pub fn set_scissor(&mut self, scissor: &vk::Rect2D) {
+        if let Some(device) = self.state.device_from_full() {
+            let logical = device.logical();
+            unsafe { logical.cmd_set_scissor(self.handle, 0, std::slice::from_ref(scissor)) }
+        }
+    }
+
+    pub fn draw(&mut self, vertices: std::ops::Range<u32>, instances: std::ops::Range<u32>) {
+        if let Some(device) = self.state.device_from_full() {
+            unsafe {
+                device.logical().cmd_draw(
+                    self.handle,
+                    vertices.end - vertices.start,
+                    instances.end - instances.start,
+                    vertices.start,
+                    instances.start,
+                )
+            }
+        }
+    }
+
+    pub fn draw_indexed(
+        &mut self,
+        indices: std::ops::Range<u32>,
+        vertex_offset: i32,
+        instances: std::ops::Range<u32>,
+    ) {
+        if let Some(device) = self.state.device_from_full() {
+            unsafe {
+                device.logical().cmd_draw_indexed(
+                    self.handle,
+                    indices.end - indices.start,
+                    instances.end - instances.start,
+                    indices.start,
+                    vertex_offset,
+                    instances.start,
+                )
+            }
+        }
+    }
+
+    pub fn update_buffer(&mut self, buffer: &Buffer, offset: u64, data: &[u8]) -> Result<()> {
+        if let Some(device) = self.state.device_from_full() {
+            anyhow::ensure!(offset % 4 == 0, "unaligned buffer offset");
+            anyhow::ensure!(data.len() % 4 == 0, "unaligned buffer data length");
+            anyhow::ensure!(data.len() <= 65536, "too much data to update");
+
+            self.references.buffers.push(buffer.clone());
+
+            let logical = device.logical();
+            unsafe { logical.cmd_update_buffer(self.handle, buffer.handle(), offset, data) }
+        }
+        Ok(())
+    }
+
+    pub fn bind_vertex_buffers(&mut self, first: u32, buffers: &[(&Buffer, u64)]) {
+        if let Some(device) = self.state.device_from_full() {
+            for &(buffer, _) in buffers {
+                self.references.buffers.push(buffer.clone());
+            }
+
+            let offsets = self
+                .alloc
+                .alloc_slice_fill_iter(buffers.iter().map(|&(_, offset)| offset));
+            let buffers = self
+                .alloc
+                .alloc_slice_fill_iter(buffers.iter().map(|&(buffer, _)| buffer.handle()));
+
+            let logical = device.logical();
+            unsafe { logical.cmd_bind_vertex_buffers(self.handle, first, buffers, offsets) };
+
+            self.alloc.reset();
+        }
+    }
+
+    pub fn bind_index_buffer(&mut self, buffer: &Buffer, offset: u64, index_type: IndexType) {
+        if let Some(device) = self.state.device_from_full() {
+            self.references.buffers.push(buffer.clone());
+
+            unsafe {
+                device.logical().cmd_bind_index_buffer(
+                    self.handle,
+                    buffer.handle(),
+                    offset,
+                    index_type.into(),
+                )
             }
         }
     }
@@ -224,10 +260,21 @@ enum CommandBufferState {
     Finished { owner: WeakDevice },
 }
 
+impl CommandBufferState {
+    fn device_from_full(&self) -> Option<&Device> {
+        match self {
+            Self::Full { owner } => Some(owner),
+            Self::Finished { .. } => None,
+        }
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct References {
     buffers: Vec<Buffer>,
     framebuffers: Vec<Framebuffer>,
+    graphics_pipelines: Vec<GraphicsPipeline>,
+    compute_pipelines: Vec<ComputePipeline>,
 }
 
 impl References {
@@ -235,44 +282,4 @@ impl References {
         self.buffers.clear();
         self.framebuffers.clear();
     }
-}
-
-pub enum Command<'a> {
-    BeginRenderPass {
-        framebuffer: &'a Framebuffer,
-        clear: &'a [ClearValue],
-    },
-    EndRenderPass,
-
-    SetViewport {
-        viewport: vk::Viewport,
-    },
-    SetScissor {
-        scissors: vk::Rect2D,
-    },
-
-    Draw {
-        vertices: std::ops::Range<u32>,
-        instances: std::ops::Range<u32>,
-    },
-    DrawIndexed {
-        indices: std::ops::Range<u32>,
-        vertex_offset: i32,
-        instances: std::ops::Range<u32>,
-    },
-
-    UpdateBuffer {
-        buffer: &'a Buffer,
-        offset: u64,
-        data: &'a [u8],
-    },
-    BindVertexBuffers {
-        first: u32,
-        buffers: &'a [(&'a Buffer, u64)],
-    },
-    BindIndexBuffer {
-        buffer: &'a Buffer,
-        offset: u64,
-        index_type: IndexType,
-    },
 }
