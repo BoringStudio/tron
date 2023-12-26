@@ -14,7 +14,8 @@ use crate::physical_device::{DeviceFeatures, DeviceProperties};
 use crate::resources::{
     Buffer, BufferInfo, DescriptorSetLayout, DescriptorSetLayoutInfo, Fence, FenceState,
     Framebuffer, FramebufferInfo, Image, ImageInfo, ImageView, ImageViewInfo, ImageViewType,
-    MappableBuffer, RenderPass, RenderPassInfo, Semaphore, ShaderModule, ShaderModuleInfo,
+    MappableBuffer, PipelineLayout, PipelineLayoutInfo, RenderPass, RenderPassInfo, Semaphore,
+    ShaderModule, ShaderModuleInfo,
 };
 use crate::surface::Surface;
 use crate::types::DeviceAddress;
@@ -669,11 +670,49 @@ impl Device {
             unsafe { logical.create_descriptor_set_layout(&create_info, None) }?
         };
 
+        tracing::debug!(descriptor_set_layout = ?handle, "created descriptor set layout");
+
         Ok(DescriptorSetLayout::new(handle, info, self.downgrade()))
     }
 
     pub(crate) unsafe fn destroy_descriptor_set_layout(&self, handle: vk::DescriptorSetLayout) {
         self.logical().destroy_descriptor_set_layout(handle, None)
+    }
+
+    pub fn create_pipeline_layout(&self, info: PipelineLayoutInfo) -> Result<PipelineLayout> {
+        let logical = &self.inner.logical;
+
+        let handle = {
+            let sets = info
+                .sets
+                .iter()
+                .map(|set| set.handle())
+                .collect::<SmallVec<[_; 8]>>();
+            let push_constants = info
+                .push_constants
+                .iter()
+                .map(|c| {
+                    vk::PushConstantRange::builder()
+                        .stage_flags(c.stages)
+                        .offset(c.offset)
+                        .size(c.size)
+                })
+                .collect::<SmallVec<[_; 8]>>();
+
+            let info = vk::PipelineLayoutCreateInfo::builder()
+                .set_layouts(&sets)
+                .push_constant_ranges(&push_constants);
+
+            unsafe { logical.create_pipeline_layout(&info, None) }?
+        };
+
+        tracing::debug!(pipeline_layout = ?handle, "created pipeline layout");
+
+        Ok(PipelineLayout::new(handle, info, self.downgrade()))
+    }
+
+    pub(crate) unsafe fn destroy_pipeline_layout(&self, handle: vk::PipelineLayout) {
+        self.logical().destroy_pipeline_layout(handle, None)
     }
 }
 

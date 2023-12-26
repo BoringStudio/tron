@@ -11,6 +11,7 @@ pub use self::image::{
 pub use self::image_view::{
     ComponentMapping, ImageView, ImageViewInfo, ImageViewType, MakeImageView, Swizzle,
 };
+pub use self::pipeline_layout::{PipelineLayout, PipelineLayoutInfo, PushConstant};
 pub use self::render_pass::{
     AttachmentInfo, ClearColor, ClearDepth, ClearDepthStencil, ClearValue, LoadOp, RenderPass,
     RenderPassInfo, StoreOp, Subpass, SubpassDependency,
@@ -24,6 +25,7 @@ mod fence;
 mod framebuffer;
 mod image;
 mod image_view;
+mod pipeline_layout;
 mod render_pass;
 mod semaphore;
 mod shader_module;

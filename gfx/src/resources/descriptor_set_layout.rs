@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use vulkanalia::prelude::v1_0::*;
 
-use crate::WeakDevice;
+use crate::device::WeakDevice;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct DescriptorSetLayoutInfo {
