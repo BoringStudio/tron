@@ -325,6 +325,7 @@ impl std::fmt::Debug for ImageSource {
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum FormatChannels {
     R,
     RG,

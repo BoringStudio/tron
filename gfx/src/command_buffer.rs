@@ -89,7 +89,7 @@ impl CommandBuffer {
 
                 let pass = &framebuffer.info().render_pass;
 
-                let mut clear = clear.into_iter();
+                let mut clear = clear.iter();
                 let mut clear_values_invalid = false;
                 let clear_values =
                     self.alloc
@@ -120,43 +120,55 @@ impl CommandBuffer {
                         extent: framebuffer.info().extent,
                     });
 
-                Ok(unsafe {
+                unsafe {
                     logical.cmd_begin_render_pass(self.handle, &info, vk::SubpassContents::INLINE)
-                })
+                }
+                Ok(())
             }
-            Command::EndRenderPass => Ok(unsafe { logical.cmd_end_render_pass(self.handle) }),
-            Command::SetViewport { ref viewport } => Ok(unsafe {
-                logical.cmd_set_viewport(self.handle, 0, std::slice::from_ref(viewport))
-            }),
-            Command::SetScissor { ref scissors } => Ok(unsafe {
-                logical.cmd_set_scissor(self.handle, 0, std::slice::from_ref(scissors))
-            }),
+            Command::EndRenderPass => {
+                unsafe { logical.cmd_end_render_pass(self.handle) };
+                Ok(())
+            }
+            Command::SetViewport { ref viewport } => {
+                unsafe { logical.cmd_set_viewport(self.handle, 0, std::slice::from_ref(viewport)) }
+                Ok(())
+            }
+            Command::SetScissor { ref scissors } => {
+                unsafe { logical.cmd_set_scissor(self.handle, 0, std::slice::from_ref(scissors)) }
+                Ok(())
+            }
             Command::Draw {
                 vertices,
                 instances,
-            } => Ok(unsafe {
-                logical.cmd_draw(
-                    self.handle,
-                    vertices.end - vertices.start,
-                    instances.end - instances.start,
-                    vertices.start,
-                    instances.start,
-                )
-            }),
+            } => {
+                unsafe {
+                    logical.cmd_draw(
+                        self.handle,
+                        vertices.end - vertices.start,
+                        instances.end - instances.start,
+                        vertices.start,
+                        instances.start,
+                    )
+                }
+                Ok(())
+            }
             Command::DrawIndexed {
                 indices,
                 vertex_offset,
                 instances,
-            } => Ok(unsafe {
-                logical.cmd_draw_indexed(
-                    self.handle,
-                    indices.end - indices.start,
-                    instances.end - instances.start,
-                    indices.start,
-                    vertex_offset,
-                    instances.start,
-                )
-            }),
+            } => {
+                unsafe {
+                    logical.cmd_draw_indexed(
+                        self.handle,
+                        indices.end - indices.start,
+                        instances.end - instances.start,
+                        indices.start,
+                        vertex_offset,
+                        instances.start,
+                    )
+                }
+                Ok(())
+            }
             Command::UpdateBuffer {
                 buffer,
                 offset,
@@ -166,11 +178,8 @@ impl CommandBuffer {
                 anyhow::ensure!(data.len() % 4 == 0, "unaligned buffer data length");
                 anyhow::ensure!(data.len() <= 65536, "too much data to update");
 
-                Ok(
-                    unsafe {
-                        logical.cmd_update_buffer(self.handle, buffer.handle(), offset, data)
-                    },
-                )
+                unsafe { logical.cmd_update_buffer(self.handle, buffer.handle(), offset, data) }
+                Ok(())
             }
             Command::BindVertexBuffers { first, buffers } => {
                 for &(buffer, _) in buffers {
@@ -196,14 +205,15 @@ impl CommandBuffer {
             } => {
                 references.buffers.push(buffer.clone());
 
-                Ok(unsafe {
+                unsafe {
                     logical.cmd_bind_index_buffer(
                         self.handle,
                         buffer.handle(),
                         offset,
                         index_type.into(),
                     )
-                })
+                }
+                Ok(())
             }
         }
     }

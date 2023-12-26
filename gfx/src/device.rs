@@ -12,9 +12,9 @@ use winit::window::Window;
 use crate::graphics::Graphics;
 use crate::physical_device::{DeviceFeatures, DeviceProperties};
 use crate::resources::{
-    Buffer, BufferInfo, Fence, FenceState, Framebuffer, FramebufferInfo, Image, ImageInfo,
-    ImageView, ImageViewInfo, ImageViewType, MappableBuffer, RenderPass, RenderPassInfo, Semaphore,
-    ShaderModule, ShaderModuleInfo,
+    Buffer, BufferInfo, DescriptorSetLayout, DescriptorSetLayoutInfo, Fence, FenceState,
+    Framebuffer, FramebufferInfo, Image, ImageInfo, ImageView, ImageViewInfo, ImageViewType,
+    MappableBuffer, RenderPass, RenderPassInfo, Semaphore, ShaderModule, ShaderModuleInfo,
 };
 use crate::surface::Surface;
 use crate::types::DeviceAddress;
@@ -508,7 +508,6 @@ impl Device {
             .subpasses
             .iter()
             .zip(subpasses)
-            .into_iter()
             .map(|(subpass, (color_offset, depths_offset))| {
                 let descr = vk::SubpassDescription::builder()
                     .color_attachments(&subpass_attachments[color_offset..depths_offset]);
@@ -610,6 +609,71 @@ impl Device {
 
     pub(crate) unsafe fn destroy_framebuffer(&self, handle: vk::Framebuffer) {
         self.logical().destroy_framebuffer(handle, None);
+    }
+
+    pub fn create_descriptor_set_layout(
+        &self,
+        info: DescriptorSetLayoutInfo,
+    ) -> Result<DescriptorSetLayout> {
+        let logical = &self.inner.logical;
+
+        let handle = {
+            let flags;
+            let mut flags_info;
+
+            let mut create_info = vk::DescriptorSetLayoutCreateInfo::builder().flags(info.flags);
+
+            if self.graphics().vk1_2() {
+                if info.bindings.iter().any(|b| {
+                    b.flags
+                        .contains(vk::DescriptorBindingFlags::UPDATE_AFTER_BIND)
+                }) {
+                    anyhow::ensure!(
+                        info.flags
+                            .contains(vk::DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL),
+                        "`UPDATE_AFTER_BIND_POOL` flag must be set in descriptor set layout \
+                        create info flags"
+                    );
+                }
+
+                flags = info
+                    .bindings
+                    .iter()
+                    .map(|b| b.flags)
+                    .collect::<SmallVec<[_; 8]>>();
+
+                flags_info =
+                    vk::DescriptorSetLayoutBindingFlagsCreateInfo::builder().binding_flags(&flags);
+                create_info = create_info.push_next(&mut flags_info);
+            } else {
+                anyhow::ensure!(
+                    info.bindings.iter().all(|b| b.flags.is_empty()),
+                    "Vulkan 1.2 is required for non-empty `DescriptorBindingFlags`"
+                );
+            }
+
+            let bindings = info
+                .bindings
+                .iter()
+                .map(|binding| {
+                    vk::DescriptorSetLayoutBinding::builder()
+                        .binding(binding.binding)
+                        .descriptor_count(binding.count)
+                        .descriptor_type(binding.ty.into())
+                        .stage_flags(binding.stages)
+                })
+                .collect::<SmallVec<[_; 8]>>();
+
+            create_info = create_info.bindings(&bindings);
+
+            unsafe { logical.create_descriptor_set_layout(&create_info, None) }?
+        };
+
+        Ok(DescriptorSetLayout::new(handle, info, self.downgrade()))
+    }
+
+    pub(crate) unsafe fn destroy_descriptor_set_layout(&self, handle: vk::DescriptorSetLayout) {
+        self.logical().destroy_descriptor_set_layout(handle, None)
     }
 }
 

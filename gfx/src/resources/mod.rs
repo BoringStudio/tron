@@ -1,4 +1,7 @@
 pub use self::buffer::{Buffer, BufferInfo, IndexType, MappableBuffer};
+pub use self::descriptor_set_layout::{
+    DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutInfo, DescriptorType,
+};
 pub use self::fence::{Fence, FenceState};
 pub use self::framebuffer::{Framebuffer, FramebufferInfo};
 pub use self::image::{
@@ -16,6 +19,7 @@ pub use self::semaphore::Semaphore;
 pub use self::shader_module::{ShaderModule, ShaderModuleInfo};
 
 mod buffer;
+mod descriptor_set_layout;
 mod fence;
 mod framebuffer;
 mod image;
