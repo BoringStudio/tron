@@ -4,6 +4,7 @@ use anyhow::Result;
 use gpu_alloc::{GpuAllocator, MemoryBlock};
 use gpu_alloc_vulkanalia::AsMemoryDevice;
 use shared::util::WithDefer;
+use shared::FastDashMap;
 use smallvec::SmallVec;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::{DeviceV1_1, DeviceV1_2};
@@ -12,13 +13,14 @@ use winit::window::Window;
 use crate::graphics::Graphics;
 use crate::physical_device::{DeviceFeatures, DeviceProperties};
 use crate::resources::{
-    Buffer, BufferInfo, ComputePipeline, ComputePipelineInfo, DescriptorSetLayout,
-    DescriptorSetLayoutInfo, Fence, FenceState, Framebuffer, FramebufferInfo, Image, ImageInfo,
-    ImageView, ImageViewInfo, ImageViewType, MappableBuffer, PipelineLayout, PipelineLayoutInfo,
-    RenderPass, RenderPassInfo, Semaphore, ShaderModule, ShaderModuleInfo,
+    Blending, Buffer, BufferInfo, ColorBlend, ComponentMask, ComputePipeline, ComputePipelineInfo,
+    DescriptorSetLayout, DescriptorSetLayoutInfo, Fence, FenceState, Framebuffer, FramebufferInfo,
+    GraphicsPipeline, GraphicsPipelineInfo, Image, ImageInfo, ImageView, ImageViewInfo,
+    ImageViewType, MappableBuffer, PipelineLayout, PipelineLayoutInfo, RenderPass, RenderPassInfo,
+    Sampler, SamplerInfo, Semaphore, ShaderModule, ShaderModuleInfo, StencilTest,
 };
 use crate::surface::Surface;
-use crate::types::DeviceAddress;
+use crate::types::{DeviceAddress, State};
 
 #[derive(Clone)]
 #[repr(transparent)]
@@ -80,6 +82,7 @@ impl Device {
                 properties,
                 features,
                 allocator,
+                samplers_cache: Default::default(),
             }),
         }
     }
@@ -124,7 +127,7 @@ impl Device {
     }
 
     pub(crate) unsafe fn destroy_semaphore(&self, handle: vk::Semaphore) {
-        self.inner.logical.destroy_semaphore(handle, None);
+        self.logical().destroy_semaphore(handle, None);
     }
 
     pub fn create_fence(&self) -> Result<Fence> {
@@ -139,11 +142,11 @@ impl Device {
     }
 
     pub(crate) unsafe fn destroy_fence(&self, handle: vk::Fence) {
-        self.inner.logical.destroy_fence(handle, None);
+        self.logical().destroy_fence(handle, None);
     }
 
     pub fn update_armed_fence_state(&self, fence: &mut Fence) -> Result<bool> {
-        let status = unsafe { self.inner.logical.get_fence_status(fence.handle()) }?;
+        let status = unsafe { self.logical().get_fence_status(fence.handle()) }?;
         match status {
             vk::SuccessCode::SUCCESS => {
                 let _epoch = fence.set_signalled()?;
@@ -173,7 +176,7 @@ impl Device {
             })
             .collect::<Result<SmallVec<[_; 16]>>>()?;
 
-        unsafe { self.inner.logical.reset_fences(&handles) }?;
+        unsafe { self.logical().reset_fences(&handles) }?;
 
         for fence in fences {
             fence.set_unsignalled()?;
@@ -337,9 +340,9 @@ impl Device {
             .allocator
             .lock()
             .unwrap()
-            .dealloc(self.inner.logical.as_memory_device(), block);
+            .dealloc(self.logical().as_memory_device(), block);
 
-        self.inner.logical.destroy_buffer(handle, None);
+        self.logical().destroy_buffer(handle, None);
     }
 
     pub fn create_image(&self, info: ImageInfo) -> Result<Image> {
@@ -415,9 +418,9 @@ impl Device {
             .allocator
             .lock()
             .unwrap()
-            .dealloc(self.inner.logical.as_memory_device(), block);
+            .dealloc(self.logical().as_memory_device(), block);
 
-        self.inner.logical.destroy_image(handle, None)
+        self.logical().destroy_image(handle, None)
     }
 
     pub fn create_image_view(&self, info: ImageViewInfo) -> Result<ImageView> {
@@ -447,7 +450,57 @@ impl Device {
     }
 
     pub(crate) unsafe fn destroy_image_view(&self, handle: vk::ImageView) {
-        self.inner.logical.destroy_image_view(handle, None);
+        self.logical().destroy_image_view(handle, None);
+    }
+
+    pub fn create_sampler(&self, info: SamplerInfo) -> Result<Sampler> {
+        use dashmap::mapref::entry::Entry;
+
+        let logical = &self.inner.logical;
+
+        let sampler = match self.inner.samplers_cache.entry(info) {
+            Entry::Occupied(entry) => {
+                return Ok(entry.get().clone());
+            }
+            Entry::Vacant(entry) => {
+                let handle = {
+                    let info = vk::SamplerCreateInfo::builder()
+                        .mag_filter(info.mag_filter.into())
+                        .min_filter(info.min_filter.into())
+                        .mipmap_mode(info.mipmap_mode.into())
+                        .address_mode_u(info.address_mode_u.into())
+                        .address_mode_v(info.address_mode_v.into())
+                        .address_mode_w(info.address_mode_w.into())
+                        .mip_lod_bias(info.mip_lod_bias)
+                        .anisotropy_enable(info.max_anisotropy.is_some())
+                        .max_anisotropy(info.max_anisotropy.unwrap_or_default())
+                        .compare_enable(info.compare_op.is_some())
+                        .compare_op(
+                            info.compare_op
+                                .map(Into::into)
+                                .unwrap_or(vk::CompareOp::NEVER),
+                        )
+                        .min_lod(info.min_lod)
+                        .max_lod(info.max_lod)
+                        .border_color(info.border_color.into())
+                        .unnormalized_coordinates(info.unnormalized_coordinates);
+
+                    unsafe { logical.create_sampler(&info, None) }?
+                };
+
+                entry
+                    .insert(Sampler::new(handle, info, self.downgrade()))
+                    .clone()
+            }
+        };
+
+        tracing::debug!(sampler = ?sampler.handle(), "created sampler");
+
+        Ok(sampler)
+    }
+
+    pub(crate) unsafe fn destroy_sampler(&self, handle: vk::Sampler) {
+        self.logical().destroy_sampler(handle, None)
     }
 
     pub fn create_shader_module(&self, info: ShaderModuleInfo) -> Result<ShaderModule> {
@@ -465,7 +518,7 @@ impl Device {
     }
 
     pub(crate) unsafe fn destroy_shader_module(&self, handle: vk::ShaderModule) {
-        self.inner.logical.destroy_shader_module(handle, None);
+        self.logical().destroy_shader_module(handle, None);
     }
 
     pub fn create_render_pass(&self, info: RenderPassInfo) -> Result<RenderPass> {
@@ -715,11 +768,313 @@ impl Device {
         self.logical().destroy_pipeline_layout(handle, None)
     }
 
+    pub fn create_graphics_pipeline(&self, info: GraphicsPipelineInfo) -> Result<GraphicsPipeline> {
+        let logical = &self.inner.logical;
+        let descr = &info.descr;
+
+        let mut create_info = vk::GraphicsPipelineCreateInfo::builder();
+
+        let color_count = {
+            let r = &info.rendering;
+
+            let Some(subpass) = r.render_pass.info().subpasses.get(r.subpass as usize) else {
+                anyhow::bail!("subpass index {} is out of bounds", r.subpass);
+            };
+
+            create_info = create_info
+                .render_pass(r.render_pass.handle())
+                .subpass(r.subpass);
+
+            subpass.colors.len()
+        };
+
+        let mut shader_stages = Vec::with_capacity(2);
+
+        // Vertex input state
+        let vertex_binding_descriptions = descr
+            .vertex_bindings
+            .iter()
+            .enumerate()
+            .map(|(i, b)| {
+                vk::VertexInputBindingDescription::builder()
+                    .binding(i as u32)
+                    .stride(b.stride)
+                    .input_rate(b.rate.into())
+            })
+            .collect::<SmallVec<[_; 4]>>();
+
+        let vertex_attribute_descriptions = descr
+            .vertex_attributes
+            .iter()
+            .map(|a| {
+                vk::VertexInputAttributeDescription::builder()
+                    .location(a.location)
+                    .binding(a.binding)
+                    .offset(a.offset)
+                    .format(a.format.into())
+            })
+            .collect::<SmallVec<[_; 8]>>();
+
+        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder()
+            .vertex_binding_descriptions(&vertex_binding_descriptions)
+            .vertex_attribute_descriptions(&vertex_attribute_descriptions);
+
+        let vertex_shader_entry =
+            vk::StringArray::<64>::from_bytes(descr.vertex_shader.entry().as_bytes());
+
+        shader_stages.push(
+            vk::PipelineShaderStageCreateInfo::builder()
+                .stage(vk::ShaderStageFlags::VERTEX)
+                .module(descr.vertex_shader.module().handle())
+                .name(vertex_shader_entry.as_bytes()),
+        );
+
+        // Input assembly state
+        let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::builder()
+            .topology(descr.primitive_topology.into())
+            .primitive_restart_enable(descr.primitive_restart_enable);
+
+        // Rasterizer
+        let fragment_shader_entry;
+        let attachments;
+        let mut viewport_state = vk::PipelineViewportStateCreateInfo::builder();
+        let mut multisample_state = vk::PipelineMultisampleStateCreateInfo::builder();
+        let mut depth_stencil_state = vk::PipelineDepthStencilStateCreateInfo::builder();
+        let mut color_blend_state = vk::PipelineColorBlendStateCreateInfo::builder();
+
+        let mut dynamic_states = Vec::with_capacity(7);
+        let rasterization_state = match &descr.rasterizer {
+            Some(rasterizer) => {
+                // Viewport and scissors state
+                match &rasterizer.viewport {
+                    State::Static(viewport) => {
+                        viewport_state = viewport_state.viewports(std::slice::from_ref(viewport));
+                    }
+                    State::Dynamic => {
+                        dynamic_states.push(vk::DynamicState::VIEWPORT);
+                        viewport_state = viewport_state.viewport_count(1);
+                    }
+                }
+                match &rasterizer.scissor {
+                    State::Static(scissor) => {
+                        viewport_state = viewport_state.scissors(std::slice::from_ref(scissor));
+                    }
+                    State::Dynamic => {
+                        dynamic_states.push(vk::DynamicState::SCISSOR);
+                        viewport_state = viewport_state.scissor_count(1);
+                    }
+                }
+
+                // Multisample state
+                multisample_state =
+                    multisample_state.rasterization_samples(vk::SampleCountFlags::_1);
+
+                // Depth/stencil state
+                if let Some(depth_test) = rasterizer.depth_test {
+                    depth_stencil_state = depth_stencil_state
+                        .depth_test_enable(true)
+                        .depth_write_enable(depth_test.write)
+                        .depth_compare_op(depth_test.compare.into())
+                }
+                if let Some(depth_bounds) = rasterizer.depth_bounds {
+                    depth_stencil_state = depth_stencil_state.depth_bounds_test_enable(true);
+
+                    match depth_bounds {
+                        State::Static(bounds) => {
+                            depth_stencil_state = depth_stencil_state
+                                .min_depth_bounds(bounds.min)
+                                .max_depth_bounds(bounds.max);
+                        }
+                        State::Dynamic => {
+                            dynamic_states.push(vk::DynamicState::DEPTH_BOUNDS);
+                        }
+                    }
+                }
+                if let Some(stencil_tests) = &rasterizer.stencil_tests {
+                    fn make_stencil_test(
+                        test: &StencilTest,
+                        dynamic_states: &mut Vec<vk::DynamicState>,
+                    ) -> vk::StencilOpStateBuilder {
+                        let mut builder = vk::StencilOpState::builder()
+                            .fail_op(test.fail.into())
+                            .pass_op(test.pass.into())
+                            .depth_fail_op(test.depth_fail.into())
+                            .compare_op(test.compare.into());
+
+                        match test.compare_mask {
+                            State::Static(mask) => builder = builder.compare_mask(mask),
+                            State::Dynamic => {
+                                dynamic_states.push(vk::DynamicState::STENCIL_COMPARE_MASK);
+                            }
+                        }
+                        match test.write_mask {
+                            State::Static(mask) => builder = builder.write_mask(mask),
+                            State::Dynamic => {
+                                dynamic_states.push(vk::DynamicState::STENCIL_WRITE_MASK);
+                            }
+                        }
+                        match test.reference {
+                            State::Static(value) => builder = builder.reference(value),
+                            State::Dynamic => {
+                                dynamic_states.push(vk::DynamicState::STENCIL_REFERENCE);
+                            }
+                        }
+
+                        builder
+                    }
+
+                    depth_stencil_state = depth_stencil_state
+                        .stencil_test_enable(true)
+                        .front(make_stencil_test(&stencil_tests.front, &mut dynamic_states))
+                        .back(make_stencil_test(&stencil_tests.back, &mut dynamic_states));
+                }
+
+                // Fragment shader stage
+                if let Some(shader) = &rasterizer.fragment_shader {
+                    fragment_shader_entry =
+                        vk::StringArray::<64>::from_bytes(shader.entry().as_bytes());
+
+                    shader_stages.push(
+                        vk::PipelineShaderStageCreateInfo::builder()
+                            .stage(vk::ShaderStageFlags::FRAGMENT)
+                            .module(shader.module().handle())
+                            .name(fragment_shader_entry.as_bytes()),
+                    );
+                }
+
+                // Color blend state
+                fn make_blend_attachment(
+                    blending: &Option<Blending>,
+                    mask: ComponentMask,
+                ) -> vk::PipelineColorBlendAttachmentStateBuilder {
+                    let builder = vk::PipelineColorBlendAttachmentState::builder();
+                    match blending {
+                        Some(blending) => builder
+                            .blend_enable(true)
+                            .src_color_blend_factor(blending.color_src_factor.into())
+                            .dst_color_blend_factor(blending.color_dst_factor.into())
+                            .color_blend_op(blending.color_op.into())
+                            .src_alpha_blend_factor(blending.alpha_src_factor.into())
+                            .dst_alpha_blend_factor(blending.alpha_dst_factor.into())
+                            .alpha_blend_op(blending.alpha_op.into()),
+                        None => builder.blend_enable(false),
+                    }
+                    .color_write_mask(mask.into())
+                }
+
+                match &rasterizer.color_blend {
+                    ColorBlend::Logic { op } => {
+                        color_blend_state = color_blend_state
+                            .logic_op_enable(true)
+                            .logic_op((*op).into())
+                    }
+                    ColorBlend::Blending {
+                        blending,
+                        write_mask,
+                        constants,
+                    } => {
+                        attachments = (0..color_count)
+                            .map(|_| make_blend_attachment(blending, *write_mask))
+                            .collect::<Vec<_>>();
+                        color_blend_state = color_blend_state.attachments(&attachments);
+
+                        match constants {
+                            State::Static(value) => {
+                                color_blend_state = color_blend_state.blend_constants(*value)
+                            }
+                            State::Dynamic => {
+                                dynamic_states.push(vk::DynamicState::BLEND_CONSTANTS);
+                            }
+                        }
+                    }
+                    ColorBlend::IndependentBlending {
+                        blending,
+                        constants,
+                    } => {
+                        anyhow::ensure!(
+                                blending.len() == color_count,
+                                "independent blending array must have the same length as color attachments"
+                            );
+
+                        attachments = blending
+                            .iter()
+                            .map(|(blending, mask)| make_blend_attachment(blending, *mask))
+                            .collect::<Vec<_>>();
+                        color_blend_state = color_blend_state.attachments(&attachments);
+
+                        match constants {
+                            State::Static(value) => {
+                                color_blend_state = color_blend_state.blend_constants(*value)
+                            }
+                            State::Dynamic => {
+                                dynamic_states.push(vk::DynamicState::BLEND_CONSTANTS);
+                            }
+                        }
+                    }
+                }
+
+                // Rasterization state
+                vk::PipelineRasterizationStateCreateInfo::builder()
+                    .rasterizer_discard_enable(false)
+                    .depth_clamp_enable(rasterizer.depth_clamp)
+                    .polygon_mode(rasterizer.polygin_mode.into())
+                    .cull_mode(rasterizer.cull_mode.map(Into::into).unwrap_or_default())
+                    .front_face(rasterizer.front_face.into())
+                    .line_width(1.0)
+            }
+            None => {
+                // Rasterization state (discarded)
+                vk::PipelineRasterizationStateCreateInfo::builder().rasterizer_discard_enable(true)
+            }
+        };
+
+        //
+        create_info = create_info
+            .vertex_input_state(&vertex_input_state)
+            .input_assembly_state(&input_assembly_state)
+            .rasterization_state(&rasterization_state)
+            .stages(&shader_stages)
+            .layout(descr.layout.handle());
+
+        // Dynamic state
+        let pipeline_dynamic_state;
+        if !dynamic_states.is_empty() {
+            pipeline_dynamic_state =
+                vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&dynamic_states);
+
+            create_info = create_info.dynamic_state(&pipeline_dynamic_state);
+        }
+
+        if descr.rasterizer.is_some() {
+            create_info = create_info
+                .viewport_state(&viewport_state)
+                .multisample_state(&multisample_state)
+                .depth_stencil_state(&depth_stencil_state)
+                .color_blend_state(&color_blend_state);
+        }
+
+        let handle = {
+            let (mut pipelines, _) = unsafe {
+                logical.create_graphics_pipelines(
+                    vk::PipelineCache::null(),
+                    std::slice::from_ref(&create_info),
+                    None,
+                )
+            }?;
+
+            pipelines.remove(0)
+        };
+
+        tracing::debug!(graphics_pipeline = ?handle, "created graphics pipeline");
+
+        Ok(GraphicsPipeline::new(handle, info, self.downgrade()))
+    }
+
     pub fn create_compute_pipeline(&self, info: ComputePipelineInfo) -> Result<ComputePipeline> {
         let logical = &self.inner.logical;
 
         let handle = {
-            let name = vk::StringArray::<128>::from_bytes(info.shader.entry().as_bytes());
+            let name = vk::StringArray::<64>::from_bytes(info.shader.entry().as_bytes());
 
             let stage = vk::PipelineShaderStageCreateInfo::builder()
                 .stage(vk::ShaderStageFlags::COMPUTE)
@@ -788,6 +1143,7 @@ struct Inner {
     properties: DeviceProperties,
     features: DeviceFeatures,
     allocator: Mutex<GpuAllocator<vk::DeviceMemory>>,
+    samplers_cache: FastDashMap<SamplerInfo, Sampler>,
 }
 
 impl Inner {

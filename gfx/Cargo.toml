@@ -6,8 +6,10 @@ edition = "2021"
 [dependencies]
 ahash = "0.8"
 anyhow = "1.0"
+bitflags = "2.4"
 bumpalo = "3"
 bytemuck = { version = "1.10", features = ["derive"] }
+dashmap = "5.5"
 glam = { version = "0.25", features = ["bytemuck"] }
 gpu-alloc = { version = "0.6", features = ["tracing"] }
 gpu-alloc-vulkanalia = { version = "0.1", features = ["tracing"] }

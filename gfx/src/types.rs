@@ -6,3 +6,9 @@ impl DeviceAddress {
         std::num::NonZeroU64::new(address).map(Self)
     }
 }
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum State<T> {
+    Static(T),
+    Dynamic,
+}
