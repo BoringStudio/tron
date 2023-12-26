@@ -12,10 +12,10 @@ use winit::window::Window;
 use crate::graphics::Graphics;
 use crate::physical_device::{DeviceFeatures, DeviceProperties};
 use crate::resources::{
-    Buffer, BufferInfo, DescriptorSetLayout, DescriptorSetLayoutInfo, Fence, FenceState,
-    Framebuffer, FramebufferInfo, Image, ImageInfo, ImageView, ImageViewInfo, ImageViewType,
-    MappableBuffer, PipelineLayout, PipelineLayoutInfo, RenderPass, RenderPassInfo, Semaphore,
-    ShaderModule, ShaderModuleInfo,
+    Buffer, BufferInfo, ComputePipeline, ComputePipelineInfo, DescriptorSetLayout,
+    DescriptorSetLayoutInfo, Fence, FenceState, Framebuffer, FramebufferInfo, Image, ImageInfo,
+    ImageView, ImageViewInfo, ImageViewType, MappableBuffer, PipelineLayout, PipelineLayoutInfo,
+    RenderPass, RenderPassInfo, Semaphore, ShaderModule, ShaderModuleInfo,
 };
 use crate::surface::Surface;
 use crate::types::DeviceAddress;
@@ -713,6 +713,41 @@ impl Device {
 
     pub(crate) unsafe fn destroy_pipeline_layout(&self, handle: vk::PipelineLayout) {
         self.logical().destroy_pipeline_layout(handle, None)
+    }
+
+    pub fn create_compute_pipeline(&self, info: ComputePipelineInfo) -> Result<ComputePipeline> {
+        let logical = &self.inner.logical;
+
+        let handle = {
+            let name = vk::StringArray::<128>::from_bytes(info.shader.entry().as_bytes());
+
+            let stage = vk::PipelineShaderStageCreateInfo::builder()
+                .stage(vk::ShaderStageFlags::COMPUTE)
+                .module(info.shader.module().handle())
+                .name(name.as_bytes());
+
+            let info = vk::ComputePipelineCreateInfo::builder()
+                .stage(stage)
+                .layout(info.layout.handle());
+
+            let (mut pipelines, _) = unsafe {
+                logical.create_compute_pipelines(
+                    vk::PipelineCache::null(),
+                    std::slice::from_ref(&info),
+                    None,
+                )
+            }?;
+
+            pipelines.remove(0)
+        };
+
+        tracing::debug!(compute_pipeline = ?handle, "created compute pipeline");
+
+        Ok(ComputePipeline::new(handle, info, self.downgrade()))
+    }
+
+    pub(crate) unsafe fn destroy_pipeline(&self, handle: vk::Pipeline) {
+        self.logical().destroy_pipeline(handle, None)
     }
 }
 

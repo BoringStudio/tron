@@ -11,13 +11,16 @@ pub use self::image::{
 pub use self::image_view::{
     ComponentMapping, ImageView, ImageViewInfo, ImageViewType, MakeImageView, Swizzle,
 };
+pub use self::pipeline::{ComputePipeline, ComputePipelineInfo, Pipeline};
 pub use self::pipeline_layout::{PipelineLayout, PipelineLayoutInfo, PushConstant};
 pub use self::render_pass::{
     AttachmentInfo, ClearColor, ClearDepth, ClearDepthStencil, ClearValue, LoadOp, RenderPass,
     RenderPassInfo, StoreOp, Subpass, SubpassDependency,
 };
 pub use self::semaphore::Semaphore;
-pub use self::shader_module::{ShaderModule, ShaderModuleInfo};
+pub use self::shader_module::{
+    ComputeShader, FragmentShader, ShaderModule, ShaderModuleInfo, ShaderStage, VertexShader,
+};
 
 mod buffer;
 mod descriptor_set_layout;
@@ -25,6 +28,7 @@ mod fence;
 mod framebuffer;
 mod image;
 mod image_view;
+mod pipeline;
 mod pipeline_layout;
 mod render_pass;
 mod semaphore;

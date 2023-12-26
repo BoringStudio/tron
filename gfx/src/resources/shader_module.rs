@@ -1,8 +1,74 @@
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use vulkanalia::prelude::v1_0::*;
 
 use crate::device::WeakDevice;
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct VertexShader {
+    module: ShaderModule,
+    entry: Cow<'static, str>,
+}
+
+impl VertexShader {
+    pub fn module(&self) -> &ShaderModule {
+        &self.module
+    }
+
+    pub fn entry(&self) -> &str {
+        &self.entry
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct FragmentShader {
+    module: ShaderModule,
+    entry: Cow<'static, str>,
+}
+
+impl FragmentShader {
+    pub fn module(&self) -> &ShaderModule {
+        &self.module
+    }
+
+    pub fn entry(&self) -> &str {
+        &self.entry
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct ComputeShader {
+    module: ShaderModule,
+    entry: Cow<'static, str>,
+}
+
+impl ComputeShader {
+    pub fn module(&self) -> &ShaderModule {
+        &self.module
+    }
+
+    pub fn entry(&self) -> &str {
+        &self.entry
+    }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum ShaderStage {
+    Vertex,
+    Fragment,
+    Compute,
+}
+
+impl From<ShaderStage> for vk::ShaderStageFlags {
+    fn from(value: ShaderStage) -> Self {
+        match value {
+            ShaderStage::Vertex => Self::VERTEX,
+            ShaderStage::Fragment => Self::FRAGMENT,
+            ShaderStage::Compute => Self::COMPUTE,
+        }
+    }
+}
 
 pub struct ShaderModuleInfo {
     pub data: Box<[u32]>,
