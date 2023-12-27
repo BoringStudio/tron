@@ -7,10 +7,11 @@ use glam::{IVec3, UVec3};
 use crate::device::{Device, WeakDevice};
 use crate::queue::QueueId;
 use crate::resources::{
-    Buffer, ClearValue, ComputePipeline, Framebuffer, GraphicsPipeline, Image, ImageLayout,
-    ImageSubresourceLayers, IndexType, LoadOp,
+    Buffer, ClearValue, ComputePipeline, Filter, Framebuffer, GraphicsPipeline, Image, ImageLayout,
+    ImageSubresourceLayers, ImageSubresourceRange, IndexType, LoadOp, PipelineLayout,
+    PipelineStageFlags, ShaderStageFlags,
 };
-use crate::util::{FromGfx, ToVk};
+use crate::util::{compute_supported_access, FromGfx, ToVk};
 
 pub struct CommandBuffer {
     handle: vk::CommandBuffer,
@@ -317,6 +318,212 @@ impl CommandBuffer {
             self.alloc.reset();
         }
     }
+
+    pub fn copy_buffer_to_image(
+        &mut self,
+        src_buffer: &Buffer,
+        dst_image: &Image,
+        dst_layout: ImageLayout,
+        regions: &[BufferImageCopy],
+    ) {
+        if let Some(device) = self.state.device_from_full() {
+            self.references.buffers.push(src_buffer.clone());
+            self.references.images.push(dst_image.clone());
+
+            let regions = self
+                .alloc
+                .alloc_slice_fill_iter(regions.iter().map(|r| vk::BufferImageCopy::from_gfx(*r)));
+
+            unsafe {
+                device.logical().cmd_copy_buffer_to_image(
+                    self.handle,
+                    src_buffer.handle(),
+                    dst_image.handle(),
+                    dst_layout.to_vk(),
+                    regions,
+                )
+            }
+
+            self.alloc.reset();
+        }
+    }
+
+    pub fn blit_image(
+        &mut self,
+        src_image: &Image,
+        src_layout: ImageLayout,
+        dst_image: &Image,
+        dst_layout: ImageLayout,
+        regions: &[ImageBlit],
+        filter: Filter,
+    ) {
+        if let Some(device) = self.state.device_from_full() {
+            self.references.images.push(src_image.clone());
+            self.references.images.push(dst_image.clone());
+
+            let regions = self
+                .alloc
+                .alloc_slice_fill_iter(regions.iter().map(|r| vk::ImageBlit::from_gfx(*r)));
+
+            unsafe {
+                device.logical().cmd_blit_image(
+                    self.handle,
+                    src_image.handle(),
+                    src_layout.to_vk(),
+                    dst_image.handle(),
+                    dst_layout.to_vk(),
+                    regions,
+                    filter.to_vk(),
+                )
+            }
+
+            self.alloc.reset();
+        }
+    }
+
+    pub fn pipeline_barrier(
+        &mut self,
+        src: PipelineStageFlags,
+        dst: PipelineStageFlags,
+        memory_barrier: Option<MemoryBarrier>,
+        buffer_memory_barriers: &[BufferMemoryBarrier],
+        image_memory_barriers: &[ImageMemoryBarrier],
+    ) {
+        if let Some(device) = self.state.device_from_full() {
+            for item in image_memory_barriers {
+                self.references.images.push(item.image.clone());
+            }
+            for item in buffer_memory_barriers {
+                self.references.buffers.push(item.buffer.clone());
+            }
+
+            let memory_barrier = vk::MemoryBarrier::builder()
+                .src_access_mask(
+                    memory_barrier.map_or(compute_supported_access(src.to_vk()), |b| b.src.to_vk()),
+                )
+                .dst_access_mask(
+                    memory_barrier.map_or(compute_supported_access(dst.to_vk()), |b| b.dst.to_vk()),
+                );
+
+            let buffer_memory_barriers =
+                self.alloc
+                    .alloc_slice_fill_iter(buffer_memory_barriers.iter().map(|b| {
+                        vk::BufferMemoryBarrier::builder()
+                            .buffer(b.buffer.handle())
+                            .offset(b.offset)
+                            .size(b.size)
+                            .src_access_mask(b.src_access.to_vk())
+                            .dst_access_mask(b.dst_access.to_vk())
+                            .src_queue_family_index(
+                                b.family_transfer
+                                    .map(|v| v.0)
+                                    .unwrap_or(vk::QUEUE_FAMILY_IGNORED),
+                            )
+                            .dst_queue_family_index(
+                                b.family_transfer
+                                    .map(|v| v.1)
+                                    .unwrap_or(vk::QUEUE_FAMILY_IGNORED),
+                            )
+                    }));
+
+            let image_memory_barriers =
+                self.alloc
+                    .alloc_slice_fill_iter(image_memory_barriers.iter().map(|b| {
+                        vk::ImageMemoryBarrier::builder()
+                            .image(b.image.handle())
+                            .src_access_mask(b.src_access.to_vk())
+                            .dst_access_mask(b.dst_access.to_vk())
+                            .old_layout(b.old_layout.to_vk())
+                            .new_layout(b.new_layout.to_vk())
+                            .src_queue_family_index(
+                                b.family_transfer
+                                    .map(|v| v.0)
+                                    .unwrap_or(vk::QUEUE_FAMILY_IGNORED),
+                            )
+                            .dst_queue_family_index(
+                                b.family_transfer
+                                    .map(|v| v.1)
+                                    .unwrap_or(vk::QUEUE_FAMILY_IGNORED),
+                            )
+                            .subresource_range(vk::ImageSubresourceRange::from_gfx(
+                                b.subresource_range,
+                            ))
+                    }));
+
+            unsafe {
+                device.logical().cmd_pipeline_barrier(
+                    self.handle,
+                    src.to_vk(),
+                    dst.to_vk(),
+                    vk::DependencyFlags::empty(),
+                    std::slice::from_ref(&memory_barrier),
+                    buffer_memory_barriers,
+                    image_memory_barriers,
+                )
+            }
+
+            self.alloc.reset();
+        }
+    }
+
+    pub fn push_constants(
+        &mut self,
+        layout: &PipelineLayout,
+        stages: ShaderStageFlags,
+        offset: u32,
+        data: &[u8],
+    ) {
+        if let Some(device) = self.state.device_from_full() {
+            self.references.pipeline_layouts.push(layout.clone());
+
+            unsafe {
+                device.logical().cmd_push_constants(
+                    self.handle,
+                    layout.handle(),
+                    stages.to_vk(),
+                    offset,
+                    data,
+                )
+            }
+        }
+    }
+
+    pub fn dispatch(&mut self, x: u32, y: u32, z: u32) {
+        if let Some(device) = self.state.device_from_full() {
+            unsafe { device.logical().cmd_dispatch(self.handle, x, y, z) }
+        }
+    }
+}
+
+enum CommandBufferState {
+    Full { owner: Device },
+    Finished { owner: WeakDevice },
+}
+
+impl CommandBufferState {
+    fn device_from_full(&self) -> Option<&Device> {
+        match self {
+            Self::Full { owner } => Some(owner),
+            Self::Finished { .. } => None,
+        }
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct References {
+    buffers: Vec<Buffer>,
+    images: Vec<Image>,
+    framebuffers: Vec<Framebuffer>,
+    graphics_pipelines: Vec<GraphicsPipeline>,
+    compute_pipelines: Vec<ComputePipeline>,
+    pipeline_layouts: Vec<PipelineLayout>,
+}
+
+impl References {
+    pub fn clear(&mut self) {
+        self.buffers.clear();
+        self.framebuffers.clear();
+    }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -358,32 +565,206 @@ impl FromGfx<ImageCopy> for vk::ImageCopy {
     }
 }
 
-enum CommandBufferState {
-    Full { owner: Device },
-    Finished { owner: WeakDevice },
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct BufferImageCopy {
+    pub buffer_offset: u64,
+    pub buffer_row_length: u32,
+    pub buffer_image_height: u32,
+    pub image_subresource: ImageSubresourceLayers,
+    pub image_offset: IVec3,
+    pub image_extent: UVec3,
 }
 
-impl CommandBufferState {
-    fn device_from_full(&self) -> Option<&Device> {
-        match self {
-            Self::Full { owner } => Some(owner),
-            Self::Finished { .. } => None,
+impl FromGfx<BufferImageCopy> for vk::BufferImageCopy {
+    fn from_gfx(value: BufferImageCopy) -> Self {
+        Self {
+            buffer_offset: value.buffer_offset,
+            buffer_row_length: value.buffer_row_length,
+            buffer_image_height: value.buffer_image_height,
+            image_subresource: value.image_subresource.to_vk(),
+            image_offset: value.image_offset.to_vk(),
+            image_extent: value.image_extent.to_vk(),
         }
     }
 }
 
-#[derive(Default, Debug)]
-pub struct References {
-    buffers: Vec<Buffer>,
-    images: Vec<Image>,
-    framebuffers: Vec<Framebuffer>,
-    graphics_pipelines: Vec<GraphicsPipeline>,
-    compute_pipelines: Vec<ComputePipeline>,
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct ImageBlit {
+    pub src_subresource: ImageSubresourceLayers,
+    pub src_offsets: [IVec3; 2],
+    pub dst_subresource: ImageSubresourceLayers,
+    pub dst_offsets: [IVec3; 2],
 }
 
-impl References {
-    pub fn clear(&mut self) {
-        self.buffers.clear();
-        self.framebuffers.clear();
+impl FromGfx<ImageBlit> for vk::ImageBlit {
+    fn from_gfx(value: ImageBlit) -> Self {
+        Self {
+            src_subresource: value.src_subresource.to_vk(),
+            src_offsets: value.src_offsets.map(|v| v.to_vk()),
+            dst_subresource: value.dst_subresource.to_vk(),
+            dst_offsets: value.dst_offsets.map(|v| v.to_vk()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct MemoryBarrier {
+    pub src: AccessFlags,
+    pub dst: AccessFlags,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct BufferMemoryBarrier<'a> {
+    pub buffer: &'a Buffer,
+    pub src_access: AccessFlags,
+    pub dst_access: AccessFlags,
+    pub family_transfer: Option<(u32, u32)>,
+    pub offset: u64,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct ImageMemoryBarrier<'a> {
+    pub image: &'a Image,
+    pub src_access: AccessFlags,
+    pub dst_access: AccessFlags,
+    pub old_layout: Option<ImageLayout>,
+    pub new_layout: ImageLayout,
+    pub family_transfer: Option<(u32, u32)>,
+    pub subresource_range: ImageSubresourceRange,
+}
+
+impl<'a> ImageMemoryBarrier<'a> {
+    pub fn transition_whole(
+        image: &'a Image,
+        access: std::ops::Range<AccessFlags>,
+        layout: std::ops::Range<ImageLayout>,
+    ) -> Self {
+        Self {
+            image,
+            src_access: access.start,
+            dst_access: access.end,
+            old_layout: Some(layout.start),
+            new_layout: layout.end,
+            family_transfer: None,
+            subresource_range: ImageSubresourceRange::whole(image.info()),
+        }
+    }
+
+    pub fn initialize_whole(image: &'a Image, access: AccessFlags, layout: ImageLayout) -> Self {
+        Self {
+            image,
+            src_access: AccessFlags::empty(),
+            dst_access: access,
+            old_layout: None,
+            new_layout: layout,
+            family_transfer: None,
+            subresource_range: ImageSubresourceRange::whole(image.info()),
+        }
+    }
+}
+
+impl<'a> From<ImageLayoutTransition<'a>> for ImageMemoryBarrier<'a> {
+    fn from(value: ImageLayoutTransition<'a>) -> Self {
+        Self {
+            image: value.image,
+            src_access: value.src_access,
+            dst_access: value.dst_access,
+            old_layout: value.old_layout,
+            new_layout: value.new_layout,
+            family_transfer: None,
+            subresource_range: value.subresource_range,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct ImageLayoutTransition<'a> {
+    pub image: &'a Image,
+    pub src_access: AccessFlags,
+    pub dst_access: AccessFlags,
+    pub old_layout: Option<ImageLayout>,
+    pub new_layout: ImageLayout,
+    pub subresource_range: ImageSubresourceRange,
+}
+
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+    pub struct AccessFlags: u32 {
+        const INDIRECT_COMMAND_READ = 1;
+        const INDEX_READ = 1 << 1;
+        const VERTEX_ATTRIBUTE_READ = 1 << 2;
+        const UNIFORM_READ = 1 << 3;
+        const INPUT_ATTACHMENT_READ = 1 << 4;
+        const SHADER_READ = 1 << 5;
+        const SHADER_WRITE = 1 << 6;
+        const COLOR_ATTACHMENT_READ = 1 << 7;
+        const COLOR_ATTACHMENT_WRITE = 1 << 8;
+        const DEPTH_STENCIL_ATTACHMENT_READ = 1 << 9;
+        const DEPTH_STENCIL_ATTACHMENT_WRITE = 1 << 10;
+        const TRANSFER_READ = 1 << 11;
+        const TRANSFER_WRITE = 1 << 12;
+        const HOST_READ = 1 << 13;
+        const HOST_WRITE = 1 << 14;
+        const MEMORY_READ = 1 << 15;
+        const MEMORY_WRITE = 1 << 16;
+    }
+}
+
+impl FromGfx<AccessFlags> for vk::AccessFlags {
+    fn from_gfx(value: AccessFlags) -> Self {
+        let mut res = Self::empty();
+        if value.contains(AccessFlags::INDIRECT_COMMAND_READ) {
+            res |= Self::INDIRECT_COMMAND_READ;
+        }
+        if value.contains(AccessFlags::INDEX_READ) {
+            res |= Self::INDEX_READ;
+        }
+        if value.contains(AccessFlags::VERTEX_ATTRIBUTE_READ) {
+            res |= Self::VERTEX_ATTRIBUTE_READ;
+        }
+        if value.contains(AccessFlags::UNIFORM_READ) {
+            res |= Self::UNIFORM_READ;
+        }
+        if value.contains(AccessFlags::INPUT_ATTACHMENT_READ) {
+            res |= Self::INPUT_ATTACHMENT_READ;
+        }
+        if value.contains(AccessFlags::SHADER_READ) {
+            res |= Self::SHADER_READ;
+        }
+        if value.contains(AccessFlags::SHADER_WRITE) {
+            res |= Self::SHADER_WRITE;
+        }
+        if value.contains(AccessFlags::COLOR_ATTACHMENT_READ) {
+            res |= Self::COLOR_ATTACHMENT_READ;
+        }
+        if value.contains(AccessFlags::COLOR_ATTACHMENT_WRITE) {
+            res |= Self::COLOR_ATTACHMENT_WRITE;
+        }
+        if value.contains(AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ) {
+            res |= Self::DEPTH_STENCIL_ATTACHMENT_READ;
+        }
+        if value.contains(AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE) {
+            res |= Self::DEPTH_STENCIL_ATTACHMENT_WRITE;
+        }
+        if value.contains(AccessFlags::TRANSFER_READ) {
+            res |= Self::TRANSFER_READ;
+        }
+        if value.contains(AccessFlags::TRANSFER_WRITE) {
+            res |= Self::TRANSFER_WRITE;
+        }
+        if value.contains(AccessFlags::HOST_READ) {
+            res |= Self::HOST_READ;
+        }
+        if value.contains(AccessFlags::HOST_WRITE) {
+            res |= Self::HOST_WRITE;
+        }
+        if value.contains(AccessFlags::MEMORY_READ) {
+            res |= Self::MEMORY_READ;
+        }
+        if value.contains(AccessFlags::MEMORY_WRITE) {
+            res |= Self::MEMORY_WRITE;
+        }
+        res
     }
 }

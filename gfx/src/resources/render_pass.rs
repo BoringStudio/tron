@@ -5,7 +5,7 @@ use vulkanalia::prelude::v1_0::*;
 
 use crate::device::WeakDevice;
 use crate::resources::{Format, FormatChannels, FormatType, ImageLayout, Samples};
-use crate::util::{FromGfx, ToVk};
+use crate::util::{compute_supported_access, FromGfx, ToVk};
 
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum LoadOp<T = ()> {
@@ -248,6 +248,8 @@ impl FromGfx<SubpassDependency> for vk::SubpassDependency {
             .dst_subpass(value.dst.unwrap_or(vk::SUBPASS_EXTERNAL))
             .src_stage_mask(value.src_stages.to_vk())
             .dst_stage_mask(value.dst_stages.to_vk())
+            .src_access_mask(compute_supported_access(value.src_stages.to_vk()))
+            .dst_access_mask(compute_supported_access(value.dst_stages.to_vk()))
             .build()
     }
 }
