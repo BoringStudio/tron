@@ -1,4 +1,5 @@
 pub use self::buffer::*;
+pub use self::descriptor_set::*;
 pub use self::descriptor_set_layout::*;
 pub use self::fence::*;
 pub use self::framebuffer::*;
@@ -12,6 +13,7 @@ pub use self::semaphore::*;
 pub use self::shader_module::*;
 
 mod buffer;
+mod descriptor_set;
 mod descriptor_set_layout;
 mod fence;
 mod framebuffer;

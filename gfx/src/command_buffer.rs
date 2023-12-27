@@ -1,8 +1,10 @@
-use vulkanalia::prelude::v1_0::*;
+use std::ops::Range;
 
 use anyhow::Result;
 use bumpalo::Bump;
 use glam::{IVec3, UVec3};
+use shared::FastHashSet;
+use vulkanalia::prelude::v1_0::*;
 
 use crate::device::{Device, WeakDevice};
 use crate::queue::QueueId;
@@ -175,7 +177,7 @@ impl CommandBuffer {
         }
     }
 
-    pub fn draw(&mut self, vertices: std::ops::Range<u32>, instances: std::ops::Range<u32>) {
+    pub fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>) {
         if let Some(device) = self.state.device_from_full() {
             unsafe {
                 device.logical().cmd_draw(
@@ -189,12 +191,7 @@ impl CommandBuffer {
         }
     }
 
-    pub fn draw_indexed(
-        &mut self,
-        indices: std::ops::Range<u32>,
-        vertex_offset: i32,
-        instances: std::ops::Range<u32>,
-    ) {
+    pub fn draw_indexed(&mut self, indices: Range<u32>, vertex_offset: i32, instances: Range<u32>) {
         if let Some(device) = self.state.device_from_full() {
             unsafe {
                 device.logical().cmd_draw_indexed(
@@ -474,7 +471,7 @@ impl CommandBuffer {
         data: &[u8],
     ) {
         if let Some(device) = self.state.device_from_full() {
-            self.references.pipeline_layouts.push(layout.clone());
+            self.references.pipeline_layouts.insert(layout.clone());
 
             unsafe {
                 device.logical().cmd_push_constants(
@@ -516,7 +513,7 @@ pub struct References {
     framebuffers: Vec<Framebuffer>,
     graphics_pipelines: Vec<GraphicsPipeline>,
     compute_pipelines: Vec<ComputePipeline>,
-    pipeline_layouts: Vec<PipelineLayout>,
+    pipeline_layouts: FastHashSet<PipelineLayout>,
 }
 
 impl References {
@@ -637,8 +634,8 @@ pub struct ImageMemoryBarrier<'a> {
 impl<'a> ImageMemoryBarrier<'a> {
     pub fn transition_whole(
         image: &'a Image,
-        access: std::ops::Range<AccessFlags>,
-        layout: std::ops::Range<ImageLayout>,
+        access: Range<AccessFlags>,
+        layout: Range<ImageLayout>,
     ) -> Self {
         Self {
             image,

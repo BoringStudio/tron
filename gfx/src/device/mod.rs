@@ -10,19 +10,25 @@ use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::{DeviceV1_1, DeviceV1_2};
 use winit::window::Window;
 
+pub(crate) use self::descriptor_alloc::AllocatedDescriptorSet;
+
+use self::descriptor_alloc::DescriptorAlloc;
 use crate::graphics::Graphics;
 use crate::physical_device::{DeviceFeatures, DeviceProperties};
 use crate::resources::{
     Blending, Buffer, BufferInfo, BufferUsage, ColorBlend, ComponentMask, ComputePipeline,
-    ComputePipelineInfo, DescriptorBindingFlags, DescriptorSetLayout, DescriptorSetLayoutFlags,
-    DescriptorSetLayoutInfo, Fence, FenceState, Framebuffer, FramebufferInfo, GraphicsPipeline,
-    GraphicsPipelineInfo, Image, ImageInfo, ImageView, ImageViewInfo, ImageViewType,
-    MappableBuffer, PipelineLayout, PipelineLayoutInfo, RenderPass, RenderPassInfo, Sampler,
-    SamplerInfo, Semaphore, ShaderModule, ShaderModuleInfo, StencilTest,
+    ComputePipelineInfo, DescriptorBindingFlags, DescriptorSet, DescriptorSetInfo,
+    DescriptorSetLayout, DescriptorSetLayoutFlags, DescriptorSetLayoutInfo, Fence, FenceState,
+    Framebuffer, FramebufferInfo, GraphicsPipeline, GraphicsPipelineInfo, Image, ImageInfo,
+    ImageView, ImageViewInfo, ImageViewType, MappableBuffer, PipelineLayout, PipelineLayoutInfo,
+    RenderPass, RenderPassInfo, Sampler, SamplerInfo, Semaphore, ShaderModule, ShaderModuleInfo,
+    StencilTest,
 };
 use crate::surface::Surface;
 use crate::types::{DeviceAddress, State};
 use crate::util::{FromGfx, ToVk};
+
+mod descriptor_alloc;
 
 #[derive(Clone)]
 #[repr(transparent)]
@@ -76,6 +82,7 @@ impl Device {
             gpu_alloc::Config::i_am_prototyping(),
             map_memory_device_properties(&properties, &features),
         ));
+        let descriptors = Mutex::new(DescriptorAlloc::new());
 
         Self {
             inner: Arc::new(Inner {
@@ -84,6 +91,7 @@ impl Device {
                 properties,
                 features,
                 allocator,
+                descriptors,
                 samplers_cache: Default::default(),
             }),
         }
@@ -705,11 +713,47 @@ impl Device {
 
         tracing::debug!(descriptor_set_layout = ?handle, "created descriptor set layout");
 
-        Ok(DescriptorSetLayout::new(handle, info, self.downgrade()))
+        // TODO: compute
+        let size = Default::default();
+
+        Ok(DescriptorSetLayout::new(
+            handle,
+            info,
+            size,
+            self.downgrade(),
+        ))
     }
 
     pub(crate) unsafe fn destroy_descriptor_set_layout(&self, handle: vk::DescriptorSetLayout) {
         self.logical().destroy_descriptor_set_layout(handle, None)
+    }
+
+    pub fn create_descriptor_set(&self, info: DescriptorSetInfo) -> Result<DescriptorSet> {
+        anyhow::ensure!(
+            info.layout
+                .info()
+                .flags
+                .contains(DescriptorSetLayoutFlags::PUSH_DESCRIPTOR),
+            "push descriptor sets cannot be created"
+        );
+
+        let set = {
+            let mut descriptors = self.inner.descriptors.lock().unwrap();
+            let mut sets = unsafe { descriptors.allocate(self.logical(), &info.layout, 1) }?;
+            sets.remove(0)
+        };
+
+        tracing::debug!(descriptor_set = ?set.handle(), "created descriptor set");
+
+        Ok(DescriptorSet::new(set, self.downgrade()))
+    }
+
+    pub(crate) unsafe fn destroy_descriptor_set(&self, allocated: &AllocatedDescriptorSet) {
+        self.inner
+            .descriptors
+            .lock()
+            .unwrap()
+            .free(self.logical(), std::slice::from_ref(allocated))
     }
 
     pub fn create_pipeline_layout(&self, info: PipelineLayoutInfo) -> Result<PipelineLayout> {
@@ -1112,6 +1156,7 @@ struct Inner {
     properties: DeviceProperties,
     features: DeviceFeatures,
     allocator: Mutex<GpuAllocator<vk::DeviceMemory>>,
+    descriptors: Mutex<DescriptorAlloc>,
     samplers_cache: FastDashMap<SamplerInfo, Sampler>,
 }
 
@@ -1147,7 +1192,7 @@ impl Drop for Inner {
                 .unwrap()
                 .cleanup(self.logical.as_memory_device());
 
-            // TODO: destroy device?
+            self.descriptors.get_mut().unwrap().cleanup(&self.logical);
         }
     }
 }

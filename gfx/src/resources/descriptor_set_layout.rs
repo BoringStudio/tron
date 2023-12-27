@@ -115,6 +115,37 @@ impl FromGfx<DescriptorSetLayoutFlags> for vk::DescriptorSetLayoutCreateFlags {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct DescriptorSetSize {
+    pub samplers: u32,
+    pub combined_image_samplers: u32,
+    pub sampled_images: u32,
+    pub storage_images: u32,
+    pub uniform_texel_buffers: u32,
+    pub storage_texel_buffers: u32,
+    pub uniform_buffers: u32,
+    pub storage_buffers: u32,
+    pub uniform_buffers_dynamic: u32,
+    pub storage_buffers_dynamic: u32,
+    pub input_attachments: u32,
+}
+
+impl DescriptorSetSize {
+    pub const ZERO: Self = Self {
+        samplers: 0,
+        combined_image_samplers: 0,
+        sampled_images: 0,
+        storage_images: 0,
+        uniform_texel_buffers: 0,
+        storage_texel_buffers: 0,
+        uniform_buffers: 0,
+        storage_buffers: 0,
+        uniform_buffers_dynamic: 0,
+        storage_buffers_dynamic: 0,
+        input_attachments: 0,
+    };
+}
+
 #[derive(Clone)]
 pub struct DescriptorSetLayout {
     inner: Arc<Inner>,
@@ -124,12 +155,14 @@ impl DescriptorSetLayout {
     pub(crate) fn new(
         handle: vk::DescriptorSetLayout,
         info: DescriptorSetLayoutInfo,
+        size: DescriptorSetSize,
         owner: WeakDevice,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
                 handle,
                 info,
+                size,
                 owner,
             }),
         }
@@ -141,6 +174,10 @@ impl DescriptorSetLayout {
 
     pub fn info(&self) -> &DescriptorSetLayoutInfo {
         &self.inner.info
+    }
+
+    pub fn size(&self) -> &DescriptorSetSize {
+        &self.inner.size
     }
 }
 
@@ -175,6 +212,7 @@ impl std::hash::Hash for DescriptorSetLayout {
 struct Inner {
     handle: vk::DescriptorSetLayout,
     info: DescriptorSetLayoutInfo,
+    size: DescriptorSetSize,
     owner: WeakDevice,
 }
 

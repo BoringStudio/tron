@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -135,11 +136,7 @@ pub struct ImageSubresourceRange {
 }
 
 impl ImageSubresourceRange {
-    pub fn new(
-        aspect: ImageAspectFlags,
-        mip_levels: std::ops::Range<u32>,
-        array_layers: std::ops::Range<u32>,
-    ) -> Self {
+    pub fn new(aspect: ImageAspectFlags, mip_levels: Range<u32>, array_layers: Range<u32>) -> Self {
         Self {
             aspect,
             first_mip_level: mip_levels.start,
@@ -159,22 +156,19 @@ impl ImageSubresourceRange {
         }
     }
 
-    pub fn color(mip_levels: std::ops::Range<u32>, array_layers: std::ops::Range<u32>) -> Self {
+    pub fn color(mip_levels: Range<u32>, array_layers: Range<u32>) -> Self {
         Self::new(ImageAspectFlags::COLOR, mip_levels, array_layers)
     }
 
-    pub fn depth(mip_levels: std::ops::Range<u32>, array_layers: std::ops::Range<u32>) -> Self {
+    pub fn depth(mip_levels: Range<u32>, array_layers: Range<u32>) -> Self {
         Self::new(ImageAspectFlags::DEPTH, mip_levels, array_layers)
     }
 
-    pub fn stencil(mip_levels: std::ops::Range<u32>, array_layers: std::ops::Range<u32>) -> Self {
+    pub fn stencil(mip_levels: Range<u32>, array_layers: Range<u32>) -> Self {
         Self::new(ImageAspectFlags::STENCIL, mip_levels, array_layers)
     }
 
-    pub fn depth_stencil(
-        mip_levels: std::ops::Range<u32>,
-        array_layers: std::ops::Range<u32>,
-    ) -> Self {
+    pub fn depth_stencil(mip_levels: Range<u32>, array_layers: Range<u32>) -> Self {
         Self::new(
             ImageAspectFlags::DEPTH | ImageAspectFlags::STENCIL,
             mip_levels,
@@ -228,11 +222,7 @@ pub struct ImageSubresourceLayers {
 }
 
 impl ImageSubresourceLayers {
-    pub fn new(
-        aspect: ImageAspectFlags,
-        mip_level: u32,
-        array_layers: std::ops::Range<u32>,
-    ) -> Self {
+    pub fn new(aspect: ImageAspectFlags, mip_level: u32, array_layers: Range<u32>) -> Self {
         Self {
             aspect,
             mip_level,
@@ -250,19 +240,19 @@ impl ImageSubresourceLayers {
         }
     }
 
-    pub fn color(mip_level: u32, array_layers: std::ops::Range<u32>) -> Self {
+    pub fn color(mip_level: u32, array_layers: Range<u32>) -> Self {
         Self::new(ImageAspectFlags::COLOR, mip_level, array_layers)
     }
 
-    pub fn depth(mip_level: u32, array_layers: std::ops::Range<u32>) -> Self {
+    pub fn depth(mip_level: u32, array_layers: Range<u32>) -> Self {
         Self::new(ImageAspectFlags::DEPTH, mip_level, array_layers)
     }
 
-    pub fn stencil(mip_level: u32, array_layers: std::ops::Range<u32>) -> Self {
+    pub fn stencil(mip_level: u32, array_layers: Range<u32>) -> Self {
         Self::new(ImageAspectFlags::STENCIL, mip_level, array_layers)
     }
 
-    pub fn depth_stencil(mip_level: u32, array_layers: std::ops::Range<u32>) -> Self {
+    pub fn depth_stencil(mip_level: u32, array_layers: Range<u32>) -> Self {
         Self::new(
             ImageAspectFlags::DEPTH | ImageAspectFlags::STENCIL,
             mip_level,

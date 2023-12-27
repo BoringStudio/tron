@@ -4,20 +4,21 @@ pub use self::physical_device::{DeviceFeature, DeviceFeatures, DeviceProperties,
 pub use self::queue::{PresentStatus, Queue, QueueFamily, QueueId, QueuesQuery, SingleQueueQuery};
 pub use self::resources::{
     AttachmentInfo, BlendFactor, BlendOp, Blending, BorderColor, Bounds, Buffer, BufferInfo,
-    ClearColor, ClearDepth, ClearDepthStencil, ClearValue, ColorBlend, CompareOp, ComponentMapping,
-    ComponentMask, ComputePipeline, ComputePipelineInfo, ComputeShader, CullMode, DepthTest,
-    DescriptorBindingFlags, DescriptorSetLayout, DescriptorSetLayoutBinding,
-    DescriptorSetLayoutFlags, DescriptorSetLayoutInfo, DescriptorType, Fence, FenceState, Filter,
-    Format, FormatChannels, FormatDescription, FormatType, FragmentShader, Framebuffer,
-    FramebufferInfo, FrontFace, GraphicsPipeline, GraphicsPipelineDescr, GraphicsPipelineInfo,
-    GraphicsPipelineRenderingInfo, Image, ImageAspectFlags, ImageExtent, ImageInfo, ImageLayout,
-    ImageSubresource, ImageSubresourceLayers, ImageSubresourceRange, ImageView, ImageViewInfo,
+    BufferUsage, ClearColor, ClearDepth, ClearDepthStencil, ClearValue, ColorBlend, CompareOp,
+    ComponentMapping, ComponentMask, ComputePipeline, ComputePipelineInfo, ComputeShader, CullMode,
+    DepthTest, DescriptorBindingFlags, DescriptorSet, DescriptorSetInfo, DescriptorSetLayout,
+    DescriptorSetLayoutBinding, DescriptorSetLayoutFlags, DescriptorSetLayoutInfo,
+    DescriptorSetSize, DescriptorType, Fence, FenceState, Filter, Format, FormatChannels,
+    FormatDescription, FormatType, FragmentShader, Framebuffer, FramebufferInfo, FrontFace,
+    GraphicsPipeline, GraphicsPipelineDescr, GraphicsPipelineInfo, GraphicsPipelineRenderingInfo,
+    Image, ImageAspectFlags, ImageExtent, ImageInfo, ImageLayout, ImageSubresource,
+    ImageSubresourceLayers, ImageSubresourceRange, ImageUsageFlags, ImageView, ImageViewInfo,
     ImageViewType, IndexType, LoadOp, LogicOp, MakeImageView, MappableBuffer, MipmapMode, Pipeline,
-    PipelineLayout, PipelineLayoutInfo, PolygonMode, PrimitiveTopology, PushConstant, Rasterizer,
-    RenderPass, RenderPassInfo, Sampler, SamplerAddressMode, SamplerInfo, Samples, Semaphore,
-    ShaderModule, ShaderModuleInfo, ShaderStage, ShaderStageFlags, StencilOp, StencilTest,
-    StencilTests, StoreOp, Subpass, SubpassDependency, Swizzle, VertexInputAttribute,
-    VertexInputBinding, VertexInputRate, VertexShader,
+    PipelineLayout, PipelineLayoutInfo, PipelineStageFlags, PolygonMode, PrimitiveTopology,
+    PushConstant, Rasterizer, Rect, RenderPass, RenderPassInfo, Sampler, SamplerAddressMode,
+    SamplerInfo, Samples, Semaphore, ShaderModule, ShaderModuleInfo, ShaderStage, ShaderStageFlags,
+    StencilOp, StencilTest, StencilTests, StoreOp, Subpass, SubpassDependency, Swizzle,
+    VertexInputAttribute, VertexInputBinding, VertexInputRate, VertexShader, Viewport,
 };
 pub use self::surface::{PresentMode, Surface, SurfaceImage, SwapchainSupport};
 pub use self::types::{DeviceAddress, State};
@@ -27,6 +28,7 @@ pub use self::command_buffer::{BufferCopy, CommandBuffer, ImageCopy, References}
 
 mod command_buffer;
 mod device;
+mod encoder;
 mod graphics;
 mod physical_device;
 mod queue;
