@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use glam::{IVec2, UVec2, UVec3};
 use vulkanalia::prelude::v1_0::*;
 
 use crate::device::WeakDevice;
@@ -7,6 +8,99 @@ use crate::resources::{
     CompareOp, ComputeShader, Format, FragmentShader, PipelineLayout, RenderPass, VertexShader,
 };
 use crate::types::State;
+use crate::util::{FromGfx, ToVk};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Viewport {
+    pub x: Bounds,
+    pub y: Bounds,
+    pub z: Bounds,
+}
+
+impl From<Rect> for Viewport {
+    fn from(value: Rect) -> Self {
+        Self {
+            x: Bounds::new(value.offset.x as f32, value.extent.x as f32),
+            y: Bounds::new(value.offset.y as f32, value.extent.y as f32),
+            z: Bounds::new(0.0, 1.0),
+        }
+    }
+}
+
+impl FromGfx<Viewport> for vk::Viewport {
+    fn from_gfx(value: Viewport) -> Self {
+        Self {
+            x: value.x.offset,
+            y: value.y.offset,
+            width: value.x.size,
+            height: value.y.size,
+            min_depth: value.z.offset,
+            max_depth: value.z.offset + value.z.size,
+        }
+    }
+}
+
+impl From<UVec2> for Viewport {
+    fn from(value: UVec2) -> Self {
+        Self {
+            x: Bounds::new(0.0, value.x as f32),
+            y: Bounds::new(0.0, value.y as f32),
+            z: Bounds::new(0.0, 1.0),
+        }
+    }
+}
+
+impl From<UVec3> for Viewport {
+    fn from(value: UVec3) -> Self {
+        Self {
+            x: Bounds::new(0.0, value.x as f32),
+            y: Bounds::new(0.0, value.y as f32),
+            z: Bounds::new(0.0, value.z as f32),
+        }
+    }
+}
+
+impl From<UVec2> for State<Viewport> {
+    fn from(value: UVec2) -> Self {
+        Self::Static(value.into())
+    }
+}
+
+impl From<UVec3> for State<Viewport> {
+    fn from(value: UVec3) -> Self {
+        Self::Static(value.into())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rect {
+    pub offset: IVec2,
+    pub extent: UVec2,
+}
+
+impl FromGfx<Rect> for vk::Rect2D {
+    fn from_gfx(value: Rect) -> Self {
+        Self {
+            offset: value.offset.to_vk(),
+            extent: value.extent.to_vk(),
+        }
+    }
+}
+
+impl From<UVec2> for Rect {
+    fn from(extent: UVec2) -> Self {
+        Self {
+            offset: IVec2::ZERO,
+            extent,
+        }
+    }
+}
+
+impl From<UVec2> for State<Rect> {
+    fn from(value: UVec2) -> Self {
+        Self::Static(value.into())
+    }
+}
 
 // === Graphics pipeline ===
 
@@ -80,14 +174,26 @@ pub struct VertexInputAttribute {
     pub offset: u32,
 }
 
+impl FromGfx<VertexInputAttribute> for vk::VertexInputAttributeDescription {
+    fn from_gfx(value: VertexInputAttribute) -> Self {
+        Self {
+            location: value.location,
+            binding: value.binding,
+            format: value.format.to_vk(),
+            offset: value.offset,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum VertexInputRate {
     Vertex,
     Instance,
 }
 
-impl From<VertexInputRate> for vk::VertexInputRate {
-    fn from(value: VertexInputRate) -> Self {
+impl FromGfx<VertexInputRate> for vk::VertexInputRate {
+    #[inline]
+    fn from_gfx(value: VertexInputRate) -> Self {
         match value {
             VertexInputRate::Vertex => Self::VERTEX,
             VertexInputRate::Instance => Self::INSTANCE,
@@ -106,8 +212,8 @@ pub enum PrimitiveTopology {
     TriangleFan,
 }
 
-impl From<PrimitiveTopology> for vk::PrimitiveTopology {
-    fn from(value: PrimitiveTopology) -> Self {
+impl FromGfx<PrimitiveTopology> for vk::PrimitiveTopology {
+    fn from_gfx(value: PrimitiveTopology) -> Self {
         match value {
             PrimitiveTopology::PointList => Self::POINT_LIST,
             PrimitiveTopology::LineList => Self::LINE_LIST,
@@ -127,8 +233,8 @@ pub enum FrontFace {
     CCW,
 }
 
-impl From<FrontFace> for vk::FrontFace {
-    fn from(value: FrontFace) -> Self {
+impl FromGfx<FrontFace> for vk::FrontFace {
+    fn from_gfx(value: FrontFace) -> Self {
         match value {
             FrontFace::CW => Self::CLOCKWISE,
             FrontFace::CCW => Self::COUNTER_CLOCKWISE,
@@ -143,12 +249,21 @@ pub enum CullMode {
     FrontAndBack,
 }
 
-impl From<CullMode> for vk::CullModeFlags {
-    fn from(value: CullMode) -> Self {
+impl FromGfx<CullMode> for vk::CullModeFlags {
+    fn from_gfx(value: CullMode) -> Self {
         match value {
             CullMode::Front => Self::FRONT,
             CullMode::Back => Self::BACK,
             CullMode::FrontAndBack => Self::FRONT_AND_BACK,
+        }
+    }
+}
+
+impl FromGfx<Option<CullMode>> for vk::CullModeFlags {
+    fn from_gfx(value: Option<CullMode>) -> Self {
+        match value {
+            Some(value) => value.to_vk(),
+            None => Self::NONE,
         }
     }
 }
@@ -161,8 +276,9 @@ pub enum PolygonMode {
     Point,
 }
 
-impl From<PolygonMode> for vk::PolygonMode {
-    fn from(value: PolygonMode) -> Self {
+impl FromGfx<PolygonMode> for vk::PolygonMode {
+    #[inline]
+    fn from_gfx(value: PolygonMode) -> Self {
         match value {
             PolygonMode::Fill => Self::FILL,
             PolygonMode::Line => Self::LINE,
@@ -206,8 +322,8 @@ pub enum StencilOp {
     DecrementAndWrap,
 }
 
-impl From<StencilOp> for vk::StencilOp {
-    fn from(value: StencilOp) -> Self {
+impl FromGfx<StencilOp> for vk::StencilOp {
+    fn from_gfx(value: StencilOp) -> Self {
         match value {
             StencilOp::Keep => Self::KEEP,
             StencilOp::Zero => Self::ZERO,
@@ -223,24 +339,30 @@ impl From<StencilOp> for vk::StencilOp {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Bounds {
-    pub min: f32,
-    pub max: f32,
+    pub offset: f32,
+    pub size: f32,
+}
+
+impl Bounds {
+    pub fn new(offset: f32, size: f32) -> Self {
+        Self { offset, size }
+    }
 }
 
 impl Eq for Bounds {}
 impl PartialEq for Bounds {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        f32::to_bits(self.min) == f32::to_bits(other.min)
-            && f32::to_bits(self.max) == f32::to_bits(other.max)
+        f32::to_bits(self.offset) == f32::to_bits(other.offset)
+            && f32::to_bits(self.size) == f32::to_bits(other.size)
     }
 }
 
 impl std::hash::Hash for Bounds {
     #[inline]
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write_u32(f32::to_bits(self.min));
-        state.write_u32(f32::to_bits(self.max));
+        state.write_u32(f32::to_bits(self.offset));
+        state.write_u32(f32::to_bits(self.size));
     }
 }
 
@@ -398,8 +520,8 @@ pub enum LogicOp {
     Set,
 }
 
-impl From<LogicOp> for vk::LogicOp {
-    fn from(value: LogicOp) -> Self {
+impl FromGfx<LogicOp> for vk::LogicOp {
+    fn from_gfx(value: LogicOp) -> Self {
         match value {
             LogicOp::Clear => Self::CLEAR,
             LogicOp::And => Self::AND,
@@ -480,8 +602,8 @@ pub enum BlendFactor {
     SrcAlphaSaturate,
 }
 
-impl From<BlendFactor> for vk::BlendFactor {
-    fn from(value: BlendFactor) -> Self {
+impl FromGfx<BlendFactor> for vk::BlendFactor {
+    fn from_gfx(value: BlendFactor) -> Self {
         match value {
             BlendFactor::Zero => Self::ZERO,
             BlendFactor::One => Self::ONE,
@@ -516,8 +638,8 @@ pub enum BlendOp {
     Max,
 }
 
-impl From<BlendOp> for vk::BlendOp {
-    fn from(value: BlendOp) -> Self {
+impl FromGfx<BlendOp> for vk::BlendOp {
+    fn from_gfx(value: BlendOp) -> Self {
         match value {
             BlendOp::Add => Self::ADD,
             BlendOp::Subtract => Self::SUBTRACT,
@@ -540,8 +662,8 @@ bitflags::bitflags! {
     }
 }
 
-impl From<ComponentMask> for vk::ColorComponentFlags {
-    fn from(value: ComponentMask) -> Self {
+impl FromGfx<ComponentMask> for vk::ColorComponentFlags {
+    fn from_gfx(value: ComponentMask) -> Self {
         let mut res = vk::ColorComponentFlags::empty();
         if value.contains(ComponentMask::R) {
             res |= vk::ColorComponentFlags::R;

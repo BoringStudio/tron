@@ -4,7 +4,8 @@ use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::device::{Device, WeakDevice};
-use crate::resources::{Image, ImageExtent, ImageInfo};
+use crate::resources::{Image, ImageAspectFlags, ImageExtent, ImageInfo};
+use crate::util::{FromGfx, ToVk};
 
 pub trait MakeImageView {
     fn make_image_view(&self, device: &Device) -> Result<ImageView>;
@@ -31,8 +32,8 @@ pub enum ImageViewType {
     Cube,
 }
 
-impl From<ImageViewType> for vk::ImageViewType {
-    fn from(value: ImageViewType) -> Self {
+impl FromGfx<ImageViewType> for vk::ImageViewType {
+    fn from_gfx(value: ImageViewType) -> Self {
         match value {
             ImageViewType::D1 => vk::ImageViewType::_1D,
             ImageViewType::D2 => vk::ImageViewType::_2D,
@@ -54,8 +55,8 @@ pub enum Swizzle {
     A,
 }
 
-impl From<Swizzle> for vk::ComponentSwizzle {
-    fn from(value: Swizzle) -> Self {
+impl FromGfx<Swizzle> for vk::ComponentSwizzle {
+    fn from_gfx(value: Swizzle) -> Self {
         match value {
             Swizzle::Identity => vk::ComponentSwizzle::IDENTITY,
             Swizzle::Zero => vk::ComponentSwizzle::ZERO,
@@ -76,13 +77,13 @@ pub struct ComponentMapping {
     pub a: Swizzle,
 }
 
-impl From<ComponentMapping> for vk::ComponentMapping {
-    fn from(value: ComponentMapping) -> Self {
+impl FromGfx<ComponentMapping> for vk::ComponentMapping {
+    fn from_gfx(value: ComponentMapping) -> Self {
         Self {
-            r: value.r.into(),
-            g: value.g.into(),
-            b: value.b.into(),
-            a: value.a.into(),
+            r: value.r.to_vk(),
+            g: value.g.to_vk(),
+            b: value.b.to_vk(),
+            a: value.a.to_vk(),
         }
     }
 }
@@ -90,7 +91,7 @@ impl From<ComponentMapping> for vk::ComponentMapping {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ImageViewInfo {
     pub ty: ImageViewType,
-    pub range: vk::ImageSubresourceRange,
+    pub range: ImageSubresourceRange,
     pub image: Image,
     pub mapping: ComponentMapping,
 }
@@ -105,7 +106,7 @@ impl ImageViewInfo {
                 ImageExtent::D2 { .. } => ImageViewType::D2,
                 ImageExtent::D3 { .. } => ImageViewType::D3,
             },
-            range: Self::make_whole_image_subresource_range(image_info),
+            range: ImageSubresourceRange::whole(image_info),
             image,
             mapping: Default::default(),
         }
@@ -113,7 +114,7 @@ impl ImageViewInfo {
 
     pub fn is_whole_image(&self, image: &Image) -> bool {
         self.image == *image
-            && self.range == Self::make_whole_image_subresource_range(image.info())
+            && self.range == ImageSubresourceRange::whole(image.info())
             && self.mapping == ComponentMapping::default()
             && matches!(
                 (self.ty, &image.info().extent),
@@ -122,15 +123,228 @@ impl ImageViewInfo {
                     | (ImageViewType::D3, ImageExtent::D3 { .. })
             )
     }
+}
 
-    fn make_whole_image_subresource_range(info: &ImageInfo) -> vk::ImageSubresourceRange {
-        vk::ImageSubresourceRange {
-            aspect_mask: info.format.aspect_flags(),
-            base_mip_level: 0,
-            level_count: info.mip_levels,
-            base_array_layer: 0,
-            layer_count: info.array_layers,
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct ImageSubresourceRange {
+    pub aspect: ImageAspectFlags,
+    pub first_mip_level: u32,
+    pub mip_level_count: u32,
+    pub first_array_layer: u32,
+    pub array_layer_count: u32,
+}
+
+impl ImageSubresourceRange {
+    pub fn new(
+        aspect: ImageAspectFlags,
+        mip_levels: std::ops::Range<u32>,
+        array_layers: std::ops::Range<u32>,
+    ) -> Self {
+        Self {
+            aspect,
+            first_mip_level: mip_levels.start,
+            mip_level_count: mip_levels.end - mip_levels.start,
+            first_array_layer: array_layers.start,
+            array_layer_count: array_layers.end - array_layers.start,
         }
+    }
+
+    pub fn whole(info: &ImageInfo) -> Self {
+        Self {
+            aspect: info.format.aspect_flags(),
+            first_mip_level: 0,
+            mip_level_count: info.mip_levels,
+            first_array_layer: 0,
+            array_layer_count: info.array_layers,
+        }
+    }
+
+    pub fn color(mip_levels: std::ops::Range<u32>, array_layers: std::ops::Range<u32>) -> Self {
+        Self::new(ImageAspectFlags::COLOR, mip_levels, array_layers)
+    }
+
+    pub fn depth(mip_levels: std::ops::Range<u32>, array_layers: std::ops::Range<u32>) -> Self {
+        Self::new(ImageAspectFlags::DEPTH, mip_levels, array_layers)
+    }
+
+    pub fn stencil(mip_levels: std::ops::Range<u32>, array_layers: std::ops::Range<u32>) -> Self {
+        Self::new(ImageAspectFlags::STENCIL, mip_levels, array_layers)
+    }
+
+    pub fn depth_stencil(
+        mip_levels: std::ops::Range<u32>,
+        array_layers: std::ops::Range<u32>,
+    ) -> Self {
+        Self::new(
+            ImageAspectFlags::DEPTH | ImageAspectFlags::STENCIL,
+            mip_levels,
+            array_layers,
+        )
+    }
+}
+
+impl FromGfx<ImageSubresourceRange> for vk::ImageSubresourceRange {
+    fn from_gfx(value: ImageSubresourceRange) -> Self {
+        vk::ImageSubresourceRange::builder()
+            .aspect_mask(value.aspect.to_vk())
+            .base_mip_level(value.first_mip_level)
+            .level_count(value.mip_level_count)
+            .base_array_layer(value.first_array_layer)
+            .layer_count(value.array_layer_count)
+            .build()
+    }
+}
+
+impl From<ImageSubresourceLayers> for ImageSubresourceRange {
+    fn from(value: ImageSubresourceLayers) -> Self {
+        Self {
+            aspect: value.aspect,
+            first_mip_level: value.mip_level,
+            mip_level_count: 1,
+            first_array_layer: value.first_array_layer,
+            array_layer_count: value.array_layer_count,
+        }
+    }
+}
+
+impl From<ImageSubresource> for ImageSubresourceRange {
+    fn from(value: ImageSubresource) -> Self {
+        Self {
+            aspect: value.aspect,
+            first_mip_level: value.mip_level,
+            mip_level_count: 1,
+            first_array_layer: value.array_layer,
+            array_layer_count: 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct ImageSubresourceLayers {
+    pub aspect: ImageAspectFlags,
+    pub mip_level: u32,
+    pub first_array_layer: u32,
+    pub array_layer_count: u32,
+}
+
+impl ImageSubresourceLayers {
+    pub fn new(
+        aspect: ImageAspectFlags,
+        mip_level: u32,
+        array_layers: std::ops::Range<u32>,
+    ) -> Self {
+        Self {
+            aspect,
+            mip_level,
+            first_array_layer: array_layers.start,
+            array_layer_count: array_layers.end - array_layers.start,
+        }
+    }
+
+    pub fn all_layers(info: &ImageInfo, mip_level: u32) -> Self {
+        Self {
+            aspect: info.format.aspect_flags(),
+            mip_level,
+            first_array_layer: 0,
+            array_layer_count: info.array_layers,
+        }
+    }
+
+    pub fn color(mip_level: u32, array_layers: std::ops::Range<u32>) -> Self {
+        Self::new(ImageAspectFlags::COLOR, mip_level, array_layers)
+    }
+
+    pub fn depth(mip_level: u32, array_layers: std::ops::Range<u32>) -> Self {
+        Self::new(ImageAspectFlags::DEPTH, mip_level, array_layers)
+    }
+
+    pub fn stencil(mip_level: u32, array_layers: std::ops::Range<u32>) -> Self {
+        Self::new(ImageAspectFlags::STENCIL, mip_level, array_layers)
+    }
+
+    pub fn depth_stencil(mip_level: u32, array_layers: std::ops::Range<u32>) -> Self {
+        Self::new(
+            ImageAspectFlags::DEPTH | ImageAspectFlags::STENCIL,
+            mip_level,
+            array_layers,
+        )
+    }
+}
+
+impl FromGfx<ImageSubresourceLayers> for vk::ImageSubresourceLayers {
+    fn from_gfx(value: ImageSubresourceLayers) -> Self {
+        Self::builder()
+            .aspect_mask(value.aspect.to_vk())
+            .mip_level(value.mip_level)
+            .base_array_layer(value.first_array_layer)
+            .layer_count(value.array_layer_count)
+            .build()
+    }
+}
+
+impl From<ImageSubresource> for ImageSubresourceLayers {
+    fn from(value: ImageSubresource) -> Self {
+        Self {
+            aspect: value.aspect,
+            mip_level: value.mip_level,
+            first_array_layer: value.array_layer,
+            array_layer_count: 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct ImageSubresource {
+    pub aspect: ImageAspectFlags,
+    pub mip_level: u32,
+    pub array_layer: u32,
+}
+
+impl ImageSubresource {
+    pub fn new(aspect: ImageAspectFlags, mip_level: u32, array_layer: u32) -> Self {
+        Self {
+            aspect,
+            mip_level,
+            array_layer,
+        }
+    }
+
+    pub fn from_info(info: &ImageInfo, mip_level: u32, array_layer: u32) -> Self {
+        Self {
+            aspect: info.format.aspect_flags(),
+            mip_level,
+            array_layer,
+        }
+    }
+
+    pub fn color(mip_level: u32, array_layer: u32) -> Self {
+        Self::new(ImageAspectFlags::COLOR, mip_level, array_layer)
+    }
+
+    pub fn depth(mip_level: u32, array_layer: u32) -> Self {
+        Self::new(ImageAspectFlags::DEPTH, mip_level, array_layer)
+    }
+
+    pub fn stencil(mip_level: u32, array_layer: u32) -> Self {
+        Self::new(ImageAspectFlags::STENCIL, mip_level, array_layer)
+    }
+
+    pub fn depth_stencil(mip_level: u32, array_layer: u32) -> Self {
+        Self::new(
+            ImageAspectFlags::DEPTH | ImageAspectFlags::STENCIL,
+            mip_level,
+            array_layer,
+        )
+    }
+}
+
+impl FromGfx<ImageSubresource> for vk::ImageSubresource {
+    fn from_gfx(value: ImageSubresource) -> Self {
+        Self::builder()
+            .aspect_mask(value.aspect.to_vk())
+            .mip_level(value.mip_level)
+            .array_layer(value.array_layer)
+            .build()
     }
 }
 

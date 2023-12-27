@@ -3,11 +3,13 @@ use std::sync::Arc;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::device::WeakDevice;
+use crate::resources::ShaderStageFlags;
+use crate::util::FromGfx;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct DescriptorSetLayoutInfo {
     pub bindings: Vec<DescriptorSetLayoutBinding>,
-    pub flags: vk::DescriptorSetLayoutCreateFlags,
+    pub flags: DescriptorSetLayoutFlags,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -15,8 +17,8 @@ pub struct DescriptorSetLayoutBinding {
     pub binding: u32,
     pub ty: DescriptorType,
     pub count: u32,
-    pub stages: vk::ShaderStageFlags,
-    pub flags: vk::DescriptorBindingFlags,
+    pub stages: ShaderStageFlags,
+    pub flags: DescriptorBindingFlags,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -45,8 +47,8 @@ pub enum DescriptorType {
     InputAttachment,
 }
 
-impl From<DescriptorType> for vk::DescriptorType {
-    fn from(value: DescriptorType) -> Self {
+impl FromGfx<DescriptorType> for vk::DescriptorType {
+    fn from_gfx(value: DescriptorType) -> Self {
         match value {
             DescriptorType::Sampler => Self::SAMPLER,
             DescriptorType::CombinedImageSampler => Self::COMBINED_IMAGE_SAMPLER,
@@ -60,6 +62,56 @@ impl From<DescriptorType> for vk::DescriptorType {
             DescriptorType::StorageBufferDynamic => Self::STORAGE_BUFFER_DYNAMIC,
             DescriptorType::InputAttachment => Self::INPUT_ATTACHMENT,
         }
+    }
+}
+
+bitflags::bitflags! {
+    #[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq)]
+    pub struct DescriptorBindingFlags: u32 {
+        const UPDATE_AFTER_BIND = 1;
+        const UPDATE_UNUSED_WHILE_PENDING = 1 << 1;
+        const PARTIALLY_BOUND = 1 << 2;
+        const VARIABLE_DESCRIPTOR_COUNT = 1 << 3;
+    }
+}
+
+impl FromGfx<DescriptorBindingFlags> for vk::DescriptorBindingFlags {
+    fn from_gfx(value: DescriptorBindingFlags) -> Self {
+        let mut res = Self::empty();
+        if value.contains(DescriptorBindingFlags::UPDATE_AFTER_BIND) {
+            res |= Self::UPDATE_AFTER_BIND;
+        }
+        if value.contains(DescriptorBindingFlags::UPDATE_UNUSED_WHILE_PENDING) {
+            res |= Self::UPDATE_UNUSED_WHILE_PENDING;
+        }
+        if value.contains(DescriptorBindingFlags::PARTIALLY_BOUND) {
+            res |= Self::PARTIALLY_BOUND;
+        }
+        if value.contains(DescriptorBindingFlags::VARIABLE_DESCRIPTOR_COUNT) {
+            res |= Self::VARIABLE_DESCRIPTOR_COUNT
+        }
+        res
+    }
+}
+
+bitflags::bitflags! {
+    #[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq)]
+    pub struct DescriptorSetLayoutFlags: u32 {
+        const PUSH_DESCRIPTOR = 1;
+        const UPDATE_AFTER_BIND_POOL = 1 << 1;
+    }
+}
+
+impl FromGfx<DescriptorSetLayoutFlags> for vk::DescriptorSetLayoutCreateFlags {
+    fn from_gfx(value: DescriptorSetLayoutFlags) -> Self {
+        let mut res = Self::empty();
+        if value.contains(DescriptorSetLayoutFlags::PUSH_DESCRIPTOR) {
+            res |= Self::PUSH_DESCRIPTOR_KHR;
+        }
+        if value.contains(DescriptorSetLayoutFlags::UPDATE_AFTER_BIND_POOL) {
+            res |= Self::UPDATE_AFTER_BIND_POOL;
+        }
+        res
     }
 }
 

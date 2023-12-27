@@ -7,6 +7,7 @@ use gpu_alloc::MemoryBlock;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::device::WeakDevice;
+use crate::util::{FromGfx, ToVk};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ImageExtent {
@@ -59,8 +60,8 @@ impl From<UVec3> for ImageExtent {
     }
 }
 
-impl From<ImageExtent> for vk::Extent2D {
-    fn from(value: ImageExtent) -> Self {
+impl FromGfx<ImageExtent> for vk::Extent2D {
+    fn from_gfx(value: ImageExtent) -> Self {
         let e = vk::Extent2D::builder();
         match value {
             ImageExtent::D1 { width } => e.width(width),
@@ -81,8 +82,8 @@ impl From<ImageExtent> for UVec2 {
     }
 }
 
-impl From<ImageExtent> for vk::Extent3D {
-    fn from(value: ImageExtent) -> Self {
+impl FromGfx<ImageExtent> for vk::Extent3D {
+    fn from_gfx(value: ImageExtent) -> Self {
         let e = vk::Extent3D::builder();
         match value {
             ImageExtent::D1 { width } => e.width(width),
@@ -111,8 +112,8 @@ impl From<ImageExtent> for UVec3 {
     }
 }
 
-impl From<ImageExtent> for vk::ImageType {
-    fn from(value: ImageExtent) -> Self {
+impl FromGfx<ImageExtent> for vk::ImageType {
+    fn from_gfx(value: ImageExtent) -> Self {
         match value {
             ImageExtent::D1 { .. } => Self::_1D,
             ImageExtent::D2 { .. } => Self::_2D,
@@ -132,8 +133,8 @@ pub enum Samples {
     _64,
 }
 
-impl From<Samples> for vk::SampleCountFlags {
-    fn from(value: Samples) -> Self {
+impl FromGfx<Samples> for vk::SampleCountFlags {
+    fn from_gfx(value: Samples) -> Self {
         match value {
             Samples::_1 => vk::SampleCountFlags::_1,
             Samples::_2 => vk::SampleCountFlags::_2,
@@ -158,8 +159,8 @@ pub enum ImageLayout {
     Present,
 }
 
-impl From<ImageLayout> for vk::ImageLayout {
-    fn from(value: ImageLayout) -> Self {
+impl FromGfx<ImageLayout> for vk::ImageLayout {
+    fn from_gfx(value: ImageLayout) -> Self {
         match value {
             ImageLayout::General => Self::GENERAL,
             ImageLayout::ColorAttachmentOptimal => Self::COLOR_ATTACHMENT_OPTIMAL,
@@ -173,6 +174,16 @@ impl From<ImageLayout> for vk::ImageLayout {
     }
 }
 
+impl FromGfx<Option<ImageLayout>> for vk::ImageLayout {
+    #[inline]
+    fn from_gfx(value: Option<ImageLayout>) -> Self {
+        match value {
+            Some(value) => value.to_vk(),
+            None => Self::UNDEFINED,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ImageInfo {
     pub extent: ImageExtent,
@@ -180,7 +191,48 @@ pub struct ImageInfo {
     pub mip_levels: u32,
     pub samples: Samples,
     pub array_layers: u32,
-    pub usage: vk::ImageUsageFlags,
+    pub usage: ImageUsageFlags,
+}
+
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+    pub struct ImageUsageFlags: u32 {
+        const TRANSFER_SRC = 1;
+        const TRANSFER_DST = 1 << 1;
+        const SAMPLED = 1 << 2;
+        const STORAGE = 1 << 3;
+        const COLOR_ATTACHMENT = 1 << 4;
+        const DEPTH_STENCIL_ATTACHMENT = 1 << 5;
+        const INPUT_ATTACHMENT = 1 << 7;
+    }
+}
+
+impl FromGfx<ImageUsageFlags> for vk::ImageUsageFlags {
+    fn from_gfx(value: ImageUsageFlags) -> Self {
+        let mut res = Self::empty();
+        if value.contains(ImageUsageFlags::TRANSFER_SRC) {
+            res |= Self::TRANSFER_SRC;
+        }
+        if value.contains(ImageUsageFlags::TRANSFER_DST) {
+            res |= Self::TRANSFER_DST;
+        }
+        if value.contains(ImageUsageFlags::SAMPLED) {
+            res |= Self::SAMPLED;
+        }
+        if value.contains(ImageUsageFlags::STORAGE) {
+            res |= Self::STORAGE;
+        }
+        if value.contains(ImageUsageFlags::COLOR_ATTACHMENT) {
+            res |= Self::COLOR_ATTACHMENT;
+        }
+        if value.contains(ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT) {
+            res |= Self::DEPTH_STENCIL_ATTACHMENT;
+        }
+        if value.contains(ImageUsageFlags::INPUT_ATTACHMENT) {
+            res |= Self::INPUT_ATTACHMENT;
+        }
+        res
+    }
 }
 
 #[derive(Clone)]
@@ -387,8 +439,8 @@ macro_rules! declare_format {
             }
         }
 
-        impl From<$enum_name> for vk::Format {
-            fn from(value: $enum_name) -> Self {
+        impl FromGfx<$enum_name> for vk::Format {
+            fn from_gfx(value: $enum_name) -> Self {
                 match value {
                     $($enum_name::$ident => vk::Format::$orig),*,
                 }
@@ -521,18 +573,18 @@ declare_format! {
 }
 
 impl Format {
-    pub fn aspect_flags(&self) -> vk::ImageAspectFlags {
-        let mut flags = vk::ImageAspectFlags::empty();
+    pub fn aspect_flags(&self) -> ImageAspectFlags {
+        let mut flags = ImageAspectFlags::empty();
         let is_depth = self.is_depth();
         let is_stencil = self.is_stencil();
         if !is_depth && !is_stencil {
-            flags |= vk::ImageAspectFlags::COLOR;
+            flags |= ImageAspectFlags::COLOR;
         }
         if is_depth {
-            flags |= vk::ImageAspectFlags::DEPTH;
+            flags |= ImageAspectFlags::DEPTH;
         }
         if is_stencil {
-            flags |= vk::ImageAspectFlags::STENCIL;
+            flags |= ImageAspectFlags::STENCIL;
         }
         flags
     }
@@ -565,5 +617,40 @@ impl Format {
             *self,
             Self::S8Uint | Self::D16UnormS8Uint | Self::D24UnormS8Uint | Self::D32SfloatS8Uint
         )
+    }
+}
+
+impl FromGfx<Option<Format>> for vk::Format {
+    #[inline]
+    fn from_gfx(value: Option<Format>) -> Self {
+        match value {
+            Some(value) => value.to_vk(),
+            None => Self::UNDEFINED,
+        }
+    }
+}
+
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+    pub struct ImageAspectFlags: u8 {
+        const COLOR = 1;
+        const DEPTH = 1 << 1;
+        const STENCIL = 1 << 2;
+    }
+}
+
+impl FromGfx<ImageAspectFlags> for vk::ImageAspectFlags {
+    fn from_gfx(value: ImageAspectFlags) -> Self {
+        let mut res = Self::empty();
+        if value.contains(ImageAspectFlags::COLOR) {
+            res |= Self::COLOR;
+        }
+        if value.contains(ImageAspectFlags::DEPTH) {
+            res |= Self::DEPTH;
+        }
+        if value.contains(ImageAspectFlags::STENCIL) {
+            res |= Self::STENCIL;
+        }
+        res
     }
 }

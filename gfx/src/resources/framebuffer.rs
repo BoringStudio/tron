@@ -9,7 +9,7 @@ use crate::resources::{ImageView, RenderPass};
 pub struct FramebufferInfo {
     pub render_pass: RenderPass,
     pub attachments: Vec<ImageView>,
-    pub extent: vk::Extent2D,
+    pub extent: glam::UVec2,
 }
 
 #[derive(Clone)]

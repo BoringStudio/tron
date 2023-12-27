@@ -3,6 +3,7 @@ use std::sync::Arc;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::device::WeakDevice;
+use crate::util::{FromGfx, ToVk};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SamplerInfo {
@@ -85,8 +86,8 @@ pub enum Filter {
     Linear,
 }
 
-impl From<Filter> for vk::Filter {
-    fn from(value: Filter) -> Self {
+impl FromGfx<Filter> for vk::Filter {
+    fn from_gfx(value: Filter) -> Self {
         match value {
             Filter::Nearest => Self::NEAREST,
             Filter::Linear => Self::LINEAR,
@@ -101,8 +102,8 @@ pub enum MipmapMode {
     Linear,
 }
 
-impl From<MipmapMode> for vk::SamplerMipmapMode {
-    fn from(value: MipmapMode) -> Self {
+impl FromGfx<MipmapMode> for vk::SamplerMipmapMode {
+    fn from_gfx(value: MipmapMode) -> Self {
         match value {
             MipmapMode::Nearest => Self::NEAREST,
             MipmapMode::Linear => Self::LINEAR,
@@ -120,8 +121,8 @@ pub enum SamplerAddressMode {
     MirrorClampToEdge,
 }
 
-impl From<SamplerAddressMode> for vk::SamplerAddressMode {
-    fn from(value: SamplerAddressMode) -> Self {
+impl FromGfx<SamplerAddressMode> for vk::SamplerAddressMode {
+    fn from_gfx(value: SamplerAddressMode) -> Self {
         match value {
             SamplerAddressMode::Repeat => Self::REPEAT,
             SamplerAddressMode::MirroredRepeat => Self::MIRRORED_REPEAT,
@@ -152,8 +153,8 @@ pub enum CompareOp {
     Always,
 }
 
-impl From<CompareOp> for vk::CompareOp {
-    fn from(value: CompareOp) -> Self {
+impl FromGfx<CompareOp> for vk::CompareOp {
+    fn from_gfx(value: CompareOp) -> Self {
         match value {
             CompareOp::Never => Self::NEVER,
             CompareOp::Less => Self::LESS,
@@ -163,6 +164,15 @@ impl From<CompareOp> for vk::CompareOp {
             CompareOp::NotEqual => Self::NOT_EQUAL,
             CompareOp::GreaterOrEqual => Self::GREATER_OR_EQUAL,
             CompareOp::Always => Self::ALWAYS,
+        }
+    }
+}
+
+impl FromGfx<Option<CompareOp>> for vk::CompareOp {
+    fn from_gfx(value: Option<CompareOp>) -> Self {
+        match value {
+            Some(value) => value.to_vk(),
+            None => Self::NEVER,
         }
     }
 }
@@ -178,8 +188,8 @@ pub enum BorderColor {
     IntOpaqueWhite,
 }
 
-impl From<BorderColor> for vk::BorderColor {
-    fn from(value: BorderColor) -> Self {
+impl FromGfx<BorderColor> for vk::BorderColor {
+    fn from_gfx(value: BorderColor) -> Self {
         match value {
             BorderColor::FloatTransparentBlack => Self::FLOAT_TRANSPARENT_BLACK,
             BorderColor::IntTransparentBlack => Self::INT_TRANSPARENT_BLACK,

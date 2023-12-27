@@ -13,14 +13,16 @@ use winit::window::Window;
 use crate::graphics::Graphics;
 use crate::physical_device::{DeviceFeatures, DeviceProperties};
 use crate::resources::{
-    Blending, Buffer, BufferInfo, ColorBlend, ComponentMask, ComputePipeline, ComputePipelineInfo,
-    DescriptorSetLayout, DescriptorSetLayoutInfo, Fence, FenceState, Framebuffer, FramebufferInfo,
-    GraphicsPipeline, GraphicsPipelineInfo, Image, ImageInfo, ImageView, ImageViewInfo,
-    ImageViewType, MappableBuffer, PipelineLayout, PipelineLayoutInfo, RenderPass, RenderPassInfo,
-    Sampler, SamplerInfo, Semaphore, ShaderModule, ShaderModuleInfo, StencilTest,
+    Blending, Buffer, BufferInfo, BufferUsage, ColorBlend, ComponentMask, ComputePipeline,
+    ComputePipelineInfo, DescriptorBindingFlags, DescriptorSetLayout, DescriptorSetLayoutFlags,
+    DescriptorSetLayoutInfo, Fence, FenceState, Framebuffer, FramebufferInfo, GraphicsPipeline,
+    GraphicsPipelineInfo, Image, ImageInfo, ImageView, ImageViewInfo, ImageViewType,
+    MappableBuffer, PipelineLayout, PipelineLayoutInfo, RenderPass, RenderPassInfo, Sampler,
+    SamplerInfo, Semaphore, ShaderModule, ShaderModuleInfo, StencilTest,
 };
 use crate::surface::Surface;
 use crate::types::{DeviceAddress, State};
+use crate::util::{FromGfx, ToVk};
 
 #[derive(Clone)]
 #[repr(transparent)]
@@ -251,9 +253,7 @@ impl Device {
         let logical = &self.inner.logical;
 
         let mut memory_usage = memory_usage.unwrap_or_else(gpu_alloc::UsageFlags::empty);
-        let has_device_address = info
-            .usage
-            .contains(vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS);
+        let has_device_address = info.usage.contains(BufferUsage::SHADER_DEVICE_ADDRESS);
         if has_device_address {
             anyhow::ensure!(
                 self.inner.features.v1_2.buffer_device_address != 0,
@@ -266,7 +266,7 @@ impl Device {
         let handle = {
             let info = vk::BufferCreateInfo::builder()
                 .size(info.size)
-                .usage(info.usage)
+                .usage(info.usage.to_vk())
                 .sharing_mode(vk::SharingMode::EXCLUSIVE);
             unsafe { logical.create_buffer(&info, None)? }
         }
@@ -350,14 +350,14 @@ impl Device {
 
         let handle = {
             let info = vk::ImageCreateInfo::builder()
-                .image_type(info.extent.into())
-                .format(info.format.into())
-                .extent(vk::Extent3D::from(info.extent))
+                .image_type(info.extent.to_vk())
+                .format(info.format.to_vk())
+                .extent(vk::Extent3D::from_gfx(info.extent))
                 .mip_levels(info.mip_levels)
-                .samples(info.samples.into())
+                .samples(info.samples.to_vk())
                 .array_layers(info.array_layers)
                 .tiling(vk::ImageTiling::OPTIMAL)
-                .usage(info.usage)
+                .usage(info.usage.to_vk())
                 .sharing_mode(vk::SharingMode::EXCLUSIVE)
                 .initial_layout(vk::ImageLayout::UNDEFINED);
 
@@ -429,17 +429,10 @@ impl Device {
         let handle = {
             let info = vk::ImageViewCreateInfo::builder()
                 .image(info.image.handle())
-                .format(info.image.info().format.into())
-                .view_type(info.ty.into())
-                .subresource_range(
-                    vk::ImageSubresourceRange::builder()
-                        .aspect_mask(info.range.aspect_mask)
-                        .base_mip_level(info.range.base_mip_level)
-                        .level_count(info.range.level_count)
-                        .base_array_layer(info.range.base_array_layer)
-                        .layer_count(info.range.layer_count),
-                )
-                .components(vk::ComponentMapping::from(info.mapping));
+                .format(info.image.info().format.to_vk())
+                .view_type(info.ty.to_vk())
+                .subresource_range(vk::ImageSubresourceRange::from_gfx(info.range))
+                .components(vk::ComponentMapping::from_gfx(info.mapping));
 
             unsafe { logical.create_image_view(&info, None) }?
         };
@@ -465,24 +458,20 @@ impl Device {
             Entry::Vacant(entry) => {
                 let handle = {
                     let info = vk::SamplerCreateInfo::builder()
-                        .mag_filter(info.mag_filter.into())
-                        .min_filter(info.min_filter.into())
-                        .mipmap_mode(info.mipmap_mode.into())
-                        .address_mode_u(info.address_mode_u.into())
-                        .address_mode_v(info.address_mode_v.into())
-                        .address_mode_w(info.address_mode_w.into())
+                        .mag_filter(info.mag_filter.to_vk())
+                        .min_filter(info.min_filter.to_vk())
+                        .mipmap_mode(info.mipmap_mode.to_vk())
+                        .address_mode_u(info.address_mode_u.to_vk())
+                        .address_mode_v(info.address_mode_v.to_vk())
+                        .address_mode_w(info.address_mode_w.to_vk())
                         .mip_lod_bias(info.mip_lod_bias)
                         .anisotropy_enable(info.max_anisotropy.is_some())
                         .max_anisotropy(info.max_anisotropy.unwrap_or_default())
                         .compare_enable(info.compare_op.is_some())
-                        .compare_op(
-                            info.compare_op
-                                .map(Into::into)
-                                .unwrap_or(vk::CompareOp::NEVER),
-                        )
+                        .compare_op(info.compare_op.to_vk())
                         .min_lod(info.min_lod)
                         .max_lod(info.max_lod)
-                        .border_color(info.border_color.into())
+                        .border_color(info.border_color.to_vk())
                         .unnormalized_coordinates(info.unnormalized_coordinates);
 
                     unsafe { logical.create_sampler(&info, None) }?
@@ -538,7 +527,7 @@ impl Device {
                 subpass_attachments.push(
                     vk::AttachmentReference::builder()
                         .attachment(i)
-                        .layout(layout.into()),
+                        .layout(layout.to_vk()),
                 );
             }
 
@@ -552,7 +541,7 @@ impl Device {
                 subpass_attachments.push(
                     vk::AttachmentReference::builder()
                         .attachment(i)
-                        .layout(layout.into()),
+                        .layout(layout.to_vk()),
                 );
             }
 
@@ -578,15 +567,11 @@ impl Device {
             .iter()
             .map(|info| {
                 vk::AttachmentDescription::builder()
-                    .format(info.format.into())
-                    .load_op(info.load_op.into())
-                    .store_op(info.store_op.into())
-                    .initial_layout(
-                        info.initial_layout
-                            .map(Into::into)
-                            .unwrap_or(vk::ImageLayout::UNDEFINED),
-                    )
-                    .final_layout(info.final_layout.into())
+                    .format(info.format.to_vk())
+                    .load_op(info.load_op.to_vk())
+                    .store_op(info.store_op.to_vk())
+                    .initial_layout(info.initial_layout.to_vk())
+                    .final_layout(info.final_layout.to_vk())
                     .samples(vk::SampleCountFlags::_1)
             })
             .collect::<Vec<_>>();
@@ -594,14 +579,7 @@ impl Device {
         let dependencies = info
             .dependencies
             .iter()
-            .map(|info| {
-                vk::SubpassDependency::builder()
-                    .src_subpass(info.src.unwrap_or(vk::SUBPASS_EXTERNAL))
-                    .dst_subpass(info.dst.unwrap_or(vk::SUBPASS_EXTERNAL))
-                    .src_stage_mask(info.src_stages)
-                    .dst_stage_mask(info.dst_stages)
-                    .build()
-            })
+            .map(|dep| vk::SubpassDependency::from_gfx(*dep))
             .collect::<Vec<_>>();
 
         let handle = {
@@ -632,8 +610,8 @@ impl Device {
 
         anyhow::ensure!(
             info.attachments.iter().all(|view| {
-                let extent: vk::Extent2D = view.info().image.info().extent.into();
-                extent.width >= info.extent.width && extent.height >= info.extent.height
+                let extent: vk::Extent2D = view.info().image.info().extent.to_vk();
+                extent.width >= info.extent.x && extent.height >= info.extent.y
             }),
             "all image views must have at least the framebuffer extent"
         );
@@ -649,8 +627,8 @@ impl Device {
             let info = vk::FramebufferCreateInfo::builder()
                 .render_pass(render_pass)
                 .attachments(&attachments)
-                .width(info.extent.width)
-                .height(info.extent.height)
+                .width(info.extent.x)
+                .height(info.extent.y)
                 .layers(1);
 
             unsafe { self.logical().create_framebuffer(&info, None) }?
@@ -675,16 +653,18 @@ impl Device {
             let flags;
             let mut flags_info;
 
-            let mut create_info = vk::DescriptorSetLayoutCreateInfo::builder().flags(info.flags);
+            let mut create_info =
+                vk::DescriptorSetLayoutCreateInfo::builder().flags(info.flags.to_vk());
 
             if self.graphics().vk1_2() {
-                if info.bindings.iter().any(|b| {
-                    b.flags
-                        .contains(vk::DescriptorBindingFlags::UPDATE_AFTER_BIND)
-                }) {
+                if info
+                    .bindings
+                    .iter()
+                    .any(|b| b.flags.contains(DescriptorBindingFlags::UPDATE_AFTER_BIND))
+                {
                     anyhow::ensure!(
                         info.flags
-                            .contains(vk::DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL),
+                            .contains(DescriptorSetLayoutFlags::UPDATE_AFTER_BIND_POOL),
                         "`UPDATE_AFTER_BIND_POOL` flag must be set in descriptor set layout \
                         create info flags"
                     );
@@ -693,7 +673,7 @@ impl Device {
                 flags = info
                     .bindings
                     .iter()
-                    .map(|b| b.flags)
+                    .map(|b| b.flags.to_vk())
                     .collect::<SmallVec<[_; 8]>>();
 
                 flags_info =
@@ -713,8 +693,8 @@ impl Device {
                     vk::DescriptorSetLayoutBinding::builder()
                         .binding(binding.binding)
                         .descriptor_count(binding.count)
-                        .descriptor_type(binding.ty.into())
-                        .stage_flags(binding.stages)
+                        .descriptor_type(binding.ty.to_vk())
+                        .stage_flags(binding.stages.to_vk())
                 })
                 .collect::<SmallVec<[_; 8]>>();
 
@@ -744,12 +724,7 @@ impl Device {
             let push_constants = info
                 .push_constants
                 .iter()
-                .map(|c| {
-                    vk::PushConstantRange::builder()
-                        .stage_flags(c.stages)
-                        .offset(c.offset)
-                        .size(c.size)
-                })
+                .map(|c| vk::PushConstantRange::from_gfx(*c))
                 .collect::<SmallVec<[_; 8]>>();
 
             let info = vk::PipelineLayoutCreateInfo::builder()
@@ -799,20 +774,14 @@ impl Device {
                 vk::VertexInputBindingDescription::builder()
                     .binding(i as u32)
                     .stride(b.stride)
-                    .input_rate(b.rate.into())
+                    .input_rate(b.rate.to_vk())
             })
             .collect::<SmallVec<[_; 4]>>();
 
         let vertex_attribute_descriptions = descr
             .vertex_attributes
             .iter()
-            .map(|a| {
-                vk::VertexInputAttributeDescription::builder()
-                    .location(a.location)
-                    .binding(a.binding)
-                    .offset(a.offset)
-                    .format(a.format.into())
-            })
+            .map(|a| vk::VertexInputAttributeDescription::from_gfx(*a))
             .collect::<SmallVec<[_; 8]>>();
 
         let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder()
@@ -831,7 +800,7 @@ impl Device {
 
         // Input assembly state
         let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::builder()
-            .topology(descr.primitive_topology.into())
+            .topology(descr.primitive_topology.to_vk())
             .primitive_restart_enable(descr.primitive_restart_enable);
 
         // Rasterizer
@@ -874,7 +843,7 @@ impl Device {
                     depth_stencil_state = depth_stencil_state
                         .depth_test_enable(true)
                         .depth_write_enable(depth_test.write)
-                        .depth_compare_op(depth_test.compare.into())
+                        .depth_compare_op(depth_test.compare.to_vk())
                 }
                 if let Some(depth_bounds) = rasterizer.depth_bounds {
                     depth_stencil_state = depth_stencil_state.depth_bounds_test_enable(true);
@@ -882,8 +851,8 @@ impl Device {
                     match depth_bounds {
                         State::Static(bounds) => {
                             depth_stencil_state = depth_stencil_state
-                                .min_depth_bounds(bounds.min)
-                                .max_depth_bounds(bounds.max);
+                                .min_depth_bounds(bounds.offset)
+                                .max_depth_bounds(bounds.offset + bounds.size);
                         }
                         State::Dynamic => {
                             dynamic_states.push(vk::DynamicState::DEPTH_BOUNDS);
@@ -896,10 +865,10 @@ impl Device {
                         dynamic_states: &mut Vec<vk::DynamicState>,
                     ) -> vk::StencilOpStateBuilder {
                         let mut builder = vk::StencilOpState::builder()
-                            .fail_op(test.fail.into())
-                            .pass_op(test.pass.into())
-                            .depth_fail_op(test.depth_fail.into())
-                            .compare_op(test.compare.into());
+                            .fail_op(test.fail.to_vk())
+                            .pass_op(test.pass.to_vk())
+                            .depth_fail_op(test.depth_fail.to_vk())
+                            .compare_op(test.compare.to_vk());
 
                         match test.compare_mask {
                             State::Static(mask) => builder = builder.compare_mask(mask),
@@ -951,22 +920,22 @@ impl Device {
                     match blending {
                         Some(blending) => builder
                             .blend_enable(true)
-                            .src_color_blend_factor(blending.color_src_factor.into())
-                            .dst_color_blend_factor(blending.color_dst_factor.into())
-                            .color_blend_op(blending.color_op.into())
-                            .src_alpha_blend_factor(blending.alpha_src_factor.into())
-                            .dst_alpha_blend_factor(blending.alpha_dst_factor.into())
-                            .alpha_blend_op(blending.alpha_op.into()),
+                            .src_color_blend_factor(blending.color_src_factor.to_vk())
+                            .dst_color_blend_factor(blending.color_dst_factor.to_vk())
+                            .color_blend_op(blending.color_op.to_vk())
+                            .src_alpha_blend_factor(blending.alpha_src_factor.to_vk())
+                            .dst_alpha_blend_factor(blending.alpha_dst_factor.to_vk())
+                            .alpha_blend_op(blending.alpha_op.to_vk()),
                         None => builder.blend_enable(false),
                     }
-                    .color_write_mask(mask.into())
+                    .color_write_mask(mask.to_vk())
                 }
 
                 match &rasterizer.color_blend {
                     ColorBlend::Logic { op } => {
                         color_blend_state = color_blend_state
                             .logic_op_enable(true)
-                            .logic_op((*op).into())
+                            .logic_op((*op).to_vk())
                     }
                     ColorBlend::Blending {
                         blending,
@@ -1017,9 +986,9 @@ impl Device {
                 vk::PipelineRasterizationStateCreateInfo::builder()
                     .rasterizer_discard_enable(false)
                     .depth_clamp_enable(rasterizer.depth_clamp)
-                    .polygon_mode(rasterizer.polygin_mode.into())
-                    .cull_mode(rasterizer.cull_mode.map(Into::into).unwrap_or_default())
-                    .front_face(rasterizer.front_face.into())
+                    .polygon_mode(rasterizer.polygin_mode.to_vk())
+                    .cull_mode(rasterizer.cull_mode.to_vk())
+                    .front_face(rasterizer.front_face.to_vk())
                     .line_width(1.0)
             }
             None => {

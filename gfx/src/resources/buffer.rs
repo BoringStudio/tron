@@ -8,6 +8,7 @@ use vulkanalia::prelude::v1_0::*;
 
 use crate::device::WeakDevice;
 use crate::types::DeviceAddress;
+use crate::util::FromGfx;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum IndexType {
@@ -25,8 +26,8 @@ impl IndexType {
     }
 }
 
-impl From<IndexType> for vk::IndexType {
-    fn from(value: IndexType) -> Self {
+impl FromGfx<IndexType> for vk::IndexType {
+    fn from_gfx(value: IndexType) -> Self {
         match value {
             IndexType::U16 => vk::IndexType::UINT16,
             IndexType::U32 => vk::IndexType::UINT32,
@@ -38,7 +39,65 @@ impl From<IndexType> for vk::IndexType {
 pub struct BufferInfo {
     pub align: u64,
     pub size: u64,
-    pub usage: vk::BufferUsageFlags,
+    pub usage: BufferUsage,
+}
+
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+    pub struct BufferUsage: u32 {
+        const TRANSFER_SRC = 1;
+        const TRANSFER_DST = 1 << 1;
+        const UNIFORM_TEXEL = 1 << 2;
+        const STORAGE_TEXEL = 1 << 3;
+        const UNIFORM = 1 << 4;
+        const STORAGE = 1 << 5;
+        const INDEX = 1 << 6;
+        const VERTEX = 1 << 7;
+        const INDIRECT = 1 << 8;
+        const CONDITIONAL_RENDERING = 1 << 9;
+
+        const SHADER_DEVICE_ADDRESS = 1 << 17;
+    }
+}
+
+impl FromGfx<BufferUsage> for vk::BufferUsageFlags {
+    fn from_gfx(value: BufferUsage) -> Self {
+        let mut flags = vk::BufferUsageFlags::empty();
+        if value.contains(BufferUsage::TRANSFER_SRC) {
+            flags |= vk::BufferUsageFlags::TRANSFER_SRC;
+        }
+        if value.contains(BufferUsage::TRANSFER_DST) {
+            flags |= vk::BufferUsageFlags::TRANSFER_DST;
+        }
+        if value.contains(BufferUsage::UNIFORM_TEXEL) {
+            flags |= vk::BufferUsageFlags::UNIFORM_TEXEL_BUFFER;
+        }
+        if value.contains(BufferUsage::STORAGE_TEXEL) {
+            flags |= vk::BufferUsageFlags::STORAGE_TEXEL_BUFFER;
+        }
+        if value.contains(BufferUsage::UNIFORM) {
+            flags |= vk::BufferUsageFlags::UNIFORM_BUFFER;
+        }
+        if value.contains(BufferUsage::STORAGE) {
+            flags |= vk::BufferUsageFlags::STORAGE_BUFFER;
+        }
+        if value.contains(BufferUsage::INDEX) {
+            flags |= vk::BufferUsageFlags::INDEX_BUFFER;
+        }
+        if value.contains(BufferUsage::VERTEX) {
+            flags |= vk::BufferUsageFlags::VERTEX_BUFFER;
+        }
+        if value.contains(BufferUsage::INDIRECT) {
+            flags |= vk::BufferUsageFlags::INDIRECT_BUFFER;
+        }
+        if value.contains(BufferUsage::CONDITIONAL_RENDERING) {
+            flags |= vk::BufferUsageFlags::CONDITIONAL_RENDERING_EXT;
+        }
+        if value.contains(BufferUsage::SHADER_DEVICE_ADDRESS) {
+            flags |= vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS;
+        }
+        flags
+    }
 }
 
 #[derive(Clone)]

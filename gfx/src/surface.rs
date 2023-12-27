@@ -9,7 +9,39 @@ use vulkanalia::vk::{KhrSurfaceExtension, KhrSwapchainExtension};
 use winit::window::Window;
 
 use crate::device::WeakDevice;
-use crate::resources::{Format, Image, ImageInfo, Samples, Semaphore};
+use crate::resources::{Format, Image, ImageInfo, ImageUsageFlags, Samples, Semaphore};
+use crate::util::{FromGfx, ToVk, TryFromVk};
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum PresentMode {
+    Immediate,
+    Mailbox,
+    Fifo,
+    FifoRelaxed,
+}
+
+impl TryFromVk<vk::PresentModeKHR> for PresentMode {
+    fn try_from_vk(mode: vk::PresentModeKHR) -> Option<Self> {
+        match mode {
+            vk::PresentModeKHR::IMMEDIATE => Some(Self::Immediate),
+            vk::PresentModeKHR::MAILBOX => Some(Self::Mailbox),
+            vk::PresentModeKHR::FIFO => Some(Self::Fifo),
+            vk::PresentModeKHR::FIFO_RELAXED => Some(Self::FifoRelaxed),
+            _ => None,
+        }
+    }
+}
+
+impl FromGfx<PresentMode> for vk::PresentModeKHR {
+    fn from_gfx(mode: PresentMode) -> Self {
+        match mode {
+            PresentMode::Immediate => Self::IMMEDIATE,
+            PresentMode::Mailbox => Self::MAILBOX,
+            PresentMode::Fifo => Self::FIFO,
+            PresentMode::FifoRelaxed => Self::FIFO_RELAXED,
+        }
+    }
+}
 
 pub struct Surface {
     window: Arc<Window>,
@@ -72,14 +104,14 @@ impl Surface {
 
         let mode = self.swapchain_support.find_best_present_mode();
 
-        self.configure_ext(vk::ImageUsageFlags::COLOR_ATTACHMENT, format, mode)
+        self.configure_ext(ImageUsageFlags::COLOR_ATTACHMENT, format, mode)
     }
 
     pub fn configure_ext(
         &mut self,
-        usage: vk::ImageUsageFlags,
+        usage: ImageUsageFlags,
         format: Format,
-        mode: vk::PresentModeKHR,
+        mode: PresentMode,
     ) -> Result<()> {
         let device = self.owner.upgrade().context("device was already dropped")?;
         let instance = device.graphics().instance();
@@ -94,7 +126,7 @@ impl Surface {
         self.swapchain_support = SwapchainSupport::new(instance, device.physical(), self.handle)?;
         let capabilities = &self.swapchain_support.capabilities;
         anyhow::ensure!(
-            capabilities.supported_usage_flags.contains(usage),
+            capabilities.supported_usage_flags.contains(usage.to_vk()),
             "usage mode {usage:?} is not supported"
         );
 
@@ -109,7 +141,9 @@ impl Surface {
             self.swapchain_support
                 .present_modes
                 .iter()
-                .any(|item| *item == mode),
+                .copied()
+                .filter_map(PresentMode::try_from_vk)
+                .any(|item| item == mode),
             "present mode {mode:?} is not supported"
         );
 
@@ -147,11 +181,11 @@ impl Surface {
                 .image_color_space(surface_format.color_space)
                 .image_extent(image_extent)
                 .image_array_layers(1)
-                .image_usage(usage)
+                .image_usage(usage.to_vk())
                 .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
                 .pre_transform(capabilities.current_transform)
                 .composite_alpha(composite_alpha)
-                .present_mode(mode)
+                .present_mode(mode.to_vk())
                 .clipped(true)
                 .old_swapchain(old_swapchain);
 
@@ -338,8 +372,8 @@ impl Drop for SurfaceImage<'_> {
 struct Swapchain {
     handle: vk::SwapchainKHR,
     format: Format,
-    usage: vk::ImageUsageFlags,
-    mode: vk::PresentModeKHR,
+    usage: ImageUsageFlags,
+    mode: PresentMode,
     images: Vec<SwapchainImageState>,
     acquired_count: u32,
     optimal: bool,
@@ -420,13 +454,14 @@ impl SwapchainSupport {
             .find_map(|item| Format::from_vk(item.format)))
     }
 
-    pub fn find_best_present_mode(&self) -> vk::PresentModeKHR {
-        const TARGET: vk::PresentModeKHR = vk::PresentModeKHR::MAILBOX;
-        const FALLBACK: vk::PresentModeKHR = vk::PresentModeKHR::FIFO;
+    pub fn find_best_present_mode(&self) -> PresentMode {
+        const TARGET: PresentMode = PresentMode::Mailbox;
+        const FALLBACK: PresentMode = PresentMode::Fifo;
 
         self.present_modes
             .iter()
             .copied()
+            .filter_map(PresentMode::try_from_vk)
             .find(|p| *p == TARGET)
             .unwrap_or(FALLBACK)
     }

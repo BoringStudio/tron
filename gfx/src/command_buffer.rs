@@ -2,12 +2,15 @@ use vulkanalia::prelude::v1_0::*;
 
 use anyhow::Result;
 use bumpalo::Bump;
+use glam::{IVec3, UVec3};
 
 use crate::device::{Device, WeakDevice};
 use crate::queue::QueueId;
 use crate::resources::{
-    Buffer, ClearValue, ComputePipeline, Framebuffer, GraphicsPipeline, IndexType, LoadOp,
+    Buffer, ClearValue, ComputePipeline, Framebuffer, GraphicsPipeline, Image, ImageLayout,
+    ImageSubresourceLayers, IndexType, LoadOp,
 };
+use crate::util::{FromGfx, ToVk};
 
 pub struct CommandBuffer {
     handle: vk::CommandBuffer,
@@ -96,7 +99,7 @@ impl CommandBuffer {
             .alloc
             .alloc_slice_fill_iter(pass.info().attachments.iter().map(|attachment| {
                 if attachment.load_op == LoadOp::Clear(()) {
-                    if let Some(clear) = clear.next().and_then(|v| v.to_vk(attachment.format)) {
+                    if let Some(clear) = clear.next().and_then(|v| v.try_to_vk(attachment.format)) {
                         return clear;
                     } else {
                         clear_values_invalid = true;
@@ -116,7 +119,7 @@ impl CommandBuffer {
             .clear_values(clear_values)
             .render_area(vk::Rect2D {
                 offset: vk::Offset2D::default(),
-                extent: framebuffer.info().extent,
+                extent: framebuffer.info().extent.to_vk(),
             });
 
         unsafe { logical.cmd_begin_render_pass(self.handle, &info, vk::SubpassContents::INLINE) }
@@ -248,9 +251,109 @@ impl CommandBuffer {
                     self.handle,
                     buffer.handle(),
                     offset,
-                    index_type.into(),
+                    index_type.to_vk(),
                 )
             }
+        }
+    }
+
+    pub fn copy_buffer(
+        &mut self,
+        src_buffer: &Buffer,
+        dst_buffer: &Buffer,
+        regions: &[BufferCopy],
+    ) {
+        if let Some(device) = self.state.device_from_full() {
+            self.references.buffers.push(src_buffer.clone());
+            self.references.buffers.push(dst_buffer.clone());
+
+            let regions = self.alloc.alloc_slice_fill_iter(regions.iter().map(|r| {
+                vk::BufferCopy::builder()
+                    .src_offset(r.src_offset)
+                    .dst_offset(r.dst_offset)
+                    .size(r.size)
+            }));
+
+            unsafe {
+                device.logical().cmd_copy_buffer(
+                    self.handle,
+                    src_buffer.handle(),
+                    dst_buffer.handle(),
+                    regions,
+                )
+            }
+
+            self.alloc.reset();
+        }
+    }
+
+    pub fn copy_image(
+        &mut self,
+        src_image: &Image,
+        src_layout: ImageLayout,
+        dst_image: &Image,
+        dst_layout: ImageLayout,
+        regions: &[ImageCopy],
+    ) {
+        if let Some(device) = self.state.device_from_full() {
+            self.references.images.push(src_image.clone());
+            self.references.images.push(dst_image.clone());
+
+            let regions = self
+                .alloc
+                .alloc_slice_fill_iter(regions.iter().map(|r| vk::ImageCopy::from_gfx(*r)));
+
+            unsafe {
+                device.logical().cmd_copy_image(
+                    self.handle,
+                    src_image.handle(),
+                    src_layout.to_vk(),
+                    dst_image.handle(),
+                    dst_layout.to_vk(),
+                    regions,
+                )
+            }
+
+            self.alloc.reset();
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct BufferCopy {
+    pub src_offset: u64,
+    pub dst_offset: u64,
+    pub size: u64,
+}
+
+impl FromGfx<BufferCopy> for vk::BufferCopy {
+    #[inline]
+    fn from_gfx(value: BufferCopy) -> Self {
+        Self {
+            src_offset: value.src_offset,
+            dst_offset: value.dst_offset,
+            size: value.size,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct ImageCopy {
+    pub src_subresource: ImageSubresourceLayers,
+    pub src_offset: IVec3,
+    pub dst_subresource: ImageSubresourceLayers,
+    pub dst_offset: IVec3,
+    pub extent: UVec3,
+}
+
+impl FromGfx<ImageCopy> for vk::ImageCopy {
+    fn from_gfx(value: ImageCopy) -> Self {
+        Self {
+            src_subresource: value.src_subresource.to_vk(),
+            src_offset: value.src_offset.to_vk(),
+            dst_subresource: value.dst_subresource.to_vk(),
+            dst_offset: value.dst_offset.to_vk(),
+            extent: value.extent.to_vk(),
         }
     }
 }
@@ -272,6 +375,7 @@ impl CommandBufferState {
 #[derive(Default, Debug)]
 pub struct References {
     buffers: Vec<Buffer>,
+    images: Vec<Image>,
     framebuffers: Vec<Framebuffer>,
     graphics_pipelines: Vec<GraphicsPipeline>,
     compute_pipelines: Vec<ComputePipeline>,

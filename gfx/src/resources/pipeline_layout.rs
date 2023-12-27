@@ -3,7 +3,8 @@ use std::sync::Arc;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::device::WeakDevice;
-use crate::resources::DescriptorSetLayout;
+use crate::resources::{DescriptorSetLayout, ShaderStageFlags};
+use crate::util::{FromGfx, ToVk};
 
 #[derive(Debug, Default, Clone, Hash, PartialEq, Eq)]
 pub struct PipelineLayoutInfo {
@@ -13,9 +14,19 @@ pub struct PipelineLayoutInfo {
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct PushConstant {
-    pub stages: vk::ShaderStageFlags,
+    pub stages: ShaderStageFlags,
     pub offset: u32,
     pub size: u32,
+}
+
+impl FromGfx<PushConstant> for vk::PushConstantRange {
+    fn from_gfx(value: PushConstant) -> Self {
+        Self {
+            stage_flags: value.stages.to_vk(),
+            offset: value.offset,
+            size: value.size,
+        }
+    }
 }
 
 #[derive(Clone)]

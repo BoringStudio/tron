@@ -5,6 +5,7 @@ use vulkanalia::prelude::v1_0::*;
 
 use crate::device::WeakDevice;
 use crate::resources::{Format, FormatChannels, FormatType, ImageLayout, Samples};
+use crate::util::{FromGfx, ToVk};
 
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum LoadOp<T = ()> {
@@ -14,9 +15,9 @@ pub enum LoadOp<T = ()> {
     DontCare,
 }
 
-impl<T> From<LoadOp<T>> for vk::AttachmentLoadOp {
+impl<T> FromGfx<LoadOp<T>> for vk::AttachmentLoadOp {
     #[inline]
-    fn from(value: LoadOp<T>) -> Self {
+    fn from_gfx(value: LoadOp<T>) -> Self {
         match value {
             LoadOp::DontCare => Self::DONT_CARE,
             LoadOp::Clear(_) => Self::CLEAR,
@@ -32,9 +33,9 @@ pub enum StoreOp {
     DontCare,
 }
 
-impl From<StoreOp> for vk::AttachmentStoreOp {
+impl FromGfx<StoreOp> for vk::AttachmentStoreOp {
     #[inline]
-    fn from(value: StoreOp) -> Self {
+    fn from_gfx(value: StoreOp) -> Self {
         match value {
             StoreOp::Store => Self::STORE,
             StoreOp::DontCare => Self::DONT_CARE,
@@ -49,7 +50,7 @@ pub enum ClearValue {
 }
 
 impl ClearValue {
-    pub fn to_vk(self, format: Format) -> Option<vk::ClearValue> {
+    pub fn try_to_vk(self, format: Format) -> Option<vk::ClearValue> {
         fn to_uint8(color: f32) -> u8 {
             color.min(0f32).max(u8::max_value() as f32) as u8
         }
@@ -235,9 +236,101 @@ pub struct SubpassDependency {
     /// - `None`: all of the subpasses within all of the render passes after this one will depend.
     pub dst: Option<u32>,
     /// Pipeline stages that will be synchronized for the `src`.
-    pub src_stages: vk::PipelineStageFlags,
+    pub src_stages: PipelineStageFlags,
     /// Pipeline stages that will be synchronized for the `dst`.
-    pub dst_stages: vk::PipelineStageFlags,
+    pub dst_stages: PipelineStageFlags,
+}
+
+impl FromGfx<SubpassDependency> for vk::SubpassDependency {
+    fn from_gfx(value: SubpassDependency) -> Self {
+        Self::builder()
+            .src_subpass(value.src.unwrap_or(vk::SUBPASS_EXTERNAL))
+            .dst_subpass(value.dst.unwrap_or(vk::SUBPASS_EXTERNAL))
+            .src_stage_mask(value.src_stages.to_vk())
+            .dst_stage_mask(value.dst_stages.to_vk())
+            .build()
+    }
+}
+
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+    pub struct PipelineStageFlags: u32 {
+        const TOP_OF_PIPE = 1;
+        const DRAW_INDIRECT = 1 << 1;
+        const VERTEX_INPUT = 1 << 2;
+        const VERTEX_SHADER = 1 << 3;
+        const TESSELLATION_CONTROL_SHADER = 1 << 4;
+        const TESSELLATION_EVALUATION_SHADER = 1 << 5;
+        const GEOMETRY_SHADER = 1 << 6;
+        const FRAGMENT_SHADER = 1 << 7;
+        const EARLY_FRAGMENT_TESTS = 1 << 8;
+        const LATE_FRAGMENT_TESTS = 1 << 9;
+        const COLOR_ATTACHMENT_OUTPUT = 1 << 10;
+        const COMPUTE_SHADER = 1 << 11;
+        const TRANSFER = 1 << 12;
+        const BOTTOM_OF_PIPE = 1 << 13;
+        const HOST = 1 << 14;
+        const ALL_GRAPHICS = 1 << 15;
+        const ALL_COMMANDS = 1 << 16;
+    }
+}
+
+impl FromGfx<PipelineStageFlags> for vk::PipelineStageFlags {
+    fn from_gfx(value: PipelineStageFlags) -> Self {
+        let mut res = Self::empty();
+        if value.contains(PipelineStageFlags::TOP_OF_PIPE) {
+            res |= Self::TOP_OF_PIPE;
+        }
+        if value.contains(PipelineStageFlags::DRAW_INDIRECT) {
+            res |= Self::DRAW_INDIRECT;
+        }
+        if value.contains(PipelineStageFlags::VERTEX_INPUT) {
+            res |= Self::VERTEX_INPUT;
+        }
+        if value.contains(PipelineStageFlags::VERTEX_SHADER) {
+            res |= Self::VERTEX_SHADER;
+        }
+        if value.contains(PipelineStageFlags::TESSELLATION_CONTROL_SHADER) {
+            res |= Self::TESSELLATION_CONTROL_SHADER;
+        }
+        if value.contains(PipelineStageFlags::TESSELLATION_EVALUATION_SHADER) {
+            res |= Self::TESSELLATION_EVALUATION_SHADER;
+        }
+        if value.contains(PipelineStageFlags::GEOMETRY_SHADER) {
+            res |= Self::GEOMETRY_SHADER;
+        }
+        if value.contains(PipelineStageFlags::FRAGMENT_SHADER) {
+            res |= Self::FRAGMENT_SHADER;
+        }
+        if value.contains(PipelineStageFlags::EARLY_FRAGMENT_TESTS) {
+            res |= Self::EARLY_FRAGMENT_TESTS;
+        }
+        if value.contains(PipelineStageFlags::LATE_FRAGMENT_TESTS) {
+            res |= Self::LATE_FRAGMENT_TESTS;
+        }
+        if value.contains(PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT) {
+            res |= Self::COLOR_ATTACHMENT_OUTPUT;
+        }
+        if value.contains(PipelineStageFlags::COMPUTE_SHADER) {
+            res |= Self::COMPUTE_SHADER;
+        }
+        if value.contains(PipelineStageFlags::TRANSFER) {
+            res |= Self::TRANSFER;
+        }
+        if value.contains(PipelineStageFlags::BOTTOM_OF_PIPE) {
+            res |= Self::BOTTOM_OF_PIPE;
+        }
+        if value.contains(PipelineStageFlags::HOST) {
+            res |= Self::HOST;
+        }
+        if value.contains(PipelineStageFlags::ALL_GRAPHICS) {
+            res |= Self::ALL_GRAPHICS;
+        }
+        if value.contains(PipelineStageFlags::ALL_COMMANDS) {
+            res |= Self::ALL_COMMANDS;
+        }
+        res
+    }
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
