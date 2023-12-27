@@ -132,12 +132,13 @@ pub struct ShaderModuleInfo {
 }
 
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct ShaderModule {
     inner: Arc<Inner>,
 }
 
 impl ShaderModule {
-    pub fn new(handle: vk::ShaderModule, info: ShaderModuleInfo, owner: WeakDevice) -> Self {
+    pub(crate) fn new(handle: vk::ShaderModule, info: ShaderModuleInfo, owner: WeakDevice) -> Self {
         Self {
             inner: Arc::new(Inner {
                 handle,

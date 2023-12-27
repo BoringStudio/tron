@@ -30,6 +30,7 @@ impl FromGfx<PushConstant> for vk::PushConstantRange {
 }
 
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct PipelineLayout {
     inner: Arc<Inner>,
 }

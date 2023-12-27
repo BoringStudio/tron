@@ -101,20 +101,18 @@ impl FromGfx<BufferUsage> for vk::BufferUsageFlags {
 }
 
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct Buffer {
-    info: BufferInfo,
-    memory_usage: gpu_alloc::UsageFlags,
-    address: Option<DeviceAddress>,
     inner: Arc<Inner>,
 }
 
 impl Buffer {
     pub fn info(&self) -> &BufferInfo {
-        &self.info
+        &self.inner.info
     }
 
     pub fn address(&self) -> Option<DeviceAddress> {
-        self.address
+        self.inner.address
     }
 
     pub fn handle(&self) -> vk::Buffer {
@@ -139,7 +137,8 @@ impl Buffer {
     }
 
     fn is_mappable(&self) -> bool {
-        self.memory_usage
+        self.inner
+            .memory_usage
             .intersects(gpu_alloc::UsageFlags::DOWNLOAD | gpu_alloc::UsageFlags::UPLOAD)
     }
 }
@@ -147,14 +146,14 @@ impl Buffer {
 impl std::fmt::Debug for Buffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if f.alternate() {
-            // SAFETY: unique access is guaranteed by inderface
+            // SAFETY: unique access is guaranteed by the interface
             let memory_block = unsafe { &*self.inner.memory_block.get() };
 
             f.debug_struct("Buffer")
-                .field("info", &self.info)
+                .field("info", &self.inner.info)
                 .field("owner", &self.inner.owner)
                 .field("handle", &self.inner.handle)
-                .field("address", &self.address)
+                .field("address", &self.inner.address)
                 .field("memory_handle", &self.inner.memory)
                 .field("memory_offset", &memory_block.offset())
                 .field("memory_size", &memory_block.size())
@@ -203,7 +202,7 @@ impl std::ops::Deref for MappableBuffer {
 }
 
 impl MappableBuffer {
-    pub fn new(
+    pub(crate) fn new(
         handle: vk::Buffer,
         info: BufferInfo,
         memory_usage: gpu_alloc::UsageFlags,
@@ -213,11 +212,11 @@ impl MappableBuffer {
     ) -> Self {
         Self {
             buffer: Buffer {
-                info,
-                memory_usage,
-                address,
                 inner: Arc::new(Inner {
                     handle,
+                    info,
+                    memory_usage,
+                    address,
                     owner,
                     memory: *memory_block.memory(),
                     memory_block: UnsafeCell::new(ManuallyDrop::new(memory_block)),
@@ -245,6 +244,9 @@ impl MappableBuffer {
 
 struct Inner {
     handle: vk::Buffer,
+    info: BufferInfo,
+    memory_usage: gpu_alloc::UsageFlags,
+    address: Option<DeviceAddress>,
     owner: WeakDevice,
     memory: vk::DeviceMemory,
     memory_block: UnsafeCell<ManuallyDrop<MemoryBlock<vk::DeviceMemory>>>,

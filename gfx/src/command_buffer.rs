@@ -24,7 +24,7 @@ pub struct CommandBuffer {
 }
 
 impl CommandBuffer {
-    pub fn new(handle: vk::CommandBuffer, queue_id: QueueId, owner: Device) -> Self {
+    pub(crate) fn new(handle: vk::CommandBuffer, queue_id: QueueId, owner: Device) -> Self {
         Self {
             handle,
             queue_id,

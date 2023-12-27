@@ -8,7 +8,7 @@ pub struct Semaphore {
 }
 
 impl Semaphore {
-    pub fn new(handle: vk::Semaphore, owner: WeakDevice) -> Self {
+    pub(crate) fn new(handle: vk::Semaphore, owner: WeakDevice) -> Self {
         Self { handle, owner }
     }
 

@@ -22,7 +22,7 @@ pub struct Fence {
 }
 
 impl Fence {
-    pub fn new(handle: vk::Fence, owner: WeakDevice) -> Self {
+    pub(crate) fn new(handle: vk::Fence, owner: WeakDevice) -> Self {
         Self {
             handle,
             owner,

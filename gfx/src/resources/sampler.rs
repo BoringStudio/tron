@@ -202,6 +202,7 @@ impl FromGfx<BorderColor> for vk::BorderColor {
 }
 
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct Sampler {
     inner: Arc<Inner>,
 }
@@ -223,6 +224,34 @@ impl Sampler {
 
     pub fn info(&self) -> &SamplerInfo {
         &self.inner.info
+    }
+}
+
+impl std::fmt::Debug for Sampler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if f.alternate() {
+            f.debug_struct("Sampler")
+                .field("handle", &self.inner.handle)
+                .field("owner", &self.inner.owner)
+                .finish()
+        } else {
+            std::fmt::Debug::fmt(&self.inner.handle, f)
+        }
+    }
+}
+
+impl Eq for Sampler {}
+impl PartialEq for Sampler {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
+impl std::hash::Hash for Sampler {
+    #[inline]
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::ptr::hash(&*self.inner, state)
     }
 }
 

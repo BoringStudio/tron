@@ -236,8 +236,8 @@ impl FromGfx<ImageUsageFlags> for vk::ImageUsageFlags {
 }
 
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct Image {
-    info: ImageInfo,
     inner: Arc<Inner>,
 }
 
@@ -249,9 +249,9 @@ impl Image {
         block: gpu_alloc::MemoryBlock<vk::DeviceMemory>,
     ) -> Self {
         Self {
-            info,
             inner: Arc::new(Inner {
                 handle,
+                info,
                 owner,
                 source: ImageSource::Device {
                     memory_block: ManuallyDrop::new(block),
@@ -267,9 +267,9 @@ impl Image {
         id: NonZeroU64,
     ) -> Self {
         Self {
-            info,
             inner: Arc::new(Inner {
                 handle,
+                info,
                 owner,
                 source: ImageSource::Surface { id },
             }),
@@ -277,7 +277,7 @@ impl Image {
     }
 
     pub fn info(&self) -> &ImageInfo {
-        &self.info
+        &self.inner.info
     }
 
     pub fn handle(&self) -> vk::Image {
@@ -299,7 +299,7 @@ impl std::fmt::Debug for Image {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if f.alternate() {
             f.debug_struct("Image")
-                .field("info", &self.info)
+                .field("info", &self.inner.info)
                 .field("owner", &self.inner.owner)
                 .field("handle", &self.inner.handle)
                 .field("source", &self.inner.source)
@@ -327,8 +327,9 @@ impl std::hash::Hash for Image {
 
 struct Inner {
     handle: vk::Image,
-    owner: WeakDevice,
+    info: ImageInfo,
     source: ImageSource,
+    owner: WeakDevice,
 }
 
 impl Drop for Inner {
