@@ -2,7 +2,7 @@ use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::KhrSwapchainExtension;
 
-use crate::encoder::CommandBuffer;
+use crate::encoder::{CommandBuffer, Encoder};
 use crate::surface::SurfaceImage;
 use crate::util::{FromGfx, FromVk};
 
@@ -113,11 +113,11 @@ pub struct QueueId {
 
 pub struct Queue {
     handle: vk::Queue,
-    id: QueueId,
-    _capabilities: QueueFlags,
-    device: crate::device::Device,
-
     pool: vk::CommandPool,
+    id: QueueId,
+    capabilities: QueueFlags,
+    command_buffers: Vec<CommandBuffer>,
+    device: crate::device::Device,
 }
 
 impl Queue {
@@ -130,13 +130,14 @@ impl Queue {
     ) -> Self {
         Self {
             handle,
+            pool: vk::CommandPool::null(),
             id: QueueId {
                 family: family_idx,
                 index: queue_idx,
             },
-            _capabilities: capabilities,
+            capabilities,
+            command_buffers: Vec::new(),
             device,
-            pool: vk::CommandPool::null(),
         }
     }
 
@@ -149,31 +150,41 @@ impl Queue {
         Ok(())
     }
 
-    pub fn create_command_buffer(&mut self) -> Result<CommandBuffer> {
+    pub fn create_encoder(&mut self) -> Result<Encoder> {
         let logical = self.device.logical();
 
-        if self.pool.is_null() {
-            let info = vk::CommandPoolCreateInfo::builder()
-                .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-                .queue_family_index(self.id.family);
+        let mut command_buffer = match self.command_buffers.pop() {
+            Some(command_buffer) => command_buffer,
+            None => {
+                if self.pool.is_null() {
+                    let info = vk::CommandPoolCreateInfo::builder()
+                        .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+                        .queue_family_index(self.id.family);
 
-            self.pool = unsafe { logical.create_command_pool(&info, None) }?;
-        }
+                    self.pool = unsafe { logical.create_command_pool(&info, None) }?;
+                }
 
-        let handle = {
-            let info = vk::CommandBufferAllocateInfo::builder()
-                .command_pool(self.pool)
-                .level(vk::CommandBufferLevel::PRIMARY)
-                .command_buffer_count(1);
+                let handle = {
+                    let info = vk::CommandBufferAllocateInfo::builder()
+                        .command_pool(self.pool)
+                        .level(vk::CommandBufferLevel::PRIMARY)
+                        .command_buffer_count(1);
 
-            let mut buffers = unsafe { logical.allocate_command_buffers(&info) }?;
-            buffers.remove(0)
+                    let mut buffers = unsafe { logical.allocate_command_buffers(&info) }?;
+                    buffers.remove(0)
+                };
+
+                CommandBuffer::new(handle, self.id, self.device.clone())
+            }
         };
 
-        let mut command_buffer = CommandBuffer::new(handle, self.id, self.device.clone());
-        command_buffer.begin()?;
-
-        Ok(command_buffer)
+        match command_buffer.begin() {
+            Ok(()) => Ok(Encoder::new(command_buffer, self.capabilities)),
+            Err(e) => {
+                self.command_buffers.push(command_buffer);
+                Err(e)
+            }
+        }
     }
 
     pub fn present(&mut self, mut image: SurfaceImage<'_>) -> Result<PresentStatus> {

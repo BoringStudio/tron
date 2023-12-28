@@ -20,6 +20,17 @@ pub struct Encoder<'a> {
 }
 
 impl<'a> Encoder<'a> {
+    pub(crate) fn new(command_buffer: CommandBuffer, capabilities: QueueFlags) -> Self {
+        Self {
+            inner: EncoderCommon {
+                command_buffer,
+                capabilities,
+                _marker: std::marker::PhantomData,
+            },
+            guard: EncoderDropGuard,
+        }
+    }
+
     pub fn finish(mut self) -> Result<CommandBuffer> {
         std::mem::forget(self.guard);
         self.inner.command_buffer.end()?;
