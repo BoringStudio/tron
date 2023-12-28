@@ -59,6 +59,10 @@ impl App {
         let mut surface = device.create_surface(window.clone())?;
         surface.configure()?;
 
+        let mut fences = [(); 3].map(|_| None);
+        let fence_count = fences.len();
+        let mut fence_index = 0;
+
         tracing::debug!("starting event loop");
 
         let mut minimized = false;
@@ -71,15 +75,32 @@ impl App {
                 Event::WindowEvent { event, .. } => match event {
                     WindowEvent::RedrawRequested if !elwt.exiting() && !minimized => {
                         (|| -> anyhow::Result<()> {
-                            let mut image = surface.aquire_image()?;
+                            if let Some(fence) = &mut fences[fence_index] {
+                                device.wait_fences(&mut [fence], true)?;
+                                device.reset_fences(&mut [fence])?;
+                            }
 
-                            // TODO: record and submit buffer
+                            let mut surface_image = surface.aquire_image()?;
 
-                            let [wait, signal] = image.wait_signal();
-                            std::mem::swap(wait, signal); // temp
+                            let encoder = queue.create_encoder()?;
 
-                            let mut is_optimal = image.is_optimal();
-                            match queue.present(image)? {
+                            let [wait, signal] = surface_image.wait_signal();
+
+                            let fence = match &mut fences[fence_index] {
+                                Some(fence) => fence,
+                                None => fences[fence_index].get_or_insert(device.create_fence()?),
+                            };
+                            fence_index = (fence_index + 1) % fence_count;
+
+                            queue.submit(
+                                &mut [(gfx::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT, wait)],
+                                Some(encoder.finish()?),
+                                &mut [signal],
+                                Some(fence),
+                            )?;
+
+                            let mut is_optimal = surface_image.is_optimal();
+                            match queue.present(surface_image)? {
                                 gfx::PresentStatus::Ok => {}
                                 gfx::PresentStatus::Suboptimal => is_optimal = false,
                                 gfx::PresentStatus::OutOfDate => {

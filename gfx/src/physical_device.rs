@@ -3,7 +3,7 @@ use shared::{FastHashMap, FastHashSet};
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::InstanceV1_1;
 
-use crate::queue::{Queue, QueueFamily, QueuesQuery};
+use crate::queue::{Queue, QueueFamily, QueueId, QueuesQuery};
 use crate::util::ToGfx;
 use crate::Graphics;
 
@@ -202,6 +202,13 @@ impl PhysicalDevice {
                 v1_2: features_v1_2.build(),
                 v1_3: features_v1_3.build(),
             },
+            queue_families.iter().flat_map(|&(family, queue_count)| {
+                let family = family as u32;
+                (0..queue_count).map(move |index| {
+                    let index = index as u32;
+                    QueueId { family, index }
+                })
+            }),
         );
 
         tracing::debug!(?device, "created device");

@@ -2,7 +2,7 @@ pub use self::device::{Device, WeakDevice};
 pub use self::encoder::{
     AccessFlags, BufferCopy, BufferImageCopy, BufferMemoryBarrier, CommandBuffer, Encoder,
     EncoderCommon, ImageBlit, ImageCopy, ImageLayoutTransition, ImageMemoryBarrier, MemoryBarrier,
-    References, RenderPassEncoder,
+    RenderPassEncoder,
 };
 pub use self::graphics::{Graphics, InstanceConfig};
 pub use self::physical_device::{DeviceFeature, DeviceFeatures, DeviceProperties, PhysicalDevice};

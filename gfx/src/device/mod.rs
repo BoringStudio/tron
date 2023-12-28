@@ -14,8 +14,10 @@ use winit::window::Window;
 pub(crate) use self::descriptor_alloc::AllocatedDescriptorSet;
 
 use self::descriptor_alloc::DescriptorAlloc;
+use self::epochs::Epochs;
 use crate::graphics::Graphics;
 use crate::physical_device::{DeviceFeatures, DeviceProperties};
+use crate::queue::QueueId;
 use crate::resources::{
     Blending, Buffer, BufferInfo, BufferUsage, BufferView, BufferViewInfo, ColorBlend,
     ComponentMask, ComputePipeline, ComputePipelineInfo, DescriptorBindingFlags, DescriptorSetInfo,
@@ -30,6 +32,7 @@ use crate::types::{DeviceAddress, State};
 use crate::util::{FromGfx, ToVk};
 
 mod descriptor_alloc;
+mod epochs;
 
 #[derive(Clone)]
 #[repr(transparent)]
@@ -78,6 +81,7 @@ impl Device {
         physical: vk::PhysicalDevice,
         properties: DeviceProperties,
         features: DeviceFeatures,
+        queues: impl IntoIterator<Item = QueueId>,
     ) -> Self {
         let allocator = Mutex::new(GpuAllocator::new(
             gpu_alloc::Config::i_am_prototyping(),
@@ -94,8 +98,13 @@ impl Device {
                 allocator,
                 descriptors,
                 samplers_cache: Default::default(),
+                epochs: Epochs::new(queues),
             }),
         }
+    }
+
+    pub(crate) fn epochs(&self) -> &Epochs {
+        &self.inner.epochs
     }
 
     pub fn graphics(&self) -> &'static Graphics {
@@ -206,8 +215,9 @@ impl Device {
         let status = unsafe { self.logical().get_fence_status(fence.handle()) }?;
         match status {
             vk::SuccessCode::SUCCESS => {
-                let _epoch = fence.set_signalled()?;
-                // TODO: update epoch
+                if let Some((queue, epoch)) = fence.set_signalled()? {
+                    self.epochs().close_epoch(queue, epoch);
+                }
                 Ok(true)
             }
             vk::SuccessCode::NOT_READY => Ok(false),
@@ -268,13 +278,33 @@ impl Device {
         }?;
 
         let all_signalled = wait_all || handles.len() == 1;
+
+        let mut epochs_to_close = SmallVec::<[_; 16]>::new();
+
         for fence in fences {
             if all_signalled || self.update_armed_fence_state(fence)? {
-                fence.set_signalled()?;
+                if let Some(epoch) = fence.set_signalled()? {
+                    epochs_to_close.push(epoch);
+                }
             }
         }
 
-        // TODO: update epochs
+        if !epochs_to_close.is_empty() {
+            epochs_to_close.sort_unstable_by_key(|(q, e)| (*q, std::cmp::Reverse(*e)));
+            let mut last_queue = None;
+            epochs_to_close.retain(|(q, _)| {
+                if last_queue == Some(*q) {
+                    false
+                } else {
+                    last_queue = Some(*q);
+                    true
+                }
+            });
+
+            for (queue, epoch) in epochs_to_close {
+                self.epochs().close_epoch(queue, epoch);
+            }
+        }
 
         Ok(())
     }
@@ -1236,13 +1266,18 @@ struct Inner {
     allocator: Mutex<GpuAllocator<vk::DeviceMemory>>,
     descriptors: Mutex<DescriptorAlloc>,
     samplers_cache: FastDashMap<SamplerInfo, Sampler>,
+    epochs: Epochs,
 }
 
 impl Inner {
     fn wait_idle(&self) -> Result<()> {
-        // TODO: wait queues
+        let old_epochs = self.epochs.next_epoch_all_queues();
+
         unsafe { self.logical.device_wait_idle()? };
-        // TODO: reset queues?
+
+        for (queue, epoch) in old_epochs {
+            self.epochs.close_epoch(queue, epoch);
+        }
         Ok(())
     }
 }

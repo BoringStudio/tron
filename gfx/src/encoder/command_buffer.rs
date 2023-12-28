@@ -52,8 +52,12 @@ impl CommandBuffer {
         self.queue_id
     }
 
-    pub fn references(&self) -> &References {
+    pub(crate) fn references(&self) -> &References {
         &self.references
+    }
+
+    pub(crate) fn references_mut(&mut self) -> &mut References {
+        &mut self.references
     }
 
     pub fn begin(&mut self) -> Result<()> {
@@ -535,7 +539,7 @@ impl CommandBufferState {
 }
 
 #[derive(Default, Debug)]
-pub struct References {
+pub(crate) struct References {
     buffers: Vec<Buffer>,
     images: Vec<Image>,
     framebuffers: Vec<Framebuffer>,
@@ -545,9 +549,22 @@ pub struct References {
 }
 
 impl References {
+    pub fn is_empty(&self) -> bool {
+        self.buffers.is_empty()
+            && self.images.is_empty()
+            && self.framebuffers.is_empty()
+            && self.graphics_pipelines.is_empty()
+            && self.compute_pipelines.is_empty()
+            && self.pipeline_layouts.is_empty()
+    }
+
     pub fn clear(&mut self) {
         self.buffers.clear();
+        self.images.clear();
         self.framebuffers.clear();
+        self.graphics_pipelines.clear();
+        self.compute_pipelines.clear();
+        self.pipeline_layouts.clear();
     }
 }
 

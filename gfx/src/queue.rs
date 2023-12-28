@@ -1,8 +1,11 @@
 use anyhow::Result;
+use arrayvec::ArrayVec;
+use bumpalo::Bump;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::KhrSwapchainExtension;
 
 use crate::encoder::{CommandBuffer, Encoder};
+use crate::resources::{Fence, PipelineStageFlags, Semaphore};
 use crate::surface::SurfaceImage;
 use crate::util::{FromGfx, FromVk};
 
@@ -105,7 +108,7 @@ pub struct QueueFamily {
     pub queues: Vec<Queue>,
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct QueueId {
     pub family: u32,
     pub index: u32,
@@ -118,6 +121,7 @@ pub struct Queue {
     capabilities: QueueFlags,
     command_buffers: Vec<CommandBuffer>,
     device: crate::device::Device,
+    alloc: Bump,
 }
 
 impl Queue {
@@ -138,6 +142,7 @@ impl Queue {
             capabilities,
             command_buffers: Vec::new(),
             device,
+            alloc: Bump::new(),
         }
     }
 
@@ -187,6 +192,90 @@ impl Queue {
         }
     }
 
+    pub fn submit<I>(
+        &mut self,
+        wait: &mut [(PipelineStageFlags, &mut Semaphore)],
+        command_buffers: I,
+        signal: &mut [&mut Semaphore],
+        mut fence: Option<&mut Fence>,
+    ) -> Result<()>
+    where
+        I: IntoIterator<Item = CommandBuffer>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        let owned_command_buffers = self.alloc.alloc_with(ArrayVec::<_, 64>::new);
+        let command_buffers = self
+            .alloc
+            .alloc_slice_fill_iter(command_buffers.into_iter().map(|command_buffer| {
+                let handle = command_buffer.handle();
+                owned_command_buffers.push(command_buffer);
+                handle
+            }));
+
+        if let Some(fence) = fence.as_mut() {
+            let epoch = self.device.epochs().next_epoch(self.id);
+            fence.set_armed(self.id, epoch, &self.device)?;
+        }
+
+        let wait_stages = self.alloc.alloc_slice_fill_iter(
+            wait.iter()
+                .map(|(stage, _)| vk::PipelineStageFlags::from_gfx(*stage)),
+        );
+        let wait_semaphores = self
+            .alloc
+            .alloc_slice_fill_iter(wait.iter().map(|(_, semaphore)| semaphore.handle()));
+        let signal_semaphores = self
+            .alloc
+            .alloc_slice_fill_iter(signal.iter().map(|semaphore| semaphore.handle()));
+
+        let info = vk::SubmitInfo::builder()
+            .wait_semaphores(wait_semaphores)
+            .wait_dst_stage_mask(wait_stages)
+            .command_buffers(command_buffers)
+            .signal_semaphores(signal_semaphores)
+            .build();
+
+        let fence = fence.map(|f| f.handle()).unwrap_or_else(vk::Fence::null);
+
+        let res = unsafe {
+            self.device
+                .logical()
+                .queue_submit(self.handle, std::slice::from_ref(&info), fence)
+        };
+
+        self.device
+            .epochs()
+            .submit(self.id, owned_command_buffers.drain(..));
+
+        self.alloc.reset();
+
+        res.map_err(Into::into)
+    }
+
+    pub fn submit_simple(
+        &mut self,
+        command_buffer: CommandBuffer,
+        fence: Option<&Fence>,
+    ) -> Result<()> {
+        let info = vk::SubmitInfo::builder()
+            .command_buffers(&[command_buffer.handle()])
+            .build();
+
+        let fence = fence.map(|f| f.handle()).unwrap_or_else(vk::Fence::null);
+
+        let res = unsafe {
+            self.device
+                .logical()
+                .queue_submit(self.handle, std::slice::from_ref(&info), fence)
+        };
+
+        self.device
+            .epochs()
+            .submit(self.id, std::iter::once(command_buffer));
+
+        res.map_err(Into::into)
+    }
+
     pub fn present(&mut self, mut image: SurfaceImage<'_>) -> Result<PresentStatus> {
         anyhow::ensure!(
             image
@@ -215,12 +304,34 @@ impl Queue {
 
         image.consume();
 
+        self.restore_command_buffers()?;
+
         match res {
             Ok(vk::SuccessCode::SUBOPTIMAL_KHR) => Ok(PresentStatus::Suboptimal),
             Ok(_) => Ok(PresentStatus::Ok),
             Err(vk::ErrorCode::OUT_OF_DATE_KHR) => Ok(PresentStatus::OutOfDate),
             Err(e) => anyhow::bail!(e),
         }
+    }
+
+    fn restore_command_buffers(&mut self) -> Result<()> {
+        let logical = self.device.logical();
+
+        let offset = self.command_buffers.len();
+        self.device
+            .epochs()
+            .drain_free_command_buffers(self.id, &mut self.command_buffers);
+
+        for cb in &self.command_buffers[offset..] {
+            unsafe {
+                logical.reset_command_buffer(
+                    cb.handle(),
+                    vk::CommandBufferResetFlags::RELEASE_RESOURCES,
+                )?
+            }
+        }
+
+        Ok(())
     }
 }
 

@@ -14,18 +14,17 @@ use crate::PipelineStageFlags;
 
 mod command_buffer;
 
-pub struct Encoder<'a> {
-    inner: EncoderCommon<'a>,
+pub struct Encoder {
+    inner: EncoderCommon,
     guard: EncoderDropGuard,
 }
 
-impl<'a> Encoder<'a> {
+impl Encoder {
     pub(crate) fn new(command_buffer: CommandBuffer, capabilities: QueueFlags) -> Self {
         Self {
             inner: EncoderCommon {
                 command_buffer,
                 capabilities,
-                _marker: std::marker::PhantomData,
             },
             guard: EncoderDropGuard,
         }
@@ -41,7 +40,7 @@ impl<'a> Encoder<'a> {
         std::mem::forget(self.guard);
     }
 
-    pub fn with_framebuffer(
+    pub fn with_framebuffer<'a>(
         &mut self,
         framebuffer: &'a Framebuffer,
         clears: &[ClearValue],
@@ -198,7 +197,7 @@ impl<'a> Encoder<'a> {
     }
 }
 
-impl std::fmt::Debug for Encoder<'_> {
+impl std::fmt::Debug for Encoder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Encoder")
             .field("command_buffer", &self.inner.command_buffer)
@@ -207,8 +206,8 @@ impl std::fmt::Debug for Encoder<'_> {
     }
 }
 
-impl<'a> std::ops::Deref for Encoder<'a> {
-    type Target = EncoderCommon<'a>;
+impl<'a> std::ops::Deref for Encoder {
+    type Target = EncoderCommon;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -216,20 +215,19 @@ impl<'a> std::ops::Deref for Encoder<'a> {
     }
 }
 
-impl std::ops::DerefMut for Encoder<'_> {
+impl std::ops::DerefMut for Encoder {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
 }
 
-pub struct EncoderCommon<'a> {
+pub struct EncoderCommon {
     command_buffer: CommandBuffer,
     capabilities: QueueFlags,
-    _marker: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> EncoderCommon<'a> {
+impl EncoderCommon {
     pub fn set_viewport(&mut self, viewport: &Viewport) {
         assert!(self.capabilities.supports_graphics());
         self.command_buffer.set_viewport(viewport);
@@ -283,7 +281,7 @@ impl<'a> EncoderCommon<'a> {
 pub struct RenderPassEncoder<'a, 'b> {
     framebuffer: &'b Framebuffer,
     render_pass: &'b RenderPass,
-    inner: &'a mut EncoderCommon<'b>,
+    inner: &'a mut EncoderCommon,
 }
 
 impl<'a, 'b> RenderPassEncoder<'a, 'b> {
@@ -306,8 +304,8 @@ impl<'a, 'b> RenderPassEncoder<'a, 'b> {
     }
 }
 
-impl<'a, 'b> std::ops::Deref for RenderPassEncoder<'a, 'b> {
-    type Target = EncoderCommon<'b>;
+impl std::ops::Deref for RenderPassEncoder<'_, '_> {
+    type Target = EncoderCommon;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
