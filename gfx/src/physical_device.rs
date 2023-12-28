@@ -4,6 +4,7 @@ use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::InstanceV1_1;
 
 use crate::queue::{Queue, QueueFamily, QueuesQuery};
+use crate::util::ToGfx;
 use crate::Graphics;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -209,7 +210,9 @@ impl PhysicalDevice {
         let queue_families = queue_families
             .iter()
             .map(|&(family_idx, count)| {
-                let capabilities = device.properties().queue_families[family_idx].queue_flags;
+                let capabilities = device.properties().queue_families[family_idx]
+                    .queue_flags
+                    .to_gfx();
 
                 QueueFamily {
                     capabilities,

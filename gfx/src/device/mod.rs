@@ -1,3 +1,4 @@
+use std::mem::MaybeUninit;
 use std::sync::{Arc, Mutex, Weak};
 
 use anyhow::Result;
@@ -123,6 +124,52 @@ impl Device {
 
     pub fn wait_idle(&self) -> Result<()> {
         self.inner.wait_idle()
+    }
+
+    pub fn map_memory(
+        &self,
+        buffer: &mut MappableBuffer,
+        offset: u64,
+        size: usize,
+    ) -> Result<&mut [MaybeUninit<u8>]> {
+        Ok(unsafe {
+            let ptr = buffer
+                .memory_block()
+                .map(self.logical().as_memory_device(), offset, size)?;
+
+            std::slice::from_raw_parts_mut(ptr.as_ptr() as _, size)
+        })
+    }
+
+    pub fn unmap_memory(&self, buffer: &mut MappableBuffer) {
+        unsafe {
+            buffer
+                .memory_block()
+                .unmap(self.logical().as_memory_device());
+        }
+    }
+
+    pub fn upload_to_memory<T>(
+        &self,
+        buffer: &mut MappableBuffer,
+        offset: u64,
+        data: &[T],
+    ) -> Result<()>
+    where
+        T: bytemuck::Pod,
+    {
+        let slice = self.map_memory(buffer, offset, data.len())?;
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                data.as_ptr() as *const u8,
+                slice.as_mut_ptr() as *mut u8,
+                std::mem::size_of_val(data),
+            )
+        }
+
+        self.unmap_memory(buffer);
+        Ok(())
     }
 
     pub fn create_semaphore(&self) -> Result<Semaphore> {

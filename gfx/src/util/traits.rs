@@ -8,6 +8,14 @@ pub trait ToVk<T>: Sized {
     fn to_vk(self) -> T;
 }
 
+pub trait FromVk<T>: Sized {
+    fn from_vk(value: T) -> Self;
+}
+
+pub trait ToGfx<T>: Sized {
+    fn to_gfx(self) -> T;
+}
+
 pub trait TryFromVk<T>: Sized {
     fn try_from_vk(value: T) -> Option<Self>;
 }
@@ -29,6 +37,23 @@ where
 impl<T> FromGfx<T> for T {
     #[inline(always)]
     fn from_gfx(t: T) -> T {
+        t
+    }
+}
+
+impl<T, U> ToGfx<U> for T
+where
+    U: FromVk<T>,
+{
+    #[inline]
+    fn to_gfx(self) -> U {
+        U::from_vk(self)
+    }
+}
+
+impl<T> FromVk<T> for T {
+    #[inline(always)]
+    fn from_vk(t: T) -> T {
         t
     }
 }
@@ -59,9 +84,27 @@ impl FromGfx<glam::IVec2> for vk::Offset2D {
     }
 }
 
+impl FromVk<vk::Offset2D> for glam::IVec2 {
+    #[inline]
+    fn from_vk(value: vk::Offset2D) -> Self {
+        // SAFETY: both `glam::IVec2` and `vk::Offset2D` the
+        // same layout guaranteed by `repr(C)`.
+        unsafe { std::mem::transmute(value) }
+    }
+}
+
 impl FromGfx<glam::IVec3> for vk::Offset3D {
     #[inline]
     fn from_gfx(value: glam::IVec3) -> Self {
+        // SAFETY: both `glam::IVec3` and `vk::Offset3D` the
+        // same layout guaranteed by `repr(C)`.
+        unsafe { std::mem::transmute(value) }
+    }
+}
+
+impl FromVk<vk::Offset3D> for glam::IVec3 {
+    #[inline]
+    fn from_vk(value: vk::Offset3D) -> Self {
         // SAFETY: both `glam::IVec3` and `vk::Offset3D` the
         // same layout guaranteed by `repr(C)`.
         unsafe { std::mem::transmute(value) }
@@ -77,9 +120,27 @@ impl FromGfx<glam::UVec2> for vk::Extent2D {
     }
 }
 
+impl FromVk<vk::Extent2D> for glam::UVec2 {
+    #[inline]
+    fn from_vk(value: vk::Extent2D) -> Self {
+        // SAFETY: both `glam::UVec2` and `vk::Extent2D` the
+        // same layout guaranteed by `repr(C)`.
+        unsafe { std::mem::transmute(value) }
+    }
+}
+
 impl FromGfx<glam::UVec3> for vk::Extent3D {
     #[inline]
     fn from_gfx(value: glam::UVec3) -> Self {
+        // SAFETY: both `glam::UVec3` and `vk::Extent3D` the
+        // same layout guaranteed by `repr(C)`.
+        unsafe { std::mem::transmute(value) }
+    }
+}
+
+impl FromVk<vk::Extent3D> for glam::UVec3 {
+    #[inline]
+    fn from_vk(value: vk::Extent3D) -> Self {
         // SAFETY: both `glam::UVec3` and `vk::Extent3D` the
         // same layout guaranteed by `repr(C)`.
         unsafe { std::mem::transmute(value) }

@@ -11,7 +11,7 @@ use crate::queue::QueueId;
 use crate::resources::{
     Buffer, ClearValue, ComputePipeline, Filter, Framebuffer, GraphicsPipeline, Image, ImageLayout,
     ImageSubresourceLayers, ImageSubresourceRange, IndexType, LoadOp, PipelineLayout,
-    PipelineStageFlags, ShaderStageFlags,
+    PipelineStageFlags, Rect, ShaderStageFlags, Viewport,
 };
 use crate::util::{compute_supported_access, FromGfx, ToVk};
 
@@ -23,8 +23,18 @@ pub struct CommandBuffer {
     alloc: Bump,
 }
 
+impl std::fmt::Debug for CommandBuffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CommandBuffer")
+            .field("handle", &self.handle)
+            .field("queue_id", &self.queue_id)
+            .field("state", &self.state)
+            .finish()
+    }
+}
+
 impl CommandBuffer {
-    pub fn new(handle: vk::CommandBuffer, queue_id: QueueId, owner: Device) -> Self {
+    pub(crate) fn new(handle: vk::CommandBuffer, queue_id: QueueId, owner: Device) -> Self {
         Self {
             handle,
             queue_id,
@@ -82,7 +92,7 @@ impl CommandBuffer {
         Ok(())
     }
 
-    pub fn begin_render_pass(
+    pub(crate) fn begin_render_pass(
         &mut self,
         framebuffer: &Framebuffer,
         clear: &[ClearValue],
@@ -129,13 +139,13 @@ impl CommandBuffer {
         Ok(())
     }
 
-    pub fn end_render_pass(&mut self) {
+    pub(crate) fn end_render_pass(&mut self) {
         if let Some(device) = self.state.device_from_full() {
             unsafe { device.logical().cmd_end_render_pass(self.handle) }
         }
     }
 
-    pub fn bind_graphics_pipeline(&mut self, pipeline: &GraphicsPipeline) {
+    pub(crate) fn bind_graphics_pipeline(&mut self, pipeline: &GraphicsPipeline) {
         if let Some(device) = self.state.device_from_full() {
             self.references.graphics_pipelines.push(pipeline.clone());
 
@@ -149,7 +159,7 @@ impl CommandBuffer {
         }
     }
 
-    pub fn bind_compute_pipeline(&mut self, pipeline: &ComputePipeline) {
+    pub(crate) fn bind_compute_pipeline(&mut self, pipeline: &ComputePipeline) {
         if let Some(device) = self.state.device_from_full() {
             self.references.compute_pipelines.push(pipeline.clone());
 
@@ -163,21 +173,23 @@ impl CommandBuffer {
         }
     }
 
-    pub fn set_viewport(&mut self, viewport: &vk::Viewport) {
+    pub(crate) fn set_viewport(&mut self, viewport: &Viewport) {
         if let Some(device) = self.state.device_from_full() {
             let logical = device.logical();
-            unsafe { logical.cmd_set_viewport(self.handle, 0, std::slice::from_ref(viewport)) }
+            let viewport = vk::Viewport::from_gfx(*viewport);
+            unsafe { logical.cmd_set_viewport(self.handle, 0, std::slice::from_ref(&viewport)) }
         }
     }
 
-    pub fn set_scissor(&mut self, scissor: &vk::Rect2D) {
+    pub(crate) fn set_scissor(&mut self, scissor: &Rect) {
         if let Some(device) = self.state.device_from_full() {
             let logical = device.logical();
-            unsafe { logical.cmd_set_scissor(self.handle, 0, std::slice::from_ref(scissor)) }
+            let scissor = vk::Rect2D::from_gfx(*scissor);
+            unsafe { logical.cmd_set_scissor(self.handle, 0, std::slice::from_ref(&scissor)) }
         }
     }
 
-    pub fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>) {
+    pub(crate) fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>) {
         if let Some(device) = self.state.device_from_full() {
             unsafe {
                 device.logical().cmd_draw(
@@ -191,7 +203,12 @@ impl CommandBuffer {
         }
     }
 
-    pub fn draw_indexed(&mut self, indices: Range<u32>, vertex_offset: i32, instances: Range<u32>) {
+    pub(crate) fn draw_indexed(
+        &mut self,
+        indices: Range<u32>,
+        vertex_offset: i32,
+        instances: Range<u32>,
+    ) {
         if let Some(device) = self.state.device_from_full() {
             unsafe {
                 device.logical().cmd_draw_indexed(
@@ -206,7 +223,12 @@ impl CommandBuffer {
         }
     }
 
-    pub fn update_buffer(&mut self, buffer: &Buffer, offset: u64, data: &[u8]) -> Result<()> {
+    pub(crate) fn update_buffer(
+        &mut self,
+        buffer: &Buffer,
+        offset: u64,
+        data: &[u8],
+    ) -> Result<()> {
         if let Some(device) = self.state.device_from_full() {
             anyhow::ensure!(offset % 4 == 0, "unaligned buffer offset");
             anyhow::ensure!(data.len() % 4 == 0, "unaligned buffer data length");
@@ -220,7 +242,7 @@ impl CommandBuffer {
         Ok(())
     }
 
-    pub fn bind_vertex_buffers(&mut self, first: u32, buffers: &[(&Buffer, u64)]) {
+    pub(crate) fn bind_vertex_buffers(&mut self, first: u32, buffers: &[(&Buffer, u64)]) {
         if let Some(device) = self.state.device_from_full() {
             for &(buffer, _) in buffers {
                 self.references.buffers.push(buffer.clone());
@@ -240,7 +262,12 @@ impl CommandBuffer {
         }
     }
 
-    pub fn bind_index_buffer(&mut self, buffer: &Buffer, offset: u64, index_type: IndexType) {
+    pub(crate) fn bind_index_buffer(
+        &mut self,
+        buffer: &Buffer,
+        offset: u64,
+        index_type: IndexType,
+    ) {
         if let Some(device) = self.state.device_from_full() {
             self.references.buffers.push(buffer.clone());
 
@@ -255,7 +282,7 @@ impl CommandBuffer {
         }
     }
 
-    pub fn copy_buffer(
+    pub(crate) fn copy_buffer(
         &mut self,
         src_buffer: &Buffer,
         dst_buffer: &Buffer,
@@ -285,7 +312,7 @@ impl CommandBuffer {
         }
     }
 
-    pub fn copy_image(
+    pub(crate) fn copy_image(
         &mut self,
         src_image: &Image,
         src_layout: ImageLayout,
@@ -316,7 +343,7 @@ impl CommandBuffer {
         }
     }
 
-    pub fn copy_buffer_to_image(
+    pub(crate) fn copy_buffer_to_image(
         &mut self,
         src_buffer: &Buffer,
         dst_image: &Image,
@@ -345,7 +372,7 @@ impl CommandBuffer {
         }
     }
 
-    pub fn blit_image(
+    pub(crate) fn blit_image(
         &mut self,
         src_image: &Image,
         src_layout: ImageLayout,
@@ -378,7 +405,7 @@ impl CommandBuffer {
         }
     }
 
-    pub fn pipeline_barrier(
+    pub(crate) fn pipeline_barrier(
         &mut self,
         src: PipelineStageFlags,
         dst: PipelineStageFlags,
@@ -463,7 +490,7 @@ impl CommandBuffer {
         }
     }
 
-    pub fn push_constants(
+    pub(crate) fn push_constants(
         &mut self,
         layout: &PipelineLayout,
         stages: ShaderStageFlags,
@@ -485,13 +512,14 @@ impl CommandBuffer {
         }
     }
 
-    pub fn dispatch(&mut self, x: u32, y: u32, z: u32) {
+    pub(crate) fn dispatch(&mut self, x: u32, y: u32, z: u32) {
         if let Some(device) = self.state.device_from_full() {
             unsafe { device.logical().cmd_dispatch(self.handle, x, y, z) }
         }
     }
 }
 
+#[derive(Debug)]
 enum CommandBufferState {
     Full { owner: Device },
     Finished { owner: WeakDevice },

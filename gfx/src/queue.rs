@@ -2,8 +2,9 @@ use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::KhrSwapchainExtension;
 
-use crate::command_buffer::CommandBuffer;
+use crate::encoder::CommandBuffer;
 use crate::surface::SurfaceImage;
+use crate::util::{FromGfx, FromVk};
 
 pub trait QueuesQuery {
     type QueryState;
@@ -48,8 +49,59 @@ impl QueuesQuery for SingleQueueQuery {
     }
 }
 
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+    pub struct QueueFlags: u32 {
+        const GRAPHICS = 1;
+        const COMPUTE = 1 << 1;
+        const TRANSFER = 1 << 2;
+    }
+}
+
+impl QueueFlags {
+    pub fn supports_graphics(&self) -> bool {
+        self.contains(Self::GRAPHICS)
+    }
+
+    pub fn supports_compute(&self) -> bool {
+        self.contains(Self::COMPUTE)
+    }
+}
+
+impl FromVk<vk::QueueFlags> for QueueFlags {
+    fn from_vk(flags: vk::QueueFlags) -> Self {
+        let mut res = Self::empty();
+        if flags.contains(vk::QueueFlags::GRAPHICS) {
+            res |= Self::GRAPHICS;
+        }
+        if flags.contains(vk::QueueFlags::COMPUTE) {
+            res |= Self::COMPUTE;
+        }
+        if flags.contains(vk::QueueFlags::TRANSFER) {
+            res |= Self::TRANSFER;
+        }
+        res
+    }
+}
+
+impl FromGfx<QueueFlags> for vk::QueueFlags {
+    fn from_gfx(flags: QueueFlags) -> Self {
+        let mut res = Self::empty();
+        if flags.contains(QueueFlags::GRAPHICS) {
+            res |= Self::GRAPHICS;
+        }
+        if flags.contains(QueueFlags::COMPUTE) {
+            res |= Self::COMPUTE;
+        }
+        if flags.contains(QueueFlags::TRANSFER) {
+            res |= Self::TRANSFER;
+        }
+        res
+    }
+}
+
 pub struct QueueFamily {
-    pub capabilities: vk::QueueFlags,
+    pub capabilities: QueueFlags,
     pub queues: Vec<Queue>,
 }
 
@@ -62,7 +114,7 @@ pub struct QueueId {
 pub struct Queue {
     handle: vk::Queue,
     id: QueueId,
-    _capabilities: vk::QueueFlags,
+    _capabilities: QueueFlags,
     device: crate::device::Device,
 
     pool: vk::CommandPool,
@@ -73,7 +125,7 @@ impl Queue {
         handle: vk::Queue,
         family_idx: u32,
         queue_idx: u32,
-        capabilities: vk::QueueFlags,
+        capabilities: QueueFlags,
         device: crate::device::Device,
     ) -> Self {
         Self {

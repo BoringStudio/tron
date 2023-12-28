@@ -1,4 +1,9 @@
 pub use self::device::{Device, WeakDevice};
+pub use self::encoder::{
+    AccessFlags, BufferCopy, BufferImageCopy, BufferMemoryBarrier, CommandBuffer, Encoder,
+    EncoderCommon, ImageBlit, ImageCopy, ImageLayoutTransition, ImageMemoryBarrier, MemoryBarrier,
+    References, RenderPassEncoder,
+};
 pub use self::graphics::{Graphics, InstanceConfig};
 pub use self::physical_device::{DeviceFeature, DeviceFeatures, DeviceProperties, PhysicalDevice};
 pub use self::queue::{PresentStatus, Queue, QueueFamily, QueueId, QueuesQuery, SingleQueueQuery};
@@ -23,10 +28,6 @@ pub use self::resources::{
 pub use self::surface::{PresentMode, Surface, SurfaceImage, SwapchainSupport};
 pub use self::types::{DeviceAddress, State};
 
-// temp
-pub use self::command_buffer::{BufferCopy, CommandBuffer, ImageCopy, References};
-
-mod command_buffer;
 mod device;
 mod encoder;
 mod graphics;

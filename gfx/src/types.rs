@@ -12,3 +12,10 @@ pub enum State<T> {
     Static(T),
     Dynamic,
 }
+
+impl<T> State<T> {
+    #[inline]
+    pub const fn is_dynamic(&self) -> bool {
+        matches!(self, Self::Dynamic)
+    }
+}
