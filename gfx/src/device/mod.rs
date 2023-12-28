@@ -17,13 +17,13 @@ use self::descriptor_alloc::DescriptorAlloc;
 use crate::graphics::Graphics;
 use crate::physical_device::{DeviceFeatures, DeviceProperties};
 use crate::resources::{
-    Blending, Buffer, BufferInfo, BufferUsage, ColorBlend, ComponentMask, ComputePipeline,
-    ComputePipelineInfo, DescriptorBindingFlags, DescriptorSet, DescriptorSetInfo,
+    Blending, Buffer, BufferInfo, BufferUsage, BufferView, BufferViewInfo, ColorBlend,
+    ComponentMask, ComputePipeline, ComputePipelineInfo, DescriptorBindingFlags, DescriptorSetInfo,
     DescriptorSetLayout, DescriptorSetLayoutFlags, DescriptorSetLayoutInfo, Fence, FenceState,
     Framebuffer, FramebufferInfo, GraphicsPipeline, GraphicsPipelineInfo, Image, ImageInfo,
     ImageView, ImageViewInfo, ImageViewType, MappableBuffer, PipelineLayout, PipelineLayoutInfo,
     RenderPass, RenderPassInfo, Sampler, SamplerInfo, Semaphore, ShaderModule, ShaderModuleInfo,
-    StencilTest,
+    StencilTest, WritableDescriptorSet,
 };
 use crate::surface::Surface;
 use crate::types::{DeviceAddress, State};
@@ -73,7 +73,7 @@ pub struct Device {
 }
 
 impl Device {
-    pub fn new(
+    pub(crate) fn new(
         logical: vulkanalia::Device,
         physical: vk::PhysicalDevice,
         properties: DeviceProperties,
@@ -398,6 +398,37 @@ impl Device {
             .dealloc(self.logical().as_memory_device(), block);
 
         self.logical().destroy_buffer(handle, None);
+    }
+
+    pub fn create_buffer_view(&self, info: BufferViewInfo) -> Result<BufferView> {
+        anyhow::ensure!(
+            info.buffer
+                .info()
+                .usage
+                .contains(BufferUsage::UNIFORM_TEXEL | BufferUsage::STORAGE_TEXEL),
+            "buffer view cannot be created from a buffer without at least one of \
+            `UNIFORM_TEXEL` or `STORAGE_TEXEL` usages"
+        );
+
+        let logical = &self.inner.logical;
+
+        let handle = {
+            let info = vk::BufferViewCreateInfo::builder()
+                .buffer(info.buffer.handle())
+                .format(info.format.to_vk())
+                .offset(info.offset)
+                .range(info.size);
+
+            unsafe { logical.create_buffer_view(&info, None) }?
+        };
+
+        tracing::debug!(buffer_view = ?handle, "created buffer view");
+
+        Ok(BufferView::new(handle, info, self.downgrade()))
+    }
+
+    pub(crate) unsafe fn destroy_buffer_view(&self, handle: vk::BufferView) {
+        self.logical().destroy_buffer_view(handle, None);
     }
 
     pub fn create_image(&self, info: ImageInfo) -> Result<Image> {
@@ -775,7 +806,7 @@ impl Device {
         self.logical().destroy_descriptor_set_layout(handle, None)
     }
 
-    pub fn create_descriptor_set(&self, info: DescriptorSetInfo) -> Result<DescriptorSet> {
+    pub fn create_descriptor_set(&self, info: DescriptorSetInfo) -> Result<WritableDescriptorSet> {
         anyhow::ensure!(
             info.layout
                 .info()
@@ -792,7 +823,7 @@ impl Device {
 
         tracing::debug!(descriptor_set = ?set.handle(), "created descriptor set");
 
-        Ok(DescriptorSet::new(set, self.downgrade()))
+        Ok(WritableDescriptorSet::new(set, info, self.downgrade()))
     }
 
     pub(crate) unsafe fn destroy_descriptor_set(&self, allocated: &AllocatedDescriptorSet) {

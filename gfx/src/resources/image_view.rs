@@ -339,6 +339,7 @@ impl FromGfx<ImageSubresource> for vk::ImageSubresource {
 }
 
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct ImageView {
     inner: Arc<Inner>,
 }

@@ -121,7 +121,7 @@ pub struct Queue {
 }
 
 impl Queue {
-    pub fn new(
+    pub(crate) fn new(
         handle: vk::Queue,
         family_idx: u32,
         queue_idx: u32,

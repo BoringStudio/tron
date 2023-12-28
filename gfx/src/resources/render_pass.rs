@@ -343,6 +343,7 @@ pub struct RenderPassInfo {
 }
 
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct RenderPass {
     inner: Arc<Inner>,
 }

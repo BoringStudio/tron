@@ -147,6 +147,7 @@ impl DescriptorSetSize {
 }
 
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct DescriptorSetLayout {
     inner: Arc<Inner>,
 }

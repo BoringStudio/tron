@@ -13,6 +13,7 @@ pub struct FramebufferInfo {
 }
 
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct Framebuffer {
     inner: Arc<Inner>,
 }

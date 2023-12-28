@@ -721,6 +721,7 @@ impl std::fmt::Debug for ComputePipeline {
 
 // === Generic pipeline ===
 
+#[repr(transparent)]
 pub struct Pipeline<Info> {
     inner: Arc<Inner<Info>>,
 }
