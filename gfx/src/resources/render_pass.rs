@@ -173,7 +173,7 @@ impl ClearValue {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ClearColor(f32, f32, f32, f32);
+pub struct ClearColor(pub f32, pub f32, pub f32, pub f32);
 
 impl From<ClearColor> for Vec4 {
     #[inline]
@@ -232,11 +232,11 @@ pub struct SubpassDependency {
     /// - `Some`: index of the subpass we're dependant on.
     /// - `None`: wait for all of the subpasses within all of the render passes before this one.
     pub src: Option<u32>,
+    /// Pipeline stages that will be synchronized for the `src`.
+    pub src_stages: PipelineStageFlags,
     /// - `Some`: the index to the current subpass, i.e. the one this dependency exists for.
     /// - `None`: all of the subpasses within all of the render passes after this one will depend.
     pub dst: Option<u32>,
-    /// Pipeline stages that will be synchronized for the `src`.
-    pub src_stages: PipelineStageFlags,
     /// Pipeline stages that will be synchronized for the `dst`.
     pub dst_stages: PipelineStageFlags,
 }

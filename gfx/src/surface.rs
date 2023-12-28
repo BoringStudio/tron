@@ -248,7 +248,9 @@ impl Surface {
                 swapchain.images.len() as u32 - self.swapchain_support.capabilities.min_image_count;
             anyhow::ensure!(
                 swapchain.acquired_count <= available_images,
-                "too many acquired images"
+                "too many acquired images: acquired {}, available {}",
+                swapchain.acquired_count,
+                available_images
             );
 
             let res = unsafe {
@@ -289,6 +291,7 @@ impl Surface {
             supported_families: &self.swapchain_support.supported_families,
             image: &image_state.image,
             index,
+            acquired_count: &mut swapchain.acquired_count,
             wait: &mut image_state.acquire,
             signal: &mut image_state.release,
             optimal: swapchain.optimal,
@@ -325,6 +328,7 @@ pub struct SurfaceImage<'a> {
     supported_families: &'a [bool],
     image: &'a Image,
     index: u32,
+    acquired_count: &'a mut u32,
     wait: &'a mut Semaphore,
     signal: &'a mut Semaphore,
     optimal: bool,
@@ -334,6 +338,7 @@ pub struct SurfaceImage<'a> {
 impl<'a> SurfaceImage<'a> {
     pub(crate) fn consume(mut self) {
         self.used = true;
+        *self.acquired_count -= 1;
     }
 
     pub(crate) fn swapchain_handle(&self) -> vk::SwapchainKHR {
@@ -363,7 +368,7 @@ impl<'a> SurfaceImage<'a> {
 
 impl Drop for SurfaceImage<'_> {
     fn drop(&mut self) {
-        if self.used && !std::thread::panicking() {
+        if !self.used && !std::thread::panicking() {
             tracing::error!("surface image was not presented")
         }
     }
