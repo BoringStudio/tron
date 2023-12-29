@@ -5,6 +5,7 @@ use vulkanalia::prelude::v1_0::*;
 use crate::device::WeakDevice;
 use crate::util::{FromGfx, ToVk};
 
+/// Sampler properties.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SamplerInfo {
     pub mag_filter: Filter,
@@ -23,10 +24,12 @@ pub struct SamplerInfo {
 }
 
 impl SamplerInfo {
+    /// Creates a new `SamplerInfo` with the default values for the nearest filtering mode.
     pub fn simple_nearest() -> Self {
         Self::default()
     }
 
+    /// Creates a new `SamplerInfo` with the default values for the linear filtering mode.
     pub fn simple_linear() -> Self {
         Self {
             mag_filter: Filter::Linear,
@@ -79,6 +82,7 @@ impl std::hash::Hash for SamplerInfo {
     }
 }
 
+/// Specify filters used for texture lookups.
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Filter {
     #[default]
@@ -95,6 +99,7 @@ impl FromGfx<Filter> for vk::Filter {
     }
 }
 
+/// Specify mipmap mode used for texture lookups.
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum MipmapMode {
     #[default]
@@ -111,6 +116,7 @@ impl FromGfx<MipmapMode> for vk::SamplerMipmapMode {
     }
 }
 
+/// Specify behavior of sampling with texture coordinates outside an image.
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum SamplerAddressMode {
     Repeat,
@@ -133,6 +139,7 @@ impl FromGfx<SamplerAddressMode> for vk::SamplerAddressMode {
     }
 }
 
+/// Comparison operator for depth, stencil, and sampler operations.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum CompareOp {
     /// Never passes.
@@ -177,6 +184,7 @@ impl FromGfx<Option<CompareOp>> for vk::CompareOp {
     }
 }
 
+/// Specify border color used for texture lookups.
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum BorderColor {
     #[default]
@@ -201,6 +209,11 @@ impl FromGfx<BorderColor> for vk::BorderColor {
     }
 }
 
+/// A wrapper around a Vulkan sampler.
+///
+/// Sampler objects represent the state of an image sampler which is used by the
+/// implementation to read image data and apply filtering and other transformations
+/// for the shader.
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct Sampler {

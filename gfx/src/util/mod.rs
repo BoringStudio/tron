@@ -1,7 +1,7 @@
 use bumpalo::Bump;
 
-pub use self::access::*;
-pub use self::traits::*;
+pub(crate) use self::access::*;
+pub(crate) use self::traits::*;
 
 mod access;
 mod traits;

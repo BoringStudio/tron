@@ -6,6 +6,7 @@ use vulkanalia::prelude::v1_0::*;
 use crate::device::WeakDevice;
 use crate::util::FromGfx;
 
+/// An initialized vertex shader module.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct VertexShader {
     module: ShaderModule,
@@ -22,6 +23,7 @@ impl VertexShader {
     }
 }
 
+/// An initialized fragment shader module.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct FragmentShader {
     module: ShaderModule,
@@ -38,6 +40,7 @@ impl FragmentShader {
     }
 }
 
+/// An initialized compute shader module.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ComputeShader {
     module: ShaderModule,
@@ -55,6 +58,7 @@ impl ComputeShader {
 }
 
 bitflags::bitflags! {
+    /// Shader stages in a pipeline.
     #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
     pub struct ShaderStageFlags: u32 {
         const VERTEX = 1;
@@ -100,6 +104,7 @@ impl FromGfx<ShaderStageFlags> for vk::ShaderStageFlags {
     }
 }
 
+/// Shader stage in a pipeline.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum ShaderStage {
     Vertex,
@@ -127,10 +132,16 @@ impl FromGfx<ShaderStage> for vk::ShaderStageFlags {
     }
 }
 
+/// Shader module info.
 pub struct ShaderModuleInfo {
     pub data: Box<[u32]>,
 }
 
+/// A wrapper around a Vulkan shader module.
+///
+/// Shader modules contain shader code and one or more entry points.
+/// Shaders are selected from a shader module by specifying an entry point
+/// as part of pipeline creation.
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct ShaderModule {

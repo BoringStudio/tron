@@ -12,11 +12,41 @@ use crate::device::WeakDevice;
 use crate::resources::{Format, Image, ImageInfo, ImageUsageFlags, Samples, Semaphore};
 use crate::util::{FromGfx, ToVk, TryFromVk};
 
+/// Presentation mode supported for a surface.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum PresentMode {
+    /// Presentation engine does not wait for a vertical blanking period to update the current image.
+    ///
+    /// No internal queuing of presentation requests is needed, as the requests are applied immediately.
     Immediate,
+
+    /// Presentation engine waits for a vertical blanking period to update the current image.
+    ///
+    /// An internal single-entry queue is used to hold pending presentation requests.
+    /// If the queue is full when a new presentation request is received, the new request
+    /// replaces the existing entry, and any images associated with the prior entry become
+    /// available for reuse by the application. One request is removed from the queue and
+    /// processed during each vertical blanking period in which the queue is non-empty.
     Mailbox,
+
+    /// Presentation engine waits for a vertical blanking period to update the current image.
+    ///
+    /// An internal queue is used to hold pending presentation requests. New requests are
+    /// appended to the end of the queue, and one request is removed from the beginning of
+    /// the queue and processed during each vertical blanking period in which the queue is
+    /// non-empty. This is the only value of [`PresentMode`] that is required to be supported.
     Fifo,
+
+    /// Presentation engine generally waits for a vertical blanking period to update the current image.
+    /// If a vertical blanking period has already passed since the last update of the current image
+    /// then the presentation engine does not wait for another vertical blanking period for the update.
+    ///
+    /// This mode is useful for reducing visual stutter with an application that will mostly present
+    /// a new image before the next vertical blanking period, but may occasionally be late, and
+    /// present a new image just after the next vertical blanking period. An internal queue is used
+    /// to hold pending presentation requests. New requests are appended to the end of the queue,
+    /// and one request is removed from the beginning of the queue and processed during or after
+    /// each vertical blanking period in which the queue is non-empty.
     FifoRelaxed,
 }
 
@@ -43,6 +73,7 @@ impl FromGfx<PresentMode> for vk::PresentModeKHR {
     }
 }
 
+/// Wrapper around a surface object.
 pub struct Surface {
     window: Arc<Window>,
     handle: vk::SurfaceKHR,
@@ -80,10 +111,14 @@ impl Surface {
         })
     }
 
+    /// Returns swapchain properties.
     pub fn swapchain_support(&self) -> &SwapchainSupport {
         &self.swapchain_support
     }
 
+    /// Recreates the swapchain with the last parameters.
+    ///
+    /// NOTE: doesn't initialize the swapchain if it wasn't initialized before.
     pub fn update(&mut self) -> Result<()> {
         if let Some(swapchain) = &mut self.swapchain {
             let usage = swapchain.usage;
@@ -96,6 +131,7 @@ impl Surface {
         }
     }
 
+    /// Configures the swapchain with the best parameters.
     pub fn configure(&mut self) -> Result<()> {
         let format = self
             .swapchain_support
@@ -107,6 +143,7 @@ impl Surface {
         self.configure_ext(ImageUsageFlags::COLOR_ATTACHMENT, format, mode)
     }
 
+    /// Configures the swapchain with the specified parameters.
     pub fn configure_ext(
         &mut self,
         usage: ImageUsageFlags,
@@ -242,6 +279,7 @@ impl Surface {
         Ok(())
     }
 
+    /// Acquires the next image from the swapchain.
     pub fn aquire_image(&mut self) -> Result<SurfaceImage<'_>> {
         let device = self.owner.upgrade().context("device was already dropped")?;
         self.cleanup_unused_swapchains(&device);
@@ -332,6 +370,7 @@ impl Surface {
     }
 }
 
+/// Aquired image from a swapchain.
 pub struct SurfaceImage<'a> {
     handle: vk::SwapchainKHR,
     supported_families: &'a [bool],
@@ -346,37 +385,43 @@ pub struct SurfaceImage<'a> {
 }
 
 impl<'a> SurfaceImage<'a> {
-    pub(crate) fn consume(mut self) {
-        self.used = true;
-        *self.acquired_count -= 1;
+    /// Returns the total number of images in the swapchain.
+    pub fn total_image_count(&self) -> usize {
+        self.total_image_count
+    }
+
+    /// Returns the swapchan image.
+    pub fn image(&self) -> &'a Image {
+        self.image
+    }
+
+    /// Returns the index of the image in the swapchain.
+    pub fn index(&self) -> u32 {
+        self.index
+    }
+
+    /// Returns the semaphore that should be waited on before using the image,
+    /// and the semaphore that should be signaled after using the image.
+    pub fn wait_signal(&mut self) -> [&mut Semaphore; 2] {
+        [&mut *self.wait, &mut *self.signal]
+    }
+
+    /// Returns `true` if the image is optimal for presentation.
+    pub fn is_optimal(&self) -> bool {
+        self.optimal
     }
 
     pub(crate) fn swapchain_handle(&self) -> vk::SwapchainKHR {
         self.handle
     }
 
-    pub fn supported_families(&self) -> &'a [bool] {
+    pub(crate) fn supported_families(&self) -> &'a [bool] {
         self.supported_families
     }
 
-    pub fn total_image_count(&self) -> usize {
-        self.total_image_count
-    }
-
-    pub fn image(&self) -> &'a Image {
-        self.image
-    }
-
-    pub fn index(&self) -> u32 {
-        self.index
-    }
-
-    pub fn wait_signal(&mut self) -> [&mut Semaphore; 2] {
-        [&mut *self.wait, &mut *self.signal]
-    }
-
-    pub fn is_optimal(&self) -> bool {
-        self.optimal
+    pub(crate) fn consume(mut self) {
+        self.used = true;
+        *self.acquired_count -= 1;
     }
 }
 
@@ -404,6 +449,7 @@ struct SwapchainImageState {
     release: Semaphore,
 }
 
+/// Swapchain properties.
 pub struct SwapchainSupport {
     pub supported_families: Box<[bool]>,
     pub capabilities: vk::SurfaceCapabilitiesKHR,

@@ -1,3 +1,4 @@
+/// Buffer device address.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct DeviceAddress(pub std::num::NonZeroU64);
 
@@ -7,6 +8,7 @@ impl DeviceAddress {
     }
 }
 
+/// Pipeline value state.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum State<T> {
     Static(T),

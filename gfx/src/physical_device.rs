@@ -7,6 +7,7 @@ use crate::queue::{Queue, QueueFamily, QueueId, QueuesQuery};
 use crate::util::ToGfx;
 use crate::Graphics;
 
+/// A feature that can be requested when creating a device.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum DeviceFeature {
     BufferDeviceAddress,
@@ -15,6 +16,7 @@ pub enum DeviceFeature {
     SurfacePresentation,
 }
 
+/// A wrapper around Vulkan physical device.
 #[derive(Debug)]
 pub struct PhysicalDevice {
     handle: vk::PhysicalDevice,
@@ -32,19 +34,23 @@ impl PhysicalDevice {
         }
     }
 
+    /// Returns an associated graphics instance.
     pub fn graphics(&self) -> &'static Graphics {
         // `PhysicalDevice` can only be created from `Graphics` instance
         unsafe { Graphics::get_unchecked() }
     }
 
+    /// Returns all physical device properties.
     pub fn properties(&self) -> &DeviceProperties {
         &self.properties
     }
 
+    /// Returns all physical device features.
     pub fn features(&self) -> &DeviceFeatures {
         &self.features
     }
 
+    /// Creates a logical device and a set of queues.
     pub fn create_device<Q>(
         self,
         features: &[DeviceFeature],
@@ -243,6 +249,7 @@ impl PhysicalDevice {
     }
 }
 
+/// All physical device properties.
 #[derive(Debug)]
 pub struct DeviceProperties {
     pub extensions: FastHashSet<vk::ExtensionName>,
@@ -257,6 +264,7 @@ pub struct DeviceProperties {
 unsafe impl Sync for DeviceProperties {}
 unsafe impl Send for DeviceProperties {}
 
+/// All physical device features.
 #[derive(Debug)]
 pub struct DeviceFeatures {
     pub v1_0: vk::PhysicalDeviceFeatures,

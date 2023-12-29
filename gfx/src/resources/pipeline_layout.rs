@@ -6,12 +6,14 @@ use crate::device::WeakDevice;
 use crate::resources::{DescriptorSetLayout, ShaderStageFlags};
 use crate::util::{FromGfx, ToVk};
 
+/// Structure specifying the parameters of a newly created pipeline layout object.
 #[derive(Debug, Default, Clone, Hash, PartialEq, Eq)]
 pub struct PipelineLayoutInfo {
     pub sets: Vec<DescriptorSetLayout>,
     pub push_constants: Vec<PushConstant>,
 }
 
+/// Structure specifying a push constant range.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct PushConstant {
     pub stages: ShaderStageFlags,
@@ -29,6 +31,15 @@ impl FromGfx<PushConstant> for vk::PushConstantRange {
     }
 }
 
+/// A wrapper around a Vulkan pipeline layout object.
+///
+/// Access to descriptor sets from a pipeline is accomplished through a pipeline layout.
+/// Zero or more descriptor set layouts and zero or more push constant ranges are combined
+/// to form a pipeline layout object describing the complete set of resources that can be
+/// accessed by a pipeline. The pipeline layout represents a sequence of descriptor sets
+/// with each having a specific layout. This sequence of layouts is used to determine the
+/// interface between shader stages and shader resources. Each pipeline is created using
+/// a pipeline layout.
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct PipelineLayout {

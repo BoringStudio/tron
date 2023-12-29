@@ -1,6 +1,6 @@
 use vulkanalia::vk;
 
-pub fn compute_supported_access(stages: vk::PipelineStageFlags) -> vk::AccessFlags {
+pub(crate) fn compute_supported_access(stages: vk::PipelineStageFlags) -> vk::AccessFlags {
     let mut res = vk::AccessFlags::empty();
     let mut bits = u32::MAX;
 

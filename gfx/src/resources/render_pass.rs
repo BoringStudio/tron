@@ -7,6 +7,7 @@ use crate::device::WeakDevice;
 use crate::resources::{Format, FormatChannels, FormatType, ImageLayout, Samples};
 use crate::util::{compute_supported_access, FromGfx, ToVk};
 
+/// Specify how contents of an attachment are initialized at the beginning of a subpass.
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum LoadOp<T = ()> {
     Load,
@@ -26,6 +27,7 @@ impl<T> FromGfx<LoadOp<T>> for vk::AttachmentLoadOp {
     }
 }
 
+/// Specify how contents of an attachment are stored to memory at the end of a subpass.
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum StoreOp {
     Store,
@@ -43,6 +45,7 @@ impl FromGfx<StoreOp> for vk::AttachmentStoreOp {
     }
 }
 
+/// Structure specifying a clear value.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ClearValue {
     Color(Vec4),
@@ -172,6 +175,7 @@ impl ClearValue {
     }
 }
 
+/// Specify the clear color value used when clearing a color image or attachment.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ClearColor(pub f32, pub f32, pub f32, pub f32);
 
@@ -189,6 +193,7 @@ impl From<ClearColor> for ClearValue {
     }
 }
 
+/// Specify the clear depth value used when clearing a depth image or attachment.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ClearDepth(pub f32);
 
@@ -199,6 +204,8 @@ impl From<ClearDepth> for ClearValue {
     }
 }
 
+/// Specify the clear depth and stencil values used when clearing a depth-stencil
+/// image or attachment.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ClearDepthStencil(pub f32, pub u32);
 
@@ -209,6 +216,7 @@ impl From<ClearDepthStencil> for ClearValue {
     }
 }
 
+/// Structure specifying an attachment description.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct AttachmentInfo {
     pub format: Format,
@@ -219,6 +227,7 @@ pub struct AttachmentInfo {
     pub final_layout: ImageLayout,
 }
 
+/// Structure specifying a subpass description.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Subpass {
     /// List of color attachment indices and their layouts.
@@ -227,6 +236,7 @@ pub struct Subpass {
     pub depth: Option<(u32, ImageLayout)>,
 }
 
+/// Structure specifying a subpass dependency.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct SubpassDependency {
     /// - `Some`: index of the subpass we're dependant on.
@@ -255,6 +265,7 @@ impl FromGfx<SubpassDependency> for vk::SubpassDependency {
 }
 
 bitflags::bitflags! {
+    /// Stages mask of a pipeline.
     #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
     pub struct PipelineStageFlags: u32 {
         const TOP_OF_PIPE = 1;
@@ -335,6 +346,7 @@ impl FromGfx<PipelineStageFlags> for vk::PipelineStageFlags {
     }
 }
 
+/// Structure specifying parameters of a newly created render pass.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct RenderPassInfo {
     pub attachments: Vec<AttachmentInfo>,
@@ -342,6 +354,11 @@ pub struct RenderPassInfo {
     pub dependencies: Vec<SubpassDependency>,
 }
 
+/// A wrapper around a Vulkan render pass.
+///
+/// A render pass object represents a collection of attachments, subpasses,
+/// and dependencies between the subpasses, and describes how the attachments
+/// are used over the course of the subpasses.
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct RenderPass {

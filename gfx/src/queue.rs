@@ -9,6 +9,7 @@ use crate::resources::{Fence, PipelineStageFlags, Semaphore};
 use crate::surface::SurfaceImage;
 use crate::util::{DeallocOnDrop, FromGfx, FromVk};
 
+/// A query for a set of queues.
 pub trait QueuesQuery {
     type QueryState;
     type Query: AsRef<[(usize, usize)]>;
@@ -21,6 +22,7 @@ pub trait QueuesQuery {
     fn collect(state: Self::QueryState, families: Vec<QueueFamily>) -> Self::Queues;
 }
 
+/// Single queue query.
 #[derive(Debug, Clone, Copy)]
 pub struct SingleQueueQuery(vk::QueueFlags);
 
@@ -53,6 +55,7 @@ impl QueuesQuery for SingleQueueQuery {
 }
 
 bitflags::bitflags! {
+    /// Queue capabilities.
     #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
     pub struct QueueFlags: u32 {
         const GRAPHICS = 1;
@@ -114,6 +117,7 @@ pub struct QueueId {
     pub index: u32,
 }
 
+/// A wrapper around a Vulkan queue.
 pub struct Queue {
     handle: vk::Queue,
     pool: vk::CommandPool,
@@ -146,15 +150,18 @@ impl Queue {
         }
     }
 
+    /// Returns the global queue id.
     pub fn id(&self) -> &QueueId {
         &self.id
     }
 
+    /// Wait for a queue to become idle.
     pub fn wait_idle(&self) -> Result<()> {
         unsafe { self.device.logical().queue_wait_idle(self.handle) }?;
         Ok(())
     }
 
+    /// Begin recording a command buffer.
     pub fn create_encoder(&mut self) -> Result<Encoder> {
         let logical = self.device.logical();
 
@@ -196,6 +203,7 @@ impl Queue {
         }
     }
 
+    /// Submit a set of command buffers to the queue.
     pub fn submit<I>(
         &mut self,
         wait: &mut [(PipelineStageFlags, &mut Semaphore)],
@@ -253,6 +261,7 @@ impl Queue {
         res.map_err(Into::into)
     }
 
+    /// Submit a single command buffer to the queue.
     pub fn submit_simple(
         &mut self,
         command_buffer: CommandBuffer,
@@ -277,6 +286,7 @@ impl Queue {
         res.map_err(Into::into)
     }
 
+    /// Present an image to the surface.
     pub fn present(&mut self, mut image: SurfaceImage<'_>) -> Result<PresentStatus> {
         anyhow::ensure!(
             image
@@ -336,6 +346,7 @@ impl Queue {
     }
 }
 
+/// The result of a present operation.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum PresentStatus {
     Ok,

@@ -10,6 +10,7 @@ use crate::resources::{
 use crate::types::State;
 use crate::util::{FromGfx, ToVk};
 
+/// A three-dimensional subregion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Viewport {
     pub x: Bounds,
@@ -72,6 +73,7 @@ impl From<UVec3> for State<Viewport> {
     }
 }
 
+/// A two-dimensional subregion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rect {
     pub offset: IVec2,
@@ -102,14 +104,46 @@ impl From<UVec2> for State<Rect> {
     }
 }
 
+/// A one-dimensional subregion.
+#[derive(Debug, Clone, Copy)]
+pub struct Bounds {
+    pub offset: f32,
+    pub size: f32,
+}
+
+impl Bounds {
+    pub fn new(offset: f32, size: f32) -> Self {
+        Self { offset, size }
+    }
+}
+
+impl Eq for Bounds {}
+impl PartialEq for Bounds {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        f32::to_bits(self.offset) == f32::to_bits(other.offset)
+            && f32::to_bits(self.size) == f32::to_bits(other.size)
+    }
+}
+
+impl std::hash::Hash for Bounds {
+    #[inline]
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_u32(f32::to_bits(self.offset));
+        state.write_u32(f32::to_bits(self.size));
+    }
+}
+
 // === Graphics pipeline ===
 
+/// Structure specifying parameters of a newly created graphics pipeline.
 #[derive(Debug, Clone)]
 pub struct GraphicsPipelineInfo {
     pub descr: GraphicsPipelineDescr,
     pub rendering: GraphicsPipelineRenderingInfo,
 }
 
+/// Graphics pipeline structure description.
 #[derive(Debug, Clone)]
 pub struct GraphicsPipelineDescr {
     pub vertex_bindings: Vec<VertexInputBinding>,
@@ -121,6 +155,7 @@ pub struct GraphicsPipelineDescr {
     pub layout: PipelineLayout,
 }
 
+/// Graphics pipeline rasterization stage parameters.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rasterizer {
     pub viewport: State<vk::Viewport>,
@@ -154,18 +189,21 @@ impl Default for Rasterizer {
     }
 }
 
+/// Graphics pipeline rendering stage parameters.
 #[derive(Debug, Clone)]
 pub struct GraphicsPipelineRenderingInfo {
     pub render_pass: RenderPass,
     pub subpass: u32,
 }
 
+/// Graphics pipeline vertex binding parameters.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct VertexInputBinding {
     pub rate: VertexInputRate,
     pub stride: u32,
 }
 
+/// Graphics pipeline vertex attribute parameters.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct VertexInputAttribute {
     pub location: u32,
@@ -185,9 +223,12 @@ impl FromGfx<VertexInputAttribute> for vk::VertexInputAttributeDescription {
     }
 }
 
+/// Specify rate at which vertex attributes are pulled from buffers.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum VertexInputRate {
+    /// Vertex attribute addressing is a function of the vertex index.
     Vertex,
+    /// Vertex attribute addressing is a function of the instance index.
     Instance,
 }
 
@@ -201,14 +242,21 @@ impl FromGfx<VertexInputRate> for vk::VertexInputRate {
     }
 }
 
+/// Supported primitive topologies.
 #[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum PrimitiveTopology {
+    /// Separate point primitives.
     PointList,
+    /// Separate line primitives.
     LineList,
+    /// A series of connected line segments with consecutive lines sharing a vertex.
     LineStrip,
+    /// Separate triangle primitives.
     #[default]
     TriangleList,
+    /// A series of connected triangles with consecutive triangles sharing an edge.
     TriangleStrip,
+    /// A series of connected triangles sharing a central vertex.
     TriangleFan,
 }
 
@@ -225,11 +273,14 @@ impl FromGfx<PrimitiveTopology> for vk::PrimitiveTopology {
     }
 }
 
+/// Interpret polygon front-facing orientation.
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum FrontFace {
+    /// Clockwise.
     #[default]
     CW,
+    /// Counter-clockwise.
     CCW,
 }
 
@@ -242,10 +293,14 @@ impl FromGfx<FrontFace> for vk::FrontFace {
     }
 }
 
+/// Triangle culling mode.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum CullMode {
+    /// Cull front-facing triangles.
     Front,
+    /// Cull back-facing triangles.
     Back,
+    /// Cull both front- and back-facing triangles.
     FrontAndBack,
 }
 
@@ -268,11 +323,15 @@ impl FromGfx<Option<CullMode>> for vk::CullModeFlags {
     }
 }
 
+/// Polygon rasterization mode.
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum PolygonMode {
+    /// Polygons are rendered as solid surfaces.
     #[default]
     Fill,
+    /// Polygon edges are drawn as line segments.
     Line,
+    /// Polygon vertices are drawn as points.
     Point,
 }
 
@@ -287,18 +346,21 @@ impl FromGfx<PolygonMode> for vk::PolygonMode {
     }
 }
 
+/// Depth test parameters.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct DepthTest {
     pub compare: CompareOp,
     pub write: bool,
 }
 
+/// Stencil test parameters for both faces.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct StencilTests {
     pub front: StencilTest,
     pub back: StencilTest,
 }
 
+/// Stencil test parameters for a single face.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct StencilTest {
     pub compare: CompareOp,
@@ -310,15 +372,26 @@ pub struct StencilTest {
     pub depth_fail: StencilOp,
 }
 
+/// Stencil comparison function.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum StencilOp {
+    /// Keeps the current value.
     Keep,
+    /// Sets the value to `0`.
     Zero,
+    /// Sets the value to `reference`.
     Replace,
+    /// Increments the current value and clamps to the maximum representable unsigned value.
     IncrementAndClamp,
+    /// Decrements the current value and clamps to `0`.
     DecrementAndClamp,
+    /// Bitwise-inverts the current value.
     Invert,
+    /// Increments the current value and wraps to `0` when the maximum value would have been
+    /// exceeded.
     IncrementAndWrap,
+    /// Decrements the current value and wraps to the maximum representable unsigned value when
+    /// the value would go below `0`.
     DecrementAndWrap,
 }
 
@@ -337,45 +410,18 @@ impl FromGfx<StencilOp> for vk::StencilOp {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Bounds {
-    pub offset: f32,
-    pub size: f32,
-}
-
-impl Bounds {
-    pub fn new(offset: f32, size: f32) -> Self {
-        Self { offset, size }
-    }
-}
-
-impl Eq for Bounds {}
-impl PartialEq for Bounds {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        f32::to_bits(self.offset) == f32::to_bits(other.offset)
-            && f32::to_bits(self.size) == f32::to_bits(other.size)
-    }
-}
-
-impl std::hash::Hash for Bounds {
-    #[inline]
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write_u32(f32::to_bits(self.offset));
-        state.write_u32(f32::to_bits(self.size));
-    }
-}
-
+/// Structure specifying parameters of a newly created pipeline color blend state.
 #[derive(Debug, Clone)]
 pub enum ColorBlend {
-    Logic {
-        op: LogicOp,
-    },
+    /// Color attachment blending uses a logical operation.
+    Logic { op: LogicOp },
+    /// Color blending is controlled by the same parameters for all attachments.
     Blending {
         blending: Option<Blending>,
         write_mask: ComponentMask,
         constants: State<[f32; 4]>,
     },
+    /// Color blending is controlled per-attachment.
     IndependentBlending {
         blending: Vec<(Option<Blending>, ComponentMask)>,
         constants: State<[f32; 4]>,
@@ -484,6 +530,7 @@ fn hash_constants<H: std::hash::Hasher>(constants: &State<[f32; 4]>, state: &mut
     }
 }
 
+/// Framebuffer logical operations.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum LogicOp {
     /// `0`.
@@ -543,6 +590,7 @@ impl FromGfx<LogicOp> for vk::LogicOp {
     }
 }
 
+/// Framebuffer attachment blending parameters.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Blending {
     pub color_src_factor: BlendFactor,
@@ -553,6 +601,7 @@ pub struct Blending {
     pub alpha_op: BlendOp,
 }
 
+/// Framebuffer blending factors.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum BlendFactor {
     /// Color: `(0.0, 0.0, 0.0)`
@@ -624,6 +673,7 @@ impl FromGfx<BlendFactor> for vk::BlendFactor {
     }
 }
 
+/// Framebuffer blending operations.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum BlendOp {
     /// `S * Sf + D * Df`.
@@ -651,6 +701,7 @@ impl FromGfx<BlendOp> for vk::BlendOp {
 }
 
 bitflags::bitflags! {
+    /// Specify which components are written to the framebuffer.
     #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
     pub struct ComponentMask: u8 {
         const R = 0b0001;
@@ -681,6 +732,10 @@ impl FromGfx<ComponentMask> for vk::ColorComponentFlags {
     }
 }
 
+/// A wrapper around a Vulkan graphics pipeline.
+///
+/// Describes the sequence of operations that take the vertices and textures
+/// of meshes all the way to the pixels in the render targets.
 pub type GraphicsPipeline = Pipeline<GraphicsPipelineInfo>;
 
 impl std::fmt::Debug for GraphicsPipeline {
@@ -698,12 +753,14 @@ impl std::fmt::Debug for GraphicsPipeline {
 
 // === Compute pipeline ===
 
+/// Structure specifying parameters of a newly created compute pipeline.
 #[derive(Debug, Clone)]
 pub struct ComputePipelineInfo {
     pub shader: ComputeShader,
     pub layout: PipelineLayout,
 }
 
+/// A wrapper around a Vulkan compute pipeline.
 pub type ComputePipeline = Pipeline<ComputePipelineInfo>;
 
 impl std::fmt::Debug for ComputePipeline {
@@ -721,6 +778,7 @@ impl std::fmt::Debug for ComputePipeline {
 
 // === Generic pipeline ===
 
+/// A wrapper around a Vulkan pipeline.
 #[repr(transparent)]
 pub struct Pipeline<Info> {
     inner: Arc<Inner<Info>>,

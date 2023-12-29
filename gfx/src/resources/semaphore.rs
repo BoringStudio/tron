@@ -2,6 +2,10 @@ use vulkanalia::prelude::v1_0::*;
 
 use crate::device::WeakDevice;
 
+/// A wrapper around a Vulkan semaphore.
+///
+/// Semaphores are a synchronization primitive that can be used to insert a dependency
+/// between queue operations or between a queue operation and the host
 pub struct Semaphore {
     handle: vk::Semaphore,
     owner: WeakDevice,

@@ -1,26 +1,26 @@
 use vulkanalia::vk;
 
-pub trait FromGfx<T>: Sized {
+pub(crate) trait FromGfx<T>: Sized {
     fn from_gfx(value: T) -> Self;
 }
 
-pub trait ToVk<T>: Sized {
+pub(crate) trait ToVk<T>: Sized {
     fn to_vk(self) -> T;
 }
 
-pub trait FromVk<T>: Sized {
+pub(crate) trait FromVk<T>: Sized {
     fn from_vk(value: T) -> Self;
 }
 
-pub trait ToGfx<T>: Sized {
+pub(crate) trait ToGfx<T>: Sized {
     fn to_gfx(self) -> T;
 }
 
-pub trait TryFromVk<T>: Sized {
+pub(crate) trait TryFromVk<T>: Sized {
     fn try_from_vk(value: T) -> Option<Self>;
 }
 
-pub trait TryIntoGfx<T>: Sized {
+pub(crate) trait TryIntoGfx<T>: Sized {
     fn try_into_gfx(self) -> Option<T>;
 }
 

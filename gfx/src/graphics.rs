@@ -15,6 +15,7 @@ use winit::raw_window_handle::{
 
 use crate::PhysicalDevice;
 
+/// Graphics instance configuration.
 #[derive(Debug, Clone)]
 pub struct InstanceConfig {
     pub app_name: Cow<'static, str>,
@@ -22,6 +23,7 @@ pub struct InstanceConfig {
     pub validation_layer_enabled: bool,
 }
 
+/// Graphics instance.
 pub struct Graphics {
     instance: Instance,
     api_version: u32,
@@ -31,6 +33,7 @@ pub struct Graphics {
 }
 
 impl Graphics {
+    /// Sets the initial [`InstanceConfig`] to be used when initializing.
     pub fn set_init_config(config: InstanceConfig) {
         if GRAPHICS.get().is_some() {
             tracing::warn!("updating instance config after graphics initialization has no effect");
@@ -48,6 +51,8 @@ impl Graphics {
         GRAPHICS.get_or_try_init(|| unsafe { Self::new() })
     }
 
+    /// Returns an initialized Vulkan instance wrapper.
+    ///
     /// # Safety
     ///
     /// The following must be true:
@@ -178,10 +183,12 @@ impl Graphics {
         })
     }
 
+    /// Returns the [`InstanceConfig`] used to initialize the instance.
     pub fn config(&self) -> &InstanceConfig {
         &self.config
     }
 
+    /// Returns the [`PhysicalDevice`]s available on the system.
     pub fn get_physical_devices(&self) -> Result<Vec<PhysicalDevice>> {
         let devices = unsafe { self.instance.enumerate_physical_devices() }?;
 
@@ -297,22 +304,27 @@ impl Graphics {
         .map_err(Into::into)
     }
 
+    /// Returns the underlying Vulkan instance.
     pub fn instance(&self) -> &Instance {
         &self.instance
     }
 
+    /// Returns the Vulkan API version.
     pub fn api_version(&self) -> u32 {
         self.api_version
     }
 
+    /// Returns `true` if the Vulkan API version is at least 1.1.
     pub fn vk1_1(&self) -> bool {
         vk::version_major(self.api_version) >= 1 && vk::version_minor(self.api_version) >= 1
     }
 
+    /// Returns `true` if the Vulkan API version is at least 1.2.
     pub fn vk1_2(&self) -> bool {
         vk::version_major(self.api_version) >= 1 && vk::version_minor(self.api_version) >= 2
     }
 
+    /// Returns `true` if the Vulkan API version is at least 1.3.
     pub fn vk1_3(&self) -> bool {
         vk::version_major(self.api_version) >= 1 && vk::version_minor(self.api_version) >= 3
     }
