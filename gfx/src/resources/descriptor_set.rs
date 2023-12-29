@@ -8,6 +8,7 @@ use crate::resources::{
     BufferRange, BufferView, DescriptorSetLayout, DescriptorType, ImageLayout, ImageView, Sampler,
 };
 
+/// A slice of descriptor data.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum DescriptorSlice<'a> {
     Sampler(&'a [Sampler]),
@@ -23,6 +24,8 @@ pub enum DescriptorSlice<'a> {
     InputAttachment(&'a [(ImageView, ImageLayout)]),
 }
 
+/// A descriptor which makes it possible for shaders to access an image
+/// resource through a sampler object.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct CombinedImageSampler {
     pub image: ImageView,
@@ -30,11 +33,13 @@ pub struct CombinedImageSampler {
     pub layout: ImageLayout,
 }
 
+/// Structure specifying the allocation parameters for descriptor sets.
 #[derive(Debug, Clone)]
 pub struct DescriptorSetInfo {
     pub layout: DescriptorSetLayout,
 }
 
+/// A unique and writable instance of a [`DescriptorSet`].
 #[repr(transparent)]
 pub struct WritableDescriptorSet {
     // NOTE: the struct itself must not be clonnable.
@@ -250,6 +255,9 @@ impl std::hash::Hash for WritableDescriptorSet {
     }
 }
 
+/// A wrapper around a Vulkan descriptor set object.
+///
+/// A pack of handles to resources that can be bound to a pipeline.
 #[derive(Clone)]
 pub struct DescriptorSet {
     inner: Arc<UnsafeCell<Inner>>,

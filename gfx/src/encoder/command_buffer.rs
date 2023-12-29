@@ -15,6 +15,7 @@ use crate::resources::{
 };
 use crate::util::{compute_supported_access, DeallocOnDrop, FromGfx, ToVk};
 
+/// A recorded sequence of commands that can be submitted to a queue.
 pub struct CommandBuffer {
     handle: vk::CommandBuffer,
     queue_id: QueueId,

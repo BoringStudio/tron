@@ -6,12 +6,14 @@ use crate::device::WeakDevice;
 use crate::resources::ShaderStageFlags;
 use crate::util::FromGfx;
 
+/// Structure specifying parameters of a newly created descriptor set layout.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct DescriptorSetLayoutInfo {
     pub bindings: Vec<DescriptorSetLayoutBinding>,
     pub flags: DescriptorSetLayoutFlags,
 }
 
+/// Structure specifying a descriptor set layout binding.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct DescriptorSetLayoutBinding {
     pub binding: u32,
@@ -21,6 +23,7 @@ pub struct DescriptorSetLayoutBinding {
     pub flags: DescriptorBindingFlags,
 }
 
+/// Specifies the type of a descriptor in a descriptor set.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum DescriptorType {
     /// Contains `Sampler`.
@@ -66,11 +69,28 @@ impl FromGfx<DescriptorType> for vk::DescriptorType {
 }
 
 bitflags::bitflags! {
+    /// Bitmask specifying descriptor set layout binding properties.
     #[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq)]
     pub struct DescriptorBindingFlags: u32 {
+        /// Indicates that if descriptors in this binding are updated between when
+        /// the descriptor set is bound in a command buffer and when that command buffer
+        /// is submitted to a queue, then the submission will use the most recently
+        /// set descriptors for this binding and the updates do not invalidate the command buffer.
         const UPDATE_AFTER_BIND = 1;
+        /// Indicates that descriptors in this binding can be updated after a command buffer
+        /// has bound this descriptor set, or while a command buffer that uses this descriptor
+        /// set is pending execution, as long as the descriptors that are updated are not used
+        /// by those command buffers.
         const UPDATE_UNUSED_WHILE_PENDING = 1 << 1;
+        /// Indicates that descriptors in this binding that are not dynamically used need not
+        /// contain valid descriptors at the time the descriptors are consumed. A descriptor is
+        /// dynamically used if any shader invocation executes an instruction that performs any
+        /// memory access using the descriptor. If a descriptor is not dynamically used, any
+        /// resource referenced by the descriptor is not considered to be referenced during
+        /// command execution.
         const PARTIALLY_BOUND = 1 << 2;
+        /// indicates that this is a variable-sized descriptor binding whose size will be specified
+        /// when a descriptor set is allocated using this layout.
         const VARIABLE_DESCRIPTOR_COUNT = 1 << 3;
     }
 }
@@ -95,9 +115,16 @@ impl FromGfx<DescriptorBindingFlags> for vk::DescriptorBindingFlags {
 }
 
 bitflags::bitflags! {
+    /// Bitmask specifying descriptor set layout properties.
     #[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq)]
     pub struct DescriptorSetLayoutFlags: u32 {
+        /// Descriptor sets must not be allocated using this layout,
+        /// and descriptors are instead pushed into a command buffer.
         const PUSH_DESCRIPTOR = 1;
+        /// Descriptor sets using this layout must be allocated from a descriptor pool
+        /// created with the `UPDATE_AFTER_BIND` bit set.
+        /// Descriptor set layouts created with this bit set have alternate limits
+        /// for the maximum number of descriptors per-stage and per-pipeline layout.
         const UPDATE_AFTER_BIND_POOL = 1 << 1;
     }
 }
@@ -115,6 +142,7 @@ impl FromGfx<DescriptorSetLayoutFlags> for vk::DescriptorSetLayoutCreateFlags {
     }
 }
 
+/// Structure specifying the number of descriptor of each type in a descriptor set.
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct DescriptorSetSize {
     pub samplers: u32,
@@ -146,6 +174,11 @@ impl DescriptorSetSize {
     };
 }
 
+/// A wrapper around a Vulkan descriptor set layout object.
+///
+/// A descriptor set layout object is defined by an array of zero or more descriptor bindings.
+/// Each individual descriptor binding is specified by a descriptor type, a count (array size)
+/// of the number of descriptors in the binding, a set of shader stages that can access the binding.
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct DescriptorSetLayout {

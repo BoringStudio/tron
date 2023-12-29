@@ -34,6 +34,7 @@ use crate::util::{FromGfx, ToVk};
 mod descriptor_alloc;
 mod epochs;
 
+/// A weak reference to a [`Device`].
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct WeakDevice(Weak<Inner>);
@@ -69,6 +70,7 @@ impl PartialEq<WeakDevice> for &WeakDevice {
     }
 }
 
+/// A wrapper around a Vulkan logical device.
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct Device {

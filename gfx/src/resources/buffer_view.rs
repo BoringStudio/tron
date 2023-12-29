@@ -5,6 +5,7 @@ use vulkanalia::prelude::v1_0::*;
 use crate::device::WeakDevice;
 use crate::resources::{Buffer, Format};
 
+/// Structure specifying parameters of a newly created buffer view.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct BufferViewInfo {
     pub buffer: Buffer,
@@ -13,6 +14,7 @@ pub struct BufferViewInfo {
     pub size: u64,
 }
 
+/// A buffer subresource range.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct BufferRange {
     pub buffer: Buffer,
@@ -37,6 +39,17 @@ impl From<Buffer> for BufferRange {
     }
 }
 
+/// A wrapper around a Vulkan buffer view object.
+///
+/// A buffer view represents a contiguous range of a buffer and a specific format
+/// to be used to interpret the data. Buffer views are used to enable shaders to
+/// access buffer contents using image operations. In order to create a valid buffer
+/// view, the buffer must have been created with at least one of the following usage flags:
+/// - [`BufferUsage::UNIFORM_TEXEL_BUFFER`]
+/// - [`BufferUsage::STORAGE_TEXEL_BUFFER`]
+///
+/// [`BufferUsage::UNIFORM_TEXEL_BUFFER`]: crate::BufferUsage::UNIFORM_TEXEL_BUFFER
+/// [`BufferUsage::STORAGE_TEXEL_BUFFER`]: crate::BufferUsage::STORAGE_TEXEL_BUFFER
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct BufferView {

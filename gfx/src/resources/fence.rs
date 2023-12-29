@@ -4,6 +4,7 @@ use vulkanalia::prelude::v1_0::*;
 use crate::device::WeakDevice;
 use crate::queue::QueueId;
 
+/// Tracked state of a fence.
 #[derive(Default, Debug, Clone, Copy)]
 pub enum FenceState {
     #[default]
@@ -15,6 +16,10 @@ pub enum FenceState {
     Signalled,
 }
 
+/// A wrapper around a Vulkan fence object.
+///
+/// Fences are a synchronization primitive that can be used to insert a dependency
+/// from a queue to the host.
 pub struct Fence {
     handle: vk::Fence,
     owner: WeakDevice,
@@ -38,7 +43,7 @@ impl Fence {
         self.state
     }
 
-    pub fn set_unsignalled(&mut self) -> Result<()> {
+    pub(crate) fn set_unsignalled(&mut self) -> Result<()> {
         if let FenceState::Armed { .. } = &self.state {
             anyhow::bail!("armed fence cannot be marked as an unsignalled");
         }
@@ -46,7 +51,7 @@ impl Fence {
         Ok(())
     }
 
-    pub fn set_armed(
+    pub(crate) fn set_armed(
         &mut self,
         queue_id: QueueId,
         epoch: u64,
@@ -71,7 +76,7 @@ impl Fence {
         }
     }
 
-    pub fn set_signalled(&mut self) -> Result<Option<(QueueId, u64)>> {
+    pub(crate) fn set_signalled(&mut self) -> Result<Option<(QueueId, u64)>> {
         match self.state {
             FenceState::Unsignalled => anyhow::bail!("signalling an unarmed fence"),
             FenceState::Armed {

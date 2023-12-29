@@ -5,6 +5,7 @@ use vulkanalia::prelude::v1_0::*;
 use crate::device::WeakDevice;
 use crate::resources::{ImageView, RenderPass};
 
+/// Structure specifying parameters of a newly created framebuffer.
 #[derive(Debug, Clone, Hash)]
 pub struct FramebufferInfo {
     pub render_pass: RenderPass,
@@ -12,6 +13,11 @@ pub struct FramebufferInfo {
     pub extent: glam::UVec2,
 }
 
+/// A wrapper around a Vulkan framebuffer object.
+///
+/// Render passes operate in conjunction with framebuffers.
+/// Framebuffers represent a collection of specific memory
+/// attachments that a render pass instance uses.
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct Framebuffer {

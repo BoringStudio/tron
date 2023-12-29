@@ -10,6 +10,7 @@ use crate::device::WeakDevice;
 use crate::types::DeviceAddress;
 use crate::util::FromGfx;
 
+/// Type of index buffer indices.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum IndexType {
     U16,
@@ -35,6 +36,7 @@ impl FromGfx<IndexType> for vk::IndexType {
     }
 }
 
+/// Structure specifying the parameters of a newly created buffer object.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct BufferInfo {
     pub align: u64,
@@ -43,19 +45,55 @@ pub struct BufferInfo {
 }
 
 bitflags::bitflags! {
+    /// Bitmask specifying allowed usage of a buffer.
     #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
     pub struct BufferUsage: u32 {
+        /// The buffer can be used as the source of a transfer command.
         const TRANSFER_SRC = 1;
+        /// The buffer can be used as the destination of a transfer command.
         const TRANSFER_DST = 1 << 1;
+        /// The buffer can be used to create a [`BufferView`] suitable for occupying a
+        /// [`DescriptorSet`] slot of type [`DescriptorType::UniformTexelBuffer`].
+        ///
+        /// [`BufferView`]: crate::BufferView
+        /// [`DescriptorSet`]: crate::DescriptorSet
+        /// [`DescriptorType::UniformTexelBuffer`]: crate::DescriptorType::UniformTexelBuffer
         const UNIFORM_TEXEL = 1 << 2;
+        /// The buffer can be used to create a [`BufferView`] suitable for occupying a
+        /// [`DescriptorSet`] slot of type [`DescriptorType::StorageTexelBuffer`].
+        ///
+        /// [`BufferView`]: crate::BufferView
+        /// [`DescriptorSet`]: crate::DescriptorSet
+        /// [`DescriptorType::StorageTexelBuffer`]: crate::DescriptorType::StorageTexelBuffer
         const STORAGE_TEXEL = 1 << 3;
+        /// The buffer can be used to create a [`BufferView`] suitable for occupying a
+        /// [`DescriptorSet`] slot of type [`DescriptorType::UniformBuffer`] or
+        /// [`DescriptorType::UniformBufferDynamic`].
+        ///
+        /// [`BufferView`]: crate::BufferView
+        /// [`DescriptorSet`]: crate::DescriptorSet
+        /// [`DescriptorType::UniformBuffer`]: crate::DescriptorType::UniformBuffer
+        /// [`DescriptorType::UniformBufferDynamic`]: crate::DescriptorType::UniformBufferDynamic
         const UNIFORM = 1 << 4;
+        /// The buffer can be used to create a [`BufferView`] suitable for occupying a
+        /// [`DescriptorSet`] slot of type [`DescriptorType::StorageBuffer`] or
+        /// [`DescriptorType::StorageBufferDynamic`].
+        ///
+        /// [`BufferView`]: crate::BufferView
+        /// [`DescriptorSet`]: crate::DescriptorSet
+        /// [`DescriptorType::StorageBuffer`]: crate::DescriptorType::StorageBuffer
+        /// [`DescriptorType::StorageBufferDynamic`]: crate::DescriptorType::StorageBufferDynamic
         const STORAGE = 1 << 5;
+        /// The buffer can be used as the source of an index buffer bind command.
         const INDEX = 1 << 6;
+        /// The buffer can be used as the source of a vertex buffer bind command.
         const VERTEX = 1 << 7;
+        /// The buffer can be used as the source of a draw indirect command.
         const INDIRECT = 1 << 8;
+        /// The buffer is suitable for use in conditional rendering commands.
         const CONDITIONAL_RENDERING = 1 << 9;
-
+        /// The buffer can be used to retrieve a buffer device address and
+        /// use that address to access the buffer's memory from a shader.
         const SHADER_DEVICE_ADDRESS = 1 << 17;
     }
 }
@@ -100,6 +138,11 @@ impl FromGfx<BufferUsage> for vk::BufferUsageFlags {
     }
 }
 
+/// A wrapper around a Vulkan buffer object.
+///
+/// Buffers represent linear arrays of data which are used for various purposes
+/// by binding them to a graphics or compute pipeline via descriptor sets or
+/// certain commands, or by directly specifying them as parameters to certain commands.
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct Buffer {

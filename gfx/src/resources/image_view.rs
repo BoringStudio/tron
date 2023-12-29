@@ -8,6 +8,7 @@ use crate::device::{Device, WeakDevice};
 use crate::resources::{Image, ImageAspectFlags, ImageExtent, ImageInfo};
 use crate::util::{FromGfx, ToVk};
 
+/// An object that can be used to create an [`ImageView`].
 pub trait MakeImageView {
     fn make_image_view(&self, device: &Device) -> Result<ImageView>;
 }
@@ -25,6 +26,7 @@ impl MakeImageView for ImageView {
     }
 }
 
+/// Image view dimensions.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum ImageViewType {
     D1,
@@ -44,15 +46,23 @@ impl FromGfx<ImageViewType> for vk::ImageViewType {
     }
 }
 
+/// Specify how a component is swizzled.
 #[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Swizzle {
+    /// Component is set to the identity swizzle.
     #[default]
     Identity,
+    /// Component is set to zero.
     Zero,
+    /// Component is set to one.
     One,
+    /// Component is set to the value of the R component of the image.
     R,
+    /// Component is set to the value of the G component of the image.
     G,
+    /// Component is set to the value of the B component of the image.
     B,
+    /// Component is set to the value of the A component of the image.
     A,
 }
 
@@ -70,6 +80,7 @@ impl FromGfx<Swizzle> for vk::ComponentSwizzle {
     }
 }
 
+/// Structure specifying a color component mapping.
 #[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ComponentMapping {
     pub r: Swizzle,
@@ -89,6 +100,7 @@ impl FromGfx<ComponentMapping> for vk::ComponentMapping {
     }
 }
 
+/// Structure specifying parameters of a newly created image view
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ImageViewInfo {
     pub ty: ImageViewType,
@@ -126,6 +138,7 @@ impl ImageViewInfo {
     }
 }
 
+/// Structure specifying an image subresource range.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ImageSubresourceRange {
     pub aspect: ImageAspectFlags,
@@ -213,6 +226,7 @@ impl From<ImageSubresource> for ImageSubresourceRange {
     }
 }
 
+/// Structure specifying an image subresource layers.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ImageSubresourceLayers {
     pub aspect: ImageAspectFlags,
@@ -283,6 +297,7 @@ impl From<ImageSubresource> for ImageSubresourceLayers {
     }
 }
 
+/// Structure specifying an image subresource.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ImageSubresource {
     pub aspect: ImageAspectFlags,
@@ -338,6 +353,13 @@ impl FromGfx<ImageSubresource> for vk::ImageSubresource {
     }
 }
 
+/// A wrapper around a Vulkan image view object.
+///
+/// Image objects are not directly accessed by pipeline shaders for reading or
+/// writing image data. Instead, image views representing contiguous ranges of
+/// the image subresources and containing additional metadata are used for that
+/// purpose. Views must be created on images of compatible types, and must represent
+/// a valid subset of image subresources.
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct ImageView {

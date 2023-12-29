@@ -14,6 +14,7 @@ use crate::PipelineStageFlags;
 
 mod command_buffer;
 
+/// A command buffer encoder.
 pub struct Encoder {
     inner: EncoderCommon,
     guard: EncoderDropGuard,
@@ -30,16 +31,19 @@ impl Encoder {
         }
     }
 
+    /// Finish recording the command buffer.
     pub fn finish(mut self) -> Result<CommandBuffer> {
         std::mem::forget(self.guard);
         self.inner.command_buffer.end()?;
         Ok(self.inner.command_buffer)
     }
 
+    /// Discard the command buffer.
     pub fn discard(self) {
         std::mem::forget(self.guard);
     }
 
+    /// Begin a render pass.
     pub fn with_framebuffer<'a>(
         &mut self,
         framebuffer: &'a Framebuffer,
@@ -55,6 +59,7 @@ impl Encoder {
         })
     }
 
+    /// Update a buffer with data (directly).
     pub fn update_buffer<T>(&mut self, buffer: &Buffer, offset: u64, data: &[T]) -> Result<()>
     where
         T: bytemuck::Pod,
@@ -69,6 +74,7 @@ impl Encoder {
         self.command_buffer.update_buffer(buffer, offset, data)
     }
 
+    /// Upload data to a buffer.
     pub fn upload_buffer<T>(
         &mut self,
         buffer: &Buffer,
@@ -110,10 +116,12 @@ impl Encoder {
         }
     }
 
+    /// Copy data between buffer regions.
     pub fn copy_buffer(&mut self, src: &Buffer, dst: &Buffer, regions: &[BufferCopy]) {
         self.command_buffer.copy_buffer(src, dst, regions);
     }
 
+    /// Copy data between images.
     pub fn copy_image(
         &mut self,
         src_image: &Image,
@@ -126,6 +134,7 @@ impl Encoder {
             .copy_image(src_image, src_layout, dst_image, dst_layout, regions);
     }
 
+    /// Copy data from a buffer into an image
     pub fn copy_buffer_to_image(
         &mut self,
         src_buffer: &Buffer,
@@ -137,6 +146,7 @@ impl Encoder {
             .copy_buffer_to_image(src_buffer, dst_image, dst_layout, regions);
     }
 
+    /// Copy regions of an image, potentially performing format conversion,
     pub fn blit_image(
         &mut self,
         src_image: &Image,
@@ -152,11 +162,13 @@ impl Encoder {
         );
     }
 
+    /// Dispatch compute work items.
     pub fn dispatch(&mut self, x: u32, y: u32, z: u32) {
         assert!(self.capabilities.supports_compute());
         self.command_buffer.dispatch(x, y, z);
     }
 
+    /// Insert a memory dependency.
     pub fn memory_barrier(
         &mut self,
         src: PipelineStageFlags,
@@ -176,6 +188,7 @@ impl Encoder {
         );
     }
 
+    /// Insert an image memory dependency.
     pub fn image_barriers(
         &mut self,
         src: PipelineStageFlags,
@@ -186,6 +199,7 @@ impl Encoder {
             .pipeline_barrier(src, dst, None, &[], barriers);
     }
 
+    /// Insert a buffer memory dependency.
     pub fn buffer_barriers(
         &mut self,
         src: PipelineStageFlags,
@@ -222,43 +236,51 @@ impl std::ops::DerefMut for Encoder {
     }
 }
 
+/// Basic encoder functionality.
 pub struct EncoderCommon {
     command_buffer: CommandBuffer,
     capabilities: QueueFlags,
 }
 
 impl EncoderCommon {
+    /// Set the viewport dynamically for a command buffer.
     pub fn set_viewport(&mut self, viewport: &Viewport) {
         assert!(self.capabilities.supports_graphics());
         self.command_buffer.set_viewport(viewport);
     }
 
+    /// Set the scissor dynamically for a command buffer.
     pub fn set_scissor(&mut self, scissor: &Rect) {
         assert!(self.capabilities.supports_graphics());
         self.command_buffer.set_scissor(scissor);
     }
 
+    /// Bind a graphics pipeline object to a command buffer.
     pub fn bind_graphics_pipeline(&mut self, pipeline: &GraphicsPipeline) {
         assert!(self.capabilities.supports_graphics());
         self.command_buffer.bind_graphics_pipeline(pipeline);
     }
 
+    /// Bind a compute pipeline object to a command buffer.
     pub fn bind_compute_pipeline(&mut self, pipeline: &ComputePipeline) {
         assert!(self.capabilities.supports_compute());
         self.command_buffer.bind_compute_pipeline(pipeline);
     }
 
+    /// Bind vertex buffers to a command buffer.
     pub fn bind_vertex_buffers(&mut self, first: u32, buffers: &[(&Buffer, u64)]) {
         assert!(self.capabilities.supports_graphics());
         self.command_buffer.bind_vertex_buffers(first, buffers);
     }
 
+    /// Bind an index buffer to a command buffer.
     pub fn bind_index_buffer(&mut self, buffer: &Buffer, offset: u64, index_type: IndexType) {
         assert!(self.capabilities.supports_graphics());
         self.command_buffer
             .bind_index_buffer(buffer, offset, index_type);
     }
 
+    /// Update the values of push constants.
     pub fn push_constants<T>(
         &mut self,
         layout: &PipelineLayout,
@@ -278,6 +300,7 @@ impl EncoderCommon {
     }
 }
 
+/// Render pass encoder functionality.
 pub struct RenderPassEncoder<'a, 'b> {
     framebuffer: &'b Framebuffer,
     render_pass: &'b RenderPass,
@@ -285,18 +308,22 @@ pub struct RenderPassEncoder<'a, 'b> {
 }
 
 impl<'a, 'b> RenderPassEncoder<'a, 'b> {
+    /// Return the framebuffer associated with this render pass.
     pub fn framebuffer(&self) -> &Framebuffer {
         self.framebuffer
     }
 
+    /// Return the underlying render pass.
     pub fn render_pass(&self) -> &RenderPass {
         self.render_pass
     }
 
+    /// Draw primitives.
     pub fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>) {
         self.inner.command_buffer.draw(vertices, instances);
     }
 
+    /// Draw indexed primitives.
     pub fn draw_indexed(&mut self, indices: Range<u32>, vertex_offset: i32, instances: Range<u32>) {
         self.inner
             .command_buffer

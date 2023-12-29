@@ -9,6 +9,7 @@ use vulkanalia::prelude::v1_0::*;
 use crate::device::WeakDevice;
 use crate::util::{FromGfx, ToVk};
 
+/// Image dimensions.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ImageExtent {
     D1 { width: u32 },
@@ -122,6 +123,7 @@ impl FromGfx<ImageExtent> for vk::ImageType {
     }
 }
 
+/// Sample counts supported for an image used for storage operations.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Samples {
     _1,
@@ -147,15 +149,44 @@ impl FromGfx<Samples> for vk::SampleCountFlags {
     }
 }
 
+/// Layout of image and image subresources.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum ImageLayout {
+    /// Supports all types of device access.
     General,
+
+    /// A layout that must only be used with attachment accesses in the graphics pipeline.
     ColorAttachmentOptimal,
+
+    /// A layout for both the depth and stencil aspects of a depth/stencil format image
+    /// allowing read and write access as a depth/stencil attachment.
     DepthStencilAttachmentOptimal,
+
+    /// A layout for both the depth and stencil aspects of a depth/stencil format image
+    /// allowing read only access as a depth/stencil attachment or in shaders as a sampled
+    /// image, combined image/sampler, or input attachment.
     DepthStencilReadOnlyOptimal,
+
+    /// A layout allowing read-only access in a shader as a sampled image, combined image/sampler,
+    /// or input attachment.
+    ///
+    /// This layout is valid only for image subresources of images created with the
+    /// [`ImageUsageFlags::SAMPLED`] or [`ImageUsageFlags::INPUT_ATTACHMENT`] usage bits enabled.
     ShaderReadOnlyOptimal,
+
+    /// Must only be used as a source image of a transfer command.
+    ///
+    /// This layout is valid only for image subresources of images created with the
+    /// [`ImageUsageFlags::TRANSFER_SRC`] usage bit enabled.
     TransferSrcOptimal,
+
+    /// Must only be used as a destination image of a transfer command.
+    ///
+    /// This layout is valid only for image subresources of images created with the
+    /// [`ImageUsageFlags::TRANSFER_DST`] usage bit enabled.
     TransferDstOptimal,
+
+    /// Must only be used for presenting a presentable image for display.
     Present,
 }
 
@@ -184,6 +215,7 @@ impl FromGfx<Option<ImageLayout>> for vk::ImageLayout {
     }
 }
 
+/// Structure specifying the parameters of a newly created image object.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ImageInfo {
     pub extent: ImageExtent,
@@ -195,6 +227,7 @@ pub struct ImageInfo {
 }
 
 bitflags::bitflags! {
+    /// Bitmask specifying intended usage of an image.
     #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
     pub struct ImageUsageFlags: u32 {
         const TRANSFER_SRC = 1;
@@ -235,6 +268,12 @@ impl FromGfx<ImageUsageFlags> for vk::ImageUsageFlags {
     }
 }
 
+/// A wrapper around a Vulkan image object.
+///
+/// Images represent multidimensional - up to 3 - arrays of data which can be used
+///  for various purposes (e.g. attachments, textures), by binding them to a graphics
+///  or compute pipeline via descriptor sets, or by directly specifying them as
+/// parameters to certain commands.
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct Image {
