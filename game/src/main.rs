@@ -61,13 +61,16 @@ impl App {
         let mut surface = device.create_surface(window.clone())?;
         surface.configure()?;
 
-        let mut fences = [(); 3].map(|_| None);
+        let mut fences = (0..FRAMES_INFLIGHT)
+            .map(|_| device.create_fence())
+            .collect::<Result<Box<[_]>>>()?;
         let fence_count = fences.len();
         let mut fence_index = 0;
 
         tracing::debug!("starting event loop");
 
         let mut minimized = false;
+        let mut resized = false;
         let mut non_optimal_count = 0;
         event_loop.run(move |event, elwt| {
             // elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
@@ -77,7 +80,9 @@ impl App {
                 Event::WindowEvent { event, .. } => match event {
                     WindowEvent::RedrawRequested if !elwt.exiting() && !minimized => {
                         (|| -> anyhow::Result<()> {
-                            if let Some(fence) = &mut fences[fence_index] {
+                            let fence = &mut fences[fence_index];
+                            fence_index = (fence_index + 1) % fence_count;
+                            if !fence.state().is_unsignalled() {
                                 device.wait_fences(&mut [fence], true)?;
                                 device.reset_fences(&mut [fence])?;
                             }
@@ -101,12 +106,6 @@ impl App {
 
                             let [wait, signal] = surface_image.wait_signal();
 
-                            let fence = match &mut fences[fence_index] {
-                                Some(fence) => fence,
-                                None => fences[fence_index].get_or_insert(device.create_fence()?),
-                            };
-                            fence_index = (fence_index + 1) % fence_count;
-
                             queue.submit(
                                 &mut [(gfx::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT, wait)],
                                 Some(encoder.finish()?),
@@ -125,8 +124,13 @@ impl App {
                             }
 
                             non_optimal_count += !is_optimal as u32;
-                            if non_optimal_count >= NON_OPTIMAL_LIMIT {
+                            if resized || non_optimal_count >= NON_OPTIMAL_LIMIT {
+                                // Wait for the device to be idle before recreating the swapchain.
+                                device.wait_idle()?;
+
                                 surface.update()?;
+
+                                resized = false;
                                 non_optimal_count = 0;
                             }
 
@@ -134,7 +138,10 @@ impl App {
                         })()
                         .unwrap()
                     }
-                    WindowEvent::Resized(size) => minimized = size.width == 0 || size.height == 0,
+                    WindowEvent::Resized(size) => {
+                        minimized = size.width == 0 || size.height == 0;
+                        resized = true;
+                    }
                     WindowEvent::CloseRequested => {
                         device.wait_idle().unwrap();
                         elwt.exit();
@@ -320,3 +327,4 @@ impl PhysicalDevicesExt for Vec<gfx::PhysicalDevice> {
 }
 
 const NON_OPTIMAL_LIMIT: u32 = 100u32;
+const FRAMES_INFLIGHT: usize = 2;

@@ -16,6 +16,12 @@ pub enum FenceState {
     Signalled,
 }
 
+impl FenceState {
+    pub fn is_unsignalled(&self) -> bool {
+        matches!(self, Self::Unsignalled)
+    }
+}
+
 /// A wrapper around a Vulkan fence object.
 ///
 /// Fences are a synchronization primitive that can be used to insert a dependency
