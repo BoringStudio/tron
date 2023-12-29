@@ -206,7 +206,7 @@ impl std::fmt::Debug for Encoder {
     }
 }
 
-impl<'a> std::ops::Deref for Encoder {
+impl std::ops::Deref for Encoder {
     type Target = EncoderCommon;
 
     #[inline]

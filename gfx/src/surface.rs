@@ -216,6 +216,7 @@ impl Surface {
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let image_count = images.len();
 
         let handle = handle.disarm();
 
@@ -229,7 +230,14 @@ impl Surface {
             acquired_count: 0,
         });
 
-        tracing::debug!(swapchain = ?handle, "created swapchain");
+        tracing::debug!(
+            swapchain = ?handle,
+            image_count,
+            format = ?surface_format.format,
+            color_space = ?surface_format.color_space,
+            ?mode,
+            "created swapchain",
+        );
 
         Ok(())
     }
@@ -282,6 +290,7 @@ impl Surface {
 
         let swapchain = self.swapchain.as_mut().unwrap();
 
+        let total_image_count = swapchain.images.len();
         let image_state = &mut swapchain.images[index as usize];
         std::mem::swap(&mut image_state.acquire, &mut self.image_available);
         swapchain.acquired_count += 1;
@@ -289,6 +298,7 @@ impl Surface {
         Ok(SurfaceImage {
             handle: swapchain.handle,
             supported_families: &self.swapchain_support.supported_families,
+            total_image_count,
             image: &image_state.image,
             index,
             acquired_count: &mut swapchain.acquired_count,
@@ -303,7 +313,7 @@ impl Surface {
         let logical = device.logical();
 
         // For each unused swapchain starting from the oldest
-        while let Some(mut swapchain) = self.unused_swapchains.pop_front() {
+        while let Some(swapchain) = self.unused_swapchains.front_mut() {
             // For each remaining image
             while let Some(mut state) = swapchain.images.pop() {
                 // Dispose it only if it is not used anywhere else
@@ -311,14 +321,13 @@ impl Surface {
                     // Revert otherwise
                     state.image = image;
                     swapchain.images.push(state);
-                    self.unused_swapchains.push_front(swapchain);
-                    // And stop processing immediately
                     return;
                 }
             }
 
             // Swapchain with no shared images can be safely destroyed
             unsafe { logical.destroy_swapchain_khr(swapchain.handle, None) };
+            self.unused_swapchains.pop_front();
         }
     }
 }
@@ -326,6 +335,7 @@ impl Surface {
 pub struct SurfaceImage<'a> {
     handle: vk::SwapchainKHR,
     supported_families: &'a [bool],
+    total_image_count: usize,
     image: &'a Image,
     index: u32,
     acquired_count: &'a mut u32,
@@ -347,6 +357,10 @@ impl<'a> SurfaceImage<'a> {
 
     pub fn supported_families(&self) -> &'a [bool] {
         self.supported_families
+    }
+
+    pub fn total_image_count(&self) -> usize {
+        self.total_image_count
     }
 
     pub fn image(&self) -> &'a Image {

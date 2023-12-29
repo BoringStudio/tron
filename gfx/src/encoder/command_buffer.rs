@@ -13,7 +13,7 @@ use crate::resources::{
     ImageSubresourceLayers, ImageSubresourceRange, IndexType, LoadOp, PipelineLayout,
     PipelineStageFlags, Rect, ShaderStageFlags, Viewport,
 };
-use crate::util::{compute_supported_access, FromGfx, ToVk};
+use crate::util::{compute_supported_access, DeallocOnDrop, FromGfx, ToVk};
 
 pub struct CommandBuffer {
     handle: vk::CommandBuffer,
@@ -106,15 +106,16 @@ impl CommandBuffer {
         };
         let logical = device.logical();
 
+        let alloc = DeallocOnDrop(&mut self.alloc);
+
         self.references.framebuffers.push(framebuffer.clone());
 
         let pass = &framebuffer.info().render_pass;
 
         let mut clear = clear.iter();
         let mut clear_values_invalid = false;
-        let clear_values = self
-            .alloc
-            .alloc_slice_fill_iter(pass.info().attachments.iter().map(|attachment| {
+        let clear_values =
+            alloc.alloc_slice_fill_iter(pass.info().attachments.iter().map(|attachment| {
                 if attachment.load_op == LoadOp::Clear(()) {
                     if let Some(clear) = clear.next().and_then(|v| v.try_to_vk(attachment.format)) {
                         return clear;
@@ -252,17 +253,14 @@ impl CommandBuffer {
                 self.references.buffers.push(buffer.clone());
             }
 
-            let offsets = self
-                .alloc
-                .alloc_slice_fill_iter(buffers.iter().map(|&(_, offset)| offset));
-            let buffers = self
-                .alloc
-                .alloc_slice_fill_iter(buffers.iter().map(|&(buffer, _)| buffer.handle()));
+            let alloc = DeallocOnDrop(&mut self.alloc);
+
+            let offsets = alloc.alloc_slice_fill_iter(buffers.iter().map(|&(_, offset)| offset));
+            let buffers =
+                alloc.alloc_slice_fill_iter(buffers.iter().map(|&(buffer, _)| buffer.handle()));
 
             let logical = device.logical();
             unsafe { logical.cmd_bind_vertex_buffers(self.handle, first, buffers, offsets) };
-
-            self.alloc.reset();
         }
     }
 
@@ -296,7 +294,9 @@ impl CommandBuffer {
             self.references.buffers.push(src_buffer.clone());
             self.references.buffers.push(dst_buffer.clone());
 
-            let regions = self.alloc.alloc_slice_fill_iter(regions.iter().map(|r| {
+            let alloc = DeallocOnDrop(&mut self.alloc);
+
+            let regions = alloc.alloc_slice_fill_iter(regions.iter().map(|r| {
                 vk::BufferCopy::builder()
                     .src_offset(r.src_offset)
                     .dst_offset(r.dst_offset)
@@ -311,8 +311,6 @@ impl CommandBuffer {
                     regions,
                 )
             }
-
-            self.alloc.reset();
         }
     }
 
@@ -328,9 +326,10 @@ impl CommandBuffer {
             self.references.images.push(src_image.clone());
             self.references.images.push(dst_image.clone());
 
-            let regions = self
-                .alloc
-                .alloc_slice_fill_iter(regions.iter().map(|r| vk::ImageCopy::from_gfx(*r)));
+            let alloc = DeallocOnDrop(&mut self.alloc);
+
+            let regions =
+                alloc.alloc_slice_fill_iter(regions.iter().map(|r| vk::ImageCopy::from_gfx(*r)));
 
             unsafe {
                 device.logical().cmd_copy_image(
@@ -342,8 +341,6 @@ impl CommandBuffer {
                     regions,
                 )
             }
-
-            self.alloc.reset();
         }
     }
 
@@ -358,8 +355,9 @@ impl CommandBuffer {
             self.references.buffers.push(src_buffer.clone());
             self.references.images.push(dst_image.clone());
 
-            let regions = self
-                .alloc
+            let alloc = DeallocOnDrop(&mut self.alloc);
+
+            let regions = alloc
                 .alloc_slice_fill_iter(regions.iter().map(|r| vk::BufferImageCopy::from_gfx(*r)));
 
             unsafe {
@@ -371,8 +369,6 @@ impl CommandBuffer {
                     regions,
                 )
             }
-
-            self.alloc.reset();
         }
     }
 
@@ -389,9 +385,10 @@ impl CommandBuffer {
             self.references.images.push(src_image.clone());
             self.references.images.push(dst_image.clone());
 
-            let regions = self
-                .alloc
-                .alloc_slice_fill_iter(regions.iter().map(|r| vk::ImageBlit::from_gfx(*r)));
+            let alloc = DeallocOnDrop(&mut self.alloc);
+
+            let regions =
+                alloc.alloc_slice_fill_iter(regions.iter().map(|r| vk::ImageBlit::from_gfx(*r)));
 
             unsafe {
                 device.logical().cmd_blit_image(
@@ -404,8 +401,6 @@ impl CommandBuffer {
                     filter.to_vk(),
                 )
             }
-
-            self.alloc.reset();
         }
     }
 
@@ -425,6 +420,8 @@ impl CommandBuffer {
                 self.references.buffers.push(item.buffer.clone());
             }
 
+            let alloc = DeallocOnDrop(&mut self.alloc);
+
             let memory_barrier = vk::MemoryBarrier::builder()
                 .src_access_mask(
                     memory_barrier.map_or(compute_supported_access(src.to_vk()), |b| b.src.to_vk()),
@@ -434,49 +431,45 @@ impl CommandBuffer {
                 );
 
             let buffer_memory_barriers =
-                self.alloc
-                    .alloc_slice_fill_iter(buffer_memory_barriers.iter().map(|b| {
-                        vk::BufferMemoryBarrier::builder()
-                            .buffer(b.buffer.handle())
-                            .offset(b.offset)
-                            .size(b.size)
-                            .src_access_mask(b.src_access.to_vk())
-                            .dst_access_mask(b.dst_access.to_vk())
-                            .src_queue_family_index(
-                                b.family_transfer
-                                    .map(|v| v.0)
-                                    .unwrap_or(vk::QUEUE_FAMILY_IGNORED),
-                            )
-                            .dst_queue_family_index(
-                                b.family_transfer
-                                    .map(|v| v.1)
-                                    .unwrap_or(vk::QUEUE_FAMILY_IGNORED),
-                            )
-                    }));
+                alloc.alloc_slice_fill_iter(buffer_memory_barriers.iter().map(|b| {
+                    vk::BufferMemoryBarrier::builder()
+                        .buffer(b.buffer.handle())
+                        .offset(b.offset)
+                        .size(b.size)
+                        .src_access_mask(b.src_access.to_vk())
+                        .dst_access_mask(b.dst_access.to_vk())
+                        .src_queue_family_index(
+                            b.family_transfer
+                                .map(|v| v.0)
+                                .unwrap_or(vk::QUEUE_FAMILY_IGNORED),
+                        )
+                        .dst_queue_family_index(
+                            b.family_transfer
+                                .map(|v| v.1)
+                                .unwrap_or(vk::QUEUE_FAMILY_IGNORED),
+                        )
+                }));
 
             let image_memory_barriers =
-                self.alloc
-                    .alloc_slice_fill_iter(image_memory_barriers.iter().map(|b| {
-                        vk::ImageMemoryBarrier::builder()
-                            .image(b.image.handle())
-                            .src_access_mask(b.src_access.to_vk())
-                            .dst_access_mask(b.dst_access.to_vk())
-                            .old_layout(b.old_layout.to_vk())
-                            .new_layout(b.new_layout.to_vk())
-                            .src_queue_family_index(
-                                b.family_transfer
-                                    .map(|v| v.0)
-                                    .unwrap_or(vk::QUEUE_FAMILY_IGNORED),
-                            )
-                            .dst_queue_family_index(
-                                b.family_transfer
-                                    .map(|v| v.1)
-                                    .unwrap_or(vk::QUEUE_FAMILY_IGNORED),
-                            )
-                            .subresource_range(vk::ImageSubresourceRange::from_gfx(
-                                b.subresource_range,
-                            ))
-                    }));
+                alloc.alloc_slice_fill_iter(image_memory_barriers.iter().map(|b| {
+                    vk::ImageMemoryBarrier::builder()
+                        .image(b.image.handle())
+                        .src_access_mask(b.src_access.to_vk())
+                        .dst_access_mask(b.dst_access.to_vk())
+                        .old_layout(b.old_layout.to_vk())
+                        .new_layout(b.new_layout.to_vk())
+                        .src_queue_family_index(
+                            b.family_transfer
+                                .map(|v| v.0)
+                                .unwrap_or(vk::QUEUE_FAMILY_IGNORED),
+                        )
+                        .dst_queue_family_index(
+                            b.family_transfer
+                                .map(|v| v.1)
+                                .unwrap_or(vk::QUEUE_FAMILY_IGNORED),
+                        )
+                        .subresource_range(vk::ImageSubresourceRange::from_gfx(b.subresource_range))
+                }));
 
             unsafe {
                 device.logical().cmd_pipeline_barrier(
@@ -489,8 +482,6 @@ impl CommandBuffer {
                     image_memory_barriers,
                 )
             }
-
-            self.alloc.reset();
         }
     }
 

@@ -5,3 +5,7 @@ members = ["game", "gfx", "spirv", "shared"]
 [patch.crates-io]
 vulkanalia = { git = "https://github.com/rexagon/vulkanalia.git", branch = "winit-0-29" }
 vulkanalia-sys = { git = "https://github.com/rexagon/vulkanalia.git", branch = "winit-0-29" }
+
+[profile.profiling]
+inherits = "release"
+debug = true

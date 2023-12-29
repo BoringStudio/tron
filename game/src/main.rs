@@ -91,6 +91,7 @@ impl App {
                                     pass.get_or_init_framebuffer(
                                         &device,
                                         &MainPassInput {
+                                            max_image_count: surface_image.total_image_count(),
                                             target: surface_image.image().clone(),
                                         },
                                     )?,
@@ -133,14 +134,7 @@ impl App {
                         })()
                         .unwrap()
                     }
-                    WindowEvent::Resized(size) => {
-                        if size.width == 0 || size.height == 0 {
-                            minimized = true;
-                        } else {
-                            minimized = false;
-                            // TODO: update window?
-                        }
-                    }
+                    WindowEvent::Resized(size) => minimized = size.width == 0 || size.height == 0,
                     WindowEvent::CloseRequested => {
                         device.wait_idle().unwrap();
                         elwt.exit();
@@ -157,6 +151,7 @@ impl App {
 }
 
 struct MainPassInput {
+    max_image_count: usize,
     target: gfx::Image,
 }
 
@@ -207,8 +202,9 @@ impl MainPass {
                         extent: target_image_info.extent.into(),
                     })?;
 
-                    if self.framebuffers.len() > 2 {
-                        self.framebuffers.drain(0..self.framebuffers.len() - 2);
+                    if self.framebuffers.len() + 1 > input.max_image_count {
+                        let to_remove = self.framebuffers.len() + 1 - input.max_image_count;
+                        self.framebuffers.drain(0..to_remove);
                     }
                     self.framebuffers.push(framebuffer);
                 }

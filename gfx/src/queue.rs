@@ -7,7 +7,7 @@ use vulkanalia::vk::KhrSwapchainExtension;
 use crate::encoder::{CommandBuffer, Encoder};
 use crate::resources::{Fence, PipelineStageFlags, Semaphore};
 use crate::surface::SurfaceImage;
-use crate::util::{FromGfx, FromVk};
+use crate::util::{DeallocOnDrop, FromGfx, FromVk};
 
 pub trait QueuesQuery {
     type QueryState;
@@ -179,9 +179,13 @@ impl Queue {
                     buffers.remove(0)
                 };
 
+                tracing::debug!(command_buffer = ?handle, "created command buffer");
+
                 CommandBuffer::new(handle, self.id, self.device.clone())
             }
         };
+
+        debug_assert!(command_buffer.references().is_empty());
 
         match command_buffer.begin() {
             Ok(()) => Ok(Encoder::new(command_buffer, self.capabilities)),
@@ -203,10 +207,11 @@ impl Queue {
         I: IntoIterator<Item = CommandBuffer>,
         I::IntoIter: ExactSizeIterator,
     {
-        let owned_command_buffers = self.alloc.alloc_with(ArrayVec::<_, 64>::new);
-        let command_buffers = self
-            .alloc
-            .alloc_slice_fill_iter(command_buffers.into_iter().map(|command_buffer| {
+        let alloc = DeallocOnDrop(&mut self.alloc);
+
+        let owned_command_buffers = alloc.alloc_with(ArrayVec::<_, 64>::new);
+        let command_buffers =
+            alloc.alloc_slice_fill_iter(command_buffers.into_iter().map(|command_buffer| {
                 let handle = command_buffer.handle();
                 owned_command_buffers.push(command_buffer);
                 handle
@@ -217,16 +222,14 @@ impl Queue {
             fence.set_armed(self.id, epoch, &self.device)?;
         }
 
-        let wait_stages = self.alloc.alloc_slice_fill_iter(
+        let wait_stages = alloc.alloc_slice_fill_iter(
             wait.iter()
                 .map(|(stage, _)| vk::PipelineStageFlags::from_gfx(*stage)),
         );
-        let wait_semaphores = self
-            .alloc
-            .alloc_slice_fill_iter(wait.iter().map(|(_, semaphore)| semaphore.handle()));
-        let signal_semaphores = self
-            .alloc
-            .alloc_slice_fill_iter(signal.iter().map(|semaphore| semaphore.handle()));
+        let wait_semaphores =
+            alloc.alloc_slice_fill_iter(wait.iter().map(|(_, semaphore)| semaphore.handle()));
+        let signal_semaphores =
+            alloc.alloc_slice_fill_iter(signal.iter().map(|semaphore| semaphore.handle()));
 
         let info = vk::SubmitInfo::builder()
             .wait_semaphores(wait_semaphores)
@@ -246,8 +249,6 @@ impl Queue {
         self.device
             .epochs()
             .submit(self.id, owned_command_buffers.drain(..));
-
-        self.alloc.reset();
 
         res.map_err(Into::into)
     }
