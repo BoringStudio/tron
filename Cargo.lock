@@ -483,14 +483,13 @@ dependencies = [
  "anyhow",
  "argh",
  "bytemuck",
- "gfx",
  "glam",
- "puffin",
+ "profiling",
  "puffin_http",
+ "renderer",
  "thiserror",
  "tracing",
  "tracing-subscriber",
- "vulkanalia",
  "winit",
 ]
 
@@ -519,7 +518,6 @@ dependencies = [
 name = "gfx"
 version = "0.1.0"
 dependencies = [
- "ahash",
  "anyhow",
  "arrayvec",
  "bitflags 2.4.1",
@@ -531,9 +529,7 @@ dependencies = [
  "gpu-alloc-vulkanalia",
  "once_cell",
  "shared",
- "slab",
  "smallvec",
- "spirv 0.1.0",
  "thiserror",
  "tracing",
  "vulkanalia",
@@ -980,6 +976,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "profiling"
+version = "1.0.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d135ede8821cf6376eb7a64148901e1690b788c11ae94dc297ae917dbc91dc0e"
+dependencies = [
+ "profiling-procmacros",
+ "puffin",
+]
+
+[[package]]
+name = "profiling-procmacros"
+version = "1.0.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b322d7d65c1ab449be3c890fcbd0db6e1092d0dd05d79dba2dd28032cebeb05"
+dependencies = [
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "puffin"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1085,6 +1101,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08c74e62047bb2de4ff487b251e4a92e24f48745648451635cec7d591162d9f"
 
 [[package]]
+name = "renderer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gfx",
+ "profiling",
+ "thiserror",
+ "tracing",
+ "vulkanalia",
+ "winit",
+]
+
+[[package]]
 name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1184,7 +1213,6 @@ name = "spirv"
 version = "0.1.0"
 dependencies = [
  "naga",
- "proc-macro2",
  "quote",
  "syn",
 ]

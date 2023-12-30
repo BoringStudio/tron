@@ -1,0 +1,14 @@
+[package]
+name = "renderer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+profiling = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+vulkanalia = { version = "0.22", features = ["window", "libloading"] }
+winit = { version = "0.29", default-features = false, features = ["x11", "rwh_06"] }
+
+gfx = { path = "../gfx" }

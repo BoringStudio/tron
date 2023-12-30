@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ahash = "0.8"
 anyhow = "1.0"
 arrayvec = "0.7"
 bitflags = "2.4"
@@ -15,12 +14,10 @@ glam = { version = "0.25", features = ["bytemuck"] }
 gpu-alloc = { version = "0.6", features = ["tracing"] }
 gpu-alloc-vulkanalia = { version = "0.1", features = ["tracing"] }
 once_cell = "1.0"
-slab = "0.4"
 smallvec = { version = "1", features = ["union", "const_generics", "const_new"] }
 thiserror = "1.0"
 tracing = "0.1"
 vulkanalia = { version = "0.22", features = ["window", "libloading"] }
 winit = { version = "0.29", default-features = false, features = ["rwh_06"] }
 
-spirv = { path = "../spirv" }
 shared = { path = "../shared" }
