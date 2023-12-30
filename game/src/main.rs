@@ -1,6 +1,5 @@
-#![allow(clippy::redundant_closure_call)]
-
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 
 use anyhow::{Context, Result};
 use argh::FromArgs;
@@ -22,6 +21,9 @@ struct App {
     /// don't set up vulkan validation layer
     #[argh(switch)]
     validation_layer: bool,
+    /// enable profiling server
+    #[argh(switch)]
+    profiling: bool,
 }
 
 impl App {
@@ -34,16 +36,17 @@ impl App {
             )
             .init();
 
+        let _puffin_server = if self.profiling {
+            let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);
+            let puffin_server = puffin_http::Server::new(&server_addr).unwrap();
+            tracing::info!(server_addr, "started profiling server");
+            Some(puffin_server)
+        } else {
+            None
+        };
+        puffin::set_scopes_on(self.profiling);
+
         let app_name = env!("CARGO_BIN_NAME").to_owned();
-        let app_version = (0, 0, 1);
-
-        gfx::Graphics::set_init_config(gfx::InstanceConfig {
-            app_name: app_name.clone().into(),
-            app_version,
-            validation_layer_enabled: self.validation_layer,
-        });
-        let mut pass = MainPass::default();
-
         let event_loop = EventLoop::new()?;
         let window = WindowBuilder::new()
             .with_x11_window_type(vec![XWindowType::Dialog, XWindowType::Normal])
@@ -51,27 +54,38 @@ impl App {
             .build(&event_loop)
             .map(Arc::new)?;
 
-        let graphics = gfx::Graphics::get_or_init()?;
-        let physical = graphics.get_physical_devices()?.find_best()?;
-        let (device, mut queue) = physical.create_device(
-            &[gfx::DeviceFeature::SurfacePresentation],
-            gfx::SingleQueueQuery::GRAPHICS,
-        )?;
+        let mut renderer = Renderer::new(window.clone(), self.validation_layer)?;
 
-        let mut surface = device.create_surface(window.clone())?;
-        surface.configure()?;
+        let is_running = Arc::new(AtomicBool::new(true));
+        let should_render = Arc::new((Mutex::new(false), Condvar::new()));
+        let renderer_thread = std::thread::spawn({
+            let is_running = is_running.clone();
+            let should_render = should_render.clone();
+            move || {
+                let (should_render, should_render_notify) = &*should_render;
 
-        let mut fences = (0..FRAMES_INFLIGHT)
-            .map(|_| device.create_fence())
-            .collect::<Result<Box<[_]>>>()?;
-        let fence_count = fences.len();
-        let mut fence_index = 0;
+                tracing::debug!("rendering thread started");
+
+                while is_running.load(Ordering::Relaxed) {
+                    {
+                        let mut should_render = should_render.lock().unwrap();
+                        while !*should_render {
+                            should_render = should_render_notify.wait(should_render).unwrap();
+                        }
+                    }
+
+                    renderer.draw().unwrap();
+                }
+
+                tracing::debug!("rendering thread stopped");
+
+                renderer
+            }
+        });
 
         tracing::debug!("starting event loop");
 
         let mut minimized = false;
-        let mut resized = false;
-        let mut non_optimal_count = 0;
         event_loop.run(move |event, elwt| {
             // elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
@@ -79,71 +93,15 @@ impl App {
                 Event::AboutToWait => window.request_redraw(),
                 Event::WindowEvent { event, .. } => match event {
                     WindowEvent::RedrawRequested if !elwt.exiting() && !minimized => {
-                        (|| -> anyhow::Result<()> {
-                            let fence = &mut fences[fence_index];
-                            fence_index = (fence_index + 1) % fence_count;
-                            if !fence.state().is_unsignalled() {
-                                device.wait_fences(&mut [fence], true)?;
-                                device.reset_fences(&mut [fence])?;
-                            }
-
-                            let mut surface_image = surface.aquire_image()?;
-
-                            let mut encoder = queue.create_encoder()?;
-
-                            {
-                                let _render_pass = encoder.with_framebuffer(
-                                    pass.get_or_init_framebuffer(
-                                        &device,
-                                        &MainPassInput {
-                                            max_image_count: surface_image.total_image_count(),
-                                            target: surface_image.image().clone(),
-                                        },
-                                    )?,
-                                    &[gfx::ClearColor(0.02, 0.02, 0.02, 1.0).into()],
-                                );
-                            }
-
-                            let [wait, signal] = surface_image.wait_signal();
-
-                            queue.submit(
-                                &mut [(gfx::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT, wait)],
-                                Some(encoder.finish()?),
-                                &mut [signal],
-                                Some(fence),
-                            )?;
-
-                            let mut is_optimal = surface_image.is_optimal();
-                            match queue.present(surface_image)? {
-                                gfx::PresentStatus::Ok => {}
-                                gfx::PresentStatus::Suboptimal => is_optimal = false,
-                                gfx::PresentStatus::OutOfDate => {
-                                    is_optimal = false;
-                                    non_optimal_count += NON_OPTIMAL_LIMIT;
-                                }
-                            }
-
-                            non_optimal_count += !is_optimal as u32;
-                            if resized || non_optimal_count >= NON_OPTIMAL_LIMIT {
-                                // Wait for the device to be idle before recreating the swapchain.
-                                device.wait_idle()?;
-
-                                surface.update()?;
-
-                                resized = false;
-                                non_optimal_count = 0;
-                            }
-
-                            Ok(())
-                        })()
-                        .unwrap()
+                        let (should_render, should_render_notify) = &*should_render;
+                        *should_render.lock().unwrap() = true;
+                        should_render_notify.notify_one();
                     }
                     WindowEvent::Resized(size) => {
                         minimized = size.width == 0 || size.height == 0;
-                        resized = true;
                     }
                     WindowEvent::CloseRequested => {
-                        device.wait_idle().unwrap();
+                        is_running.store(false, Ordering::Relaxed);
                         elwt.exit();
                     }
                     _ => {}
@@ -153,6 +111,132 @@ impl App {
         })?;
 
         tracing::debug!("event loop stopped");
+
+        let renderer = renderer_thread.join().unwrap();
+        renderer.device.wait_idle()
+    }
+}
+
+struct Renderer {
+    window: Arc<winit::window::Window>,
+    device: gfx::Device,
+    queue: gfx::Queue,
+    surface: gfx::Surface,
+    pass: MainPass,
+    fences: Box<[gfx::Fence]>,
+    fence_index: usize,
+    non_optimal_count: usize,
+}
+
+impl Renderer {
+    fn new(window: Arc<winit::window::Window>, validation_layer_enabled: bool) -> Result<Self> {
+        let app_version = (0, 0, 1);
+
+        gfx::Graphics::set_init_config(gfx::InstanceConfig {
+            app_name: window.title().into(),
+            app_version,
+            validation_layer_enabled,
+        });
+        let pass = MainPass::default();
+
+        let graphics = gfx::Graphics::get_or_init()?;
+        let physical = graphics.get_physical_devices()?.find_best()?;
+        let (device, queue) = physical.create_device(
+            &[gfx::DeviceFeature::SurfacePresentation],
+            gfx::SingleQueueQuery::GRAPHICS,
+        )?;
+
+        let mut surface = device.create_surface(window.clone())?;
+        surface.configure()?;
+
+        let fences = (0..FRAMES_INFLIGHT)
+            .map(|_| device.create_fence())
+            .collect::<Result<Box<[_]>>>()?;
+
+        Ok(Self {
+            window,
+            device,
+            queue,
+            surface,
+            pass,
+            fences,
+            fence_index: 0,
+            non_optimal_count: 0,
+        })
+    }
+
+    fn draw(&mut self) -> Result<()> {
+        let fence_count = self.fences.len();
+        let fence = &mut self.fences[self.fence_index];
+        self.fence_index = (self.fence_index + 1) % fence_count;
+        if !fence.state().is_unsignalled() {
+            puffin::profile_scope!("idle");
+            self.device.wait_fences(&mut [fence], true)?;
+            self.device.reset_fences(&mut [fence])?;
+        }
+
+        puffin::profile_scope!("frame");
+
+        let mut surface_image = {
+            puffin::profile_scope!("aquire_image");
+            self.surface.aquire_image()?
+        };
+
+        let mut encoder = self.queue.create_encoder()?;
+
+        {
+            let _render_pass = encoder.with_framebuffer(
+                self.pass.get_or_init_framebuffer(
+                    &self.device,
+                    &MainPassInput {
+                        max_image_count: surface_image.total_image_count(),
+                        target: surface_image.image().clone(),
+                    },
+                )?,
+                &[gfx::ClearColor(0.02, 0.02, 0.02, 1.0).into()],
+            );
+        }
+
+        let [wait, signal] = surface_image.wait_signal();
+
+        {
+            puffin::profile_scope!("queue_submit");
+            self.queue.submit(
+                &mut [(gfx::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT, wait)],
+                Some(encoder.finish()?),
+                &mut [signal],
+                Some(fence),
+            )?;
+        }
+
+        let mut is_optimal = surface_image.is_optimal();
+        {
+            puffin::profile_scope!("queue_present");
+
+            self.window.pre_present_notify();
+            match self.queue.present(surface_image)? {
+                gfx::PresentStatus::Ok => {}
+                gfx::PresentStatus::Suboptimal => is_optimal = false,
+                gfx::PresentStatus::OutOfDate => {
+                    is_optimal = false;
+                    self.non_optimal_count += NON_OPTIMAL_LIMIT;
+                }
+            }
+        }
+
+        self.non_optimal_count += !is_optimal as usize;
+        if self.non_optimal_count >= NON_OPTIMAL_LIMIT {
+            puffin::profile_scope!("recreate_swapchain");
+
+            // Wait for the device to be idle before recreating the swapchain.
+            self.device.wait_idle()?;
+
+            self.surface.update()?;
+
+            self.non_optimal_count = 0;
+        }
+
+        puffin::GlobalProfiler::lock().new_frame();
         Ok(())
     }
 }
@@ -326,5 +410,5 @@ impl PhysicalDevicesExt for Vec<gfx::PhysicalDevice> {
     }
 }
 
-const NON_OPTIMAL_LIMIT: u32 = 100u32;
+const NON_OPTIMAL_LIMIT: usize = 100;
 const FRAMES_INFLIGHT: usize = 2;
