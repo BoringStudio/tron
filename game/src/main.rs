@@ -50,29 +50,23 @@ impl App {
         let event_loop = EventLoop::new()?;
         let window = WindowBuilder::new()
             .with_x11_window_type(vec![XWindowType::Dialog, XWindowType::Normal])
-            .with_title(&app_name)
+            .with_title(app_name)
             .build(&event_loop)
             .map(Arc::new)?;
 
         let mut renderer = Renderer::new(window.clone(), self.validation_layer)?;
 
         let is_running = Arc::new(AtomicBool::new(true));
-        let should_render = Arc::new((Mutex::new(false), Condvar::new()));
+
+        let rendering_barrier = Arc::new(LoopBarrier::default());
         let renderer_thread = std::thread::spawn({
             let is_running = is_running.clone();
-            let should_render = should_render.clone();
+            let rendering_barrier = rendering_barrier.clone();
             move || {
-                let (should_render, should_render_notify) = &*should_render;
-
                 tracing::debug!("rendering thread started");
 
-                while is_running.load(Ordering::Relaxed) {
-                    {
-                        let mut should_render = should_render.lock().unwrap();
-                        while !*should_render {
-                            should_render = should_render_notify.wait(should_render).unwrap();
-                        }
-                    }
+                while is_running.load(Ordering::Acquire) {
+                    rendering_barrier.wait();
 
                     renderer.draw().unwrap();
                 }
@@ -86,34 +80,59 @@ impl App {
         tracing::debug!("starting event loop");
 
         let mut minimized = false;
-        event_loop.run(move |event, elwt| {
-            // elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
+        let handle_event = {
+            let rendering_barrier = rendering_barrier.clone();
 
-            match event {
-                Event::AboutToWait => window.request_redraw(),
-                Event::WindowEvent { event, .. } => match event {
-                    WindowEvent::RedrawRequested if !elwt.exiting() && !minimized => {
-                        let (should_render, should_render_notify) = &*should_render;
-                        *should_render.lock().unwrap() = true;
-                        should_render_notify.notify_one();
-                    }
-                    WindowEvent::Resized(size) => {
-                        minimized = size.width == 0 || size.height == 0;
-                    }
-                    WindowEvent::CloseRequested => {
-                        is_running.store(false, Ordering::Relaxed);
-                        elwt.exit();
-                    }
+            move |event, elwt: &winit::event_loop::EventLoopWindowTarget<_>| {
+                // elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
+
+                match event {
+                    Event::AboutToWait => window.request_redraw(),
+                    Event::WindowEvent { event, .. } => match event {
+                        WindowEvent::RedrawRequested if !elwt.exiting() && !minimized => {
+                            rendering_barrier.notify();
+                        }
+                        WindowEvent::Resized(size) => {
+                            minimized = size.width == 0 || size.height == 0;
+                        }
+                        WindowEvent::CloseRequested => {
+                            is_running.store(false, Ordering::Release);
+                            rendering_barrier.notify();
+                            elwt.exit();
+                        }
+                        _ => {}
+                    },
                     _ => {}
-                },
-                _ => {}
+                }
             }
-        })?;
+        };
+        event_loop.run(handle_event)?;
 
         tracing::debug!("event loop stopped");
 
         let renderer = renderer_thread.join().unwrap();
         renderer.device.wait_idle()
+    }
+}
+
+#[derive(Default)]
+struct LoopBarrier {
+    state: Mutex<bool>,
+    condvar: Condvar,
+}
+
+impl LoopBarrier {
+    fn wait(&self) {
+        let mut state = self.state.lock().unwrap();
+        while !*state {
+            state = self.condvar.wait(state).unwrap();
+        }
+        *state = false;
+    }
+
+    fn notify(&self) {
+        *self.state.lock().unwrap() = true;
+        self.condvar.notify_one();
     }
 }
 
