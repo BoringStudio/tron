@@ -6,9 +6,9 @@ pub use self::command_buffer::*;
 use crate::device::Device;
 use crate::queue::QueueFlags;
 use crate::resources::{
-    Buffer, BufferInfo, BufferUsage, ClearValue, ComputePipeline, Filter, Framebuffer,
-    GraphicsPipeline, Image, ImageLayout, IndexType, PipelineLayout, Rect, RenderPass,
-    ShaderStageFlags, Viewport,
+    Buffer, BufferInfo, BufferUsage, ClearValue, ComputePipeline, DescriptorSet, Filter,
+    Framebuffer, GraphicsPipeline, Image, ImageLayout, IndexType, PipelineBindPoint,
+    PipelineLayout, Rect, RenderPass, ShaderStageFlags, Viewport,
 };
 use crate::PipelineStageFlags;
 
@@ -278,6 +278,42 @@ impl EncoderCommon {
         assert!(self.capabilities.supports_graphics());
         self.command_buffer
             .bind_index_buffer(buffer, offset, index_type);
+    }
+
+    /// Binds descriptor sets for a graphics pipeline to a command buffer.
+    pub fn bind_graphics_descriptor_sets(
+        &mut self,
+        layout: &PipelineLayout,
+        first_set: u32,
+        descriptor_sets: &[&DescriptorSet],
+        dynamic_offsets: &[u32],
+    ) {
+        assert!(self.capabilities.supports_graphics());
+        self.command_buffer.bind_descriptor_sets(
+            PipelineBindPoint::Graphics,
+            layout,
+            first_set,
+            descriptor_sets,
+            dynamic_offsets,
+        )
+    }
+
+    /// Binds descriptor sets for a compute pipeline to a command buffer.
+    pub fn bind_compute_descriptor_sets(
+        &mut self,
+        layout: &PipelineLayout,
+        first_set: u32,
+        descriptor_sets: &[&DescriptorSet],
+        dynamic_offsets: &[u32],
+    ) {
+        assert!(self.capabilities.supports_compute());
+        self.command_buffer.bind_descriptor_sets(
+            PipelineBindPoint::Compute,
+            layout,
+            first_set,
+            descriptor_sets,
+            dynamic_offsets,
+        )
     }
 
     /// Update the values of push constants.

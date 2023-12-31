@@ -134,6 +134,22 @@ impl std::hash::Hash for Bounds {
     }
 }
 
+/// Specify the bind point of a pipeline object to a command buffer.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum PipelineBindPoint {
+    Graphics,
+    Compute,
+}
+
+impl FromGfx<PipelineBindPoint> for vk::PipelineBindPoint {
+    fn from_gfx(value: PipelineBindPoint) -> Self {
+        match value {
+            PipelineBindPoint::Graphics => Self::GRAPHICS,
+            PipelineBindPoint::Compute => Self::COMPUTE,
+        }
+    }
+}
+
 // === Graphics pipeline ===
 
 /// Structure specifying parameters of a newly created graphics pipeline.

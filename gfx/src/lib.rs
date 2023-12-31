@@ -20,11 +20,11 @@ pub use self::resources::{
     GraphicsPipelineRenderingInfo, Image, ImageAspectFlags, ImageExtent, ImageInfo, ImageLayout,
     ImageSubresource, ImageSubresourceLayers, ImageSubresourceRange, ImageUsageFlags, ImageView,
     ImageViewInfo, ImageViewType, IndexType, LoadOp, LogicOp, MakeImageView, MappableBuffer,
-    MipmapMode, Pipeline, PipelineLayout, PipelineLayoutInfo, PipelineStageFlags, PolygonMode,
-    PrimitiveTopology, PushConstant, Rasterizer, Rect, RenderPass, RenderPassInfo, Sampler,
-    SamplerAddressMode, SamplerInfo, Samples, Semaphore, ShaderModule, ShaderModuleInfo,
-    ShaderStage, ShaderStageFlags, StencilOp, StencilTest, StencilTests, StoreOp, Subpass,
-    SubpassDependency, Swizzle, VertexInputAttribute, VertexInputBinding, VertexInputRate,
+    MipmapMode, Pipeline, PipelineBindPoint, PipelineLayout, PipelineLayoutInfo,
+    PipelineStageFlags, PolygonMode, PrimitiveTopology, PushConstant, Rasterizer, Rect, RenderPass,
+    RenderPassInfo, Sampler, SamplerAddressMode, SamplerInfo, Samples, Semaphore, ShaderModule,
+    ShaderModuleInfo, ShaderStage, ShaderStageFlags, StencilOp, StencilTest, StencilTests, StoreOp,
+    Subpass, SubpassDependency, Swizzle, VertexInputAttribute, VertexInputBinding, VertexInputRate,
     VertexShader, Viewport, WritableDescriptorSet,
 };
 pub use self::surface::{PresentMode, Surface, SurfaceImage, SwapchainSupport};

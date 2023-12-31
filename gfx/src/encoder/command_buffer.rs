@@ -9,9 +9,9 @@ use vulkanalia::prelude::v1_0::*;
 use crate::device::{Device, WeakDevice};
 use crate::queue::QueueId;
 use crate::resources::{
-    Buffer, ClearValue, ComputePipeline, Filter, Framebuffer, GraphicsPipeline, Image, ImageLayout,
-    ImageSubresourceLayers, ImageSubresourceRange, IndexType, LoadOp, PipelineLayout,
-    PipelineStageFlags, Rect, ShaderStageFlags, Viewport,
+    Buffer, ClearValue, ComputePipeline, DescriptorSet, Filter, Framebuffer, GraphicsPipeline,
+    Image, ImageLayout, ImageSubresourceLayers, ImageSubresourceRange, IndexType, LoadOp,
+    PipelineBindPoint, PipelineLayout, PipelineStageFlags, Rect, ShaderStageFlags, Viewport,
 };
 use crate::util::{compute_supported_access, DeallocOnDrop, FromGfx, ToVk};
 
@@ -174,6 +174,37 @@ impl CommandBuffer {
                     self.handle,
                     vk::PipelineBindPoint::COMPUTE,
                     pipeline.handle(),
+                )
+            }
+        }
+    }
+
+    pub(crate) fn bind_descriptor_sets(
+        &mut self,
+        bind_point: PipelineBindPoint,
+        layout: &PipelineLayout,
+        first_set: u32,
+        descriptor_sets: &[&DescriptorSet],
+        dynamic_offsets: &[u32],
+    ) {
+        if let Some(device) = self.state.device_from_full() {
+            self.references.pipeline_layouts.insert(layout.clone());
+            for &set in descriptor_sets {
+                self.references.descriptor_sets.push(set.clone());
+            }
+
+            let alloc = DeallocOnDrop(&mut self.alloc);
+            let descriptor_sets =
+                alloc.alloc_slice_fill_iter(descriptor_sets.iter().map(|set| set.handle()));
+
+            unsafe {
+                device.logical().cmd_bind_descriptor_sets(
+                    self.handle,
+                    bind_point.to_vk(),
+                    layout.handle(),
+                    first_set,
+                    descriptor_sets,
+                    dynamic_offsets,
                 )
             }
         }
@@ -538,6 +569,7 @@ pub(crate) struct References {
     graphics_pipelines: Vec<GraphicsPipeline>,
     compute_pipelines: Vec<ComputePipeline>,
     pipeline_layouts: FastHashSet<PipelineLayout>,
+    descriptor_sets: Vec<DescriptorSet>,
 }
 
 impl References {
