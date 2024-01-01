@@ -14,9 +14,9 @@ pub use self::resources::{
     ComponentMask, ComputePipeline, ComputePipelineInfo, ComputeShader, CullMode, DepthTest,
     DescriptorBindingFlags, DescriptorSet, DescriptorSetInfo, DescriptorSetLayout,
     DescriptorSetLayoutBinding, DescriptorSetLayoutFlags, DescriptorSetLayoutInfo,
-    DescriptorSetSize, DescriptorSlice, DescriptorType, Fence, FenceState, Filter, Format,
-    FormatChannels, FormatDescription, FormatType, FragmentShader, Framebuffer, FramebufferInfo,
-    FrontFace, GraphicsPipeline, GraphicsPipelineDescr, GraphicsPipelineInfo,
+    DescriptorSetSize, DescriptorSetWrite, DescriptorSlice, DescriptorType, Fence, FenceState,
+    Filter, Format, FormatChannels, FormatDescription, FormatType, FragmentShader, Framebuffer,
+    FramebufferInfo, FrontFace, GraphicsPipeline, GraphicsPipelineDescr, GraphicsPipelineInfo,
     GraphicsPipelineRenderingInfo, Image, ImageAspectFlags, ImageExtent, ImageInfo, ImageLayout,
     ImageSubresource, ImageSubresourceLayers, ImageSubresourceRange, ImageUsageFlags, ImageView,
     ImageViewInfo, ImageViewType, IndexType, LoadOp, LogicOp, MakeImageView, MappableBuffer,
@@ -24,8 +24,8 @@ pub use self::resources::{
     PipelineStageFlags, PolygonMode, PrimitiveTopology, PushConstant, Rasterizer, Rect, RenderPass,
     RenderPassInfo, Sampler, SamplerAddressMode, SamplerInfo, Samples, Semaphore, ShaderModule,
     ShaderModuleInfo, ShaderStage, ShaderStageFlags, StencilOp, StencilTest, StencilTests, StoreOp,
-    Subpass, SubpassDependency, Swizzle, VertexInputAttribute, VertexInputBinding, VertexInputRate,
-    VertexShader, Viewport, WritableDescriptorSet,
+    Subpass, SubpassDependency, Swizzle, UpdateDescriptorSet, VertexInputAttribute,
+    VertexInputBinding, VertexInputRate, VertexShader, Viewport, WritableDescriptorSet,
 };
 pub use self::surface::{PresentMode, Surface, SurfaceImage, SwapchainSupport};
 pub use self::types::{DeviceAddress, State};

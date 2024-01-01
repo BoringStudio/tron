@@ -8,6 +8,19 @@ use crate::resources::{
     BufferRange, BufferView, DescriptorSetLayout, DescriptorType, ImageLayout, ImageView, Sampler,
 };
 
+/// Structure specifying how to update the contents of a descriptor set object.
+pub struct UpdateDescriptorSet<'a> {
+    pub set: &'a mut WritableDescriptorSet,
+    pub writes: &'a [DescriptorSetWrite<'a>],
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct DescriptorSetWrite<'a> {
+    pub binding: u32,
+    pub element: u32,
+    pub data: DescriptorSlice<'a>,
+}
+
 /// A slice of descriptor data.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum DescriptorSlice<'a> {
@@ -28,9 +41,9 @@ pub enum DescriptorSlice<'a> {
 /// resource through a sampler object.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct CombinedImageSampler {
-    pub image: ImageView,
-    pub sampler: Sampler,
+    pub view: ImageView,
     pub layout: ImageLayout,
+    pub sampler: Sampler,
 }
 
 /// Structure specifying the allocation parameters for descriptor sets.
@@ -112,7 +125,10 @@ impl WritableDescriptorSet {
         &mut *(inner as *mut Arc<UnsafeCell<Inner>>).cast::<Self>()
     }
 
-    #[inline]
+    pub fn handle(&self) -> vk::DescriptorSet {
+        self.inner().allocated.handle()
+    }
+
     pub fn info(&self) -> &DescriptorSetInfo {
         &self.inner().info
     }

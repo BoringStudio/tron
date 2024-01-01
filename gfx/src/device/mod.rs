@@ -2,6 +2,7 @@ use std::mem::MaybeUninit;
 use std::sync::{Arc, Mutex, Weak};
 
 use anyhow::Result;
+use bumpalo::Bump;
 use gpu_alloc::{GpuAllocator, MemoryBlock};
 use gpu_alloc_vulkanalia::AsMemoryDevice;
 use shared::util::WithDefer;
@@ -21,11 +22,11 @@ use crate::queue::QueueId;
 use crate::resources::{
     Blending, Buffer, BufferInfo, BufferUsage, BufferView, BufferViewInfo, ColorBlend,
     ComponentMask, ComputePipeline, ComputePipelineInfo, DescriptorBindingFlags, DescriptorSetInfo,
-    DescriptorSetLayout, DescriptorSetLayoutFlags, DescriptorSetLayoutInfo, Fence, FenceState,
-    Framebuffer, FramebufferInfo, GraphicsPipeline, GraphicsPipelineInfo, Image, ImageInfo,
-    ImageView, ImageViewInfo, ImageViewType, MappableBuffer, PipelineLayout, PipelineLayoutInfo,
-    RenderPass, RenderPassInfo, Sampler, SamplerInfo, Semaphore, ShaderModule, ShaderModuleInfo,
-    StencilTest, WritableDescriptorSet,
+    DescriptorSetLayout, DescriptorSetLayoutFlags, DescriptorSetLayoutInfo, DescriptorSlice, Fence,
+    FenceState, Framebuffer, FramebufferInfo, GraphicsPipeline, GraphicsPipelineInfo, Image,
+    ImageInfo, ImageView, ImageViewInfo, ImageViewType, MappableBuffer, PipelineLayout,
+    PipelineLayoutInfo, RenderPass, RenderPassInfo, Sampler, SamplerInfo, Semaphore, ShaderModule,
+    ShaderModuleInfo, StencilTest, UpdateDescriptorSet, WritableDescriptorSet,
 };
 use crate::surface::Surface;
 use crate::types::{DeviceAddress, State};
@@ -864,6 +865,186 @@ impl Device {
             .lock()
             .unwrap()
             .free(self.logical(), std::slice::from_ref(allocated))
+    }
+
+    pub fn update_descriptor_sets(&self, updates: &mut [UpdateDescriptorSet<'_>]) {
+        struct UpdatesIter<I> {
+            inner: I,
+            len: usize,
+        }
+
+        impl<T, I: Iterator<Item = T>> Iterator for UpdatesIter<I> {
+            type Item = T;
+
+            #[inline]
+            fn next(&mut self) -> Option<Self::Item> {
+                self.inner.next()
+            }
+
+            #[inline]
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                self.inner.size_hint()
+            }
+        }
+
+        impl<I: Iterator> ExactSizeIterator for UpdatesIter<I> {
+            #[inline]
+            fn len(&self) -> usize {
+                self.len
+            }
+        }
+
+        let alloc = Bump::new();
+
+        let writes = {
+            let len = updates.iter().map(|update| update.writes.len()).sum();
+            alloc.alloc_slice_fill_iter(UpdatesIter {
+                inner: updates.iter().flat_map(|update| {
+                    update.writes.iter().map(|write| {
+                        vk::WriteDescriptorSet::builder()
+                            .dst_set(update.set.handle())
+                            .dst_binding(write.binding)
+                            .dst_array_element(write.element)
+                            .build()
+                    })
+                }),
+                len,
+            })
+        };
+
+        let mut writes_iter = writes.iter_mut();
+        for update in updates.iter() {
+            for write in update.writes.iter() {
+                let descr = writes_iter.next().unwrap();
+
+                match write.data {
+                    DescriptorSlice::Sampler(data) => {
+                        let images = alloc.alloc_slice_fill_iter(data.iter().map(|sampler| {
+                            vk::DescriptorImageInfo::builder().sampler(sampler.handle())
+                        }));
+                        descr.descriptor_type = vk::DescriptorType::SAMPLER;
+                        descr.descriptor_count = images.len() as _;
+                        descr.image_info = images.as_ptr().cast();
+                    }
+                    DescriptorSlice::CombinedImageSampler(data) => {
+                        let images = alloc.alloc_slice_fill_iter(data.iter().map(|item| {
+                            vk::DescriptorImageInfo::builder()
+                                .sampler(item.sampler.handle())
+                                .image_view(item.view.handle())
+                                .image_layout(item.layout.to_vk())
+                        }));
+                        descr.descriptor_type = vk::DescriptorType::COMBINED_IMAGE_SAMPLER;
+                        descr.descriptor_count = images.len() as _;
+                        descr.image_info = images.as_ptr().cast();
+                    }
+                    DescriptorSlice::SampledImage(data) => {
+                        let images =
+                            alloc.alloc_slice_fill_iter(data.iter().map(|(view, layout)| {
+                                vk::DescriptorImageInfo::builder()
+                                    .image_view(view.handle())
+                                    .image_layout((*layout).to_vk())
+                            }));
+                        descr.descriptor_type = vk::DescriptorType::SAMPLED_IMAGE;
+                        descr.descriptor_count = images.len() as _;
+                        descr.image_info = images.as_ptr().cast();
+                    }
+                    DescriptorSlice::StorageImage(data) => {
+                        let images =
+                            alloc.alloc_slice_fill_iter(data.iter().map(|(view, layout)| {
+                                vk::DescriptorImageInfo::builder()
+                                    .image_view(view.handle())
+                                    .image_layout((*layout).to_vk())
+                            }));
+                        descr.descriptor_type = vk::DescriptorType::STORAGE_IMAGE;
+                        descr.descriptor_count = images.len() as _;
+                        descr.image_info = images.as_ptr().cast();
+                    }
+                    DescriptorSlice::UniformTexelBuffer(data) => {
+                        let views =
+                            alloc.alloc_slice_fill_iter(data.iter().map(BufferView::handle));
+                        descr.descriptor_type = vk::DescriptorType::UNIFORM_TEXEL_BUFFER;
+                        descr.descriptor_count = views.len() as _;
+                        descr.texel_buffer_view = views.as_ptr().cast();
+                    }
+                    DescriptorSlice::StorageTexelBuffer(data) => {
+                        let views =
+                            alloc.alloc_slice_fill_iter(data.iter().map(BufferView::handle));
+                        descr.descriptor_type = vk::DescriptorType::STORAGE_TEXEL_BUFFER;
+                        descr.descriptor_count = views.len() as _;
+                        descr.texel_buffer_view = views.as_ptr().cast();
+                    }
+                    DescriptorSlice::UniformBuffer(data) => {
+                        let buffers = alloc.alloc_slice_fill_iter(data.iter().map(|range| {
+                            vk::DescriptorBufferInfo::builder()
+                                .buffer(range.buffer.handle())
+                                .offset(range.offset)
+                                .range(range.size)
+                        }));
+                        descr.descriptor_type = vk::DescriptorType::UNIFORM_BUFFER;
+                        descr.descriptor_count = buffers.len() as _;
+                        descr.buffer_info = buffers.as_ptr().cast();
+                    }
+                    DescriptorSlice::StorageBuffer(data) => {
+                        let buffers = alloc.alloc_slice_fill_iter(data.iter().map(|range| {
+                            vk::DescriptorBufferInfo::builder()
+                                .buffer(range.buffer.handle())
+                                .offset(range.offset)
+                                .range(range.size)
+                        }));
+                        descr.descriptor_type = vk::DescriptorType::STORAGE_BUFFER;
+                        descr.descriptor_count = buffers.len() as _;
+                        descr.buffer_info = buffers.as_ptr().cast();
+                    }
+                    DescriptorSlice::UniformBufferDynamic(data) => {
+                        let buffers = alloc.alloc_slice_fill_iter(data.iter().map(|range| {
+                            vk::DescriptorBufferInfo::builder()
+                                .buffer(range.buffer.handle())
+                                .offset(range.offset)
+                                .range(range.size)
+                        }));
+                        descr.descriptor_type = vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC;
+                        descr.descriptor_count = buffers.len() as _;
+                        descr.buffer_info = buffers.as_ptr().cast();
+                    }
+                    DescriptorSlice::StorageBufferDynamic(data) => {
+                        let buffers = alloc.alloc_slice_fill_iter(data.iter().map(|range| {
+                            vk::DescriptorBufferInfo::builder()
+                                .buffer(range.buffer.handle())
+                                .offset(range.offset)
+                                .range(range.size)
+                        }));
+                        descr.descriptor_type = vk::DescriptorType::STORAGE_BUFFER_DYNAMIC;
+                        descr.descriptor_count = buffers.len() as _;
+                        descr.buffer_info = buffers.as_ptr().cast();
+                    }
+                    DescriptorSlice::InputAttachment(data) => {
+                        let images =
+                            alloc.alloc_slice_fill_iter(data.iter().map(|(view, layout)| {
+                                vk::DescriptorImageInfo::builder()
+                                    .image_view(view.handle())
+                                    .image_layout((*layout).to_vk())
+                            }));
+                        descr.descriptor_type = vk::DescriptorType::INPUT_ATTACHMENT;
+                        descr.descriptor_count = images.len() as _;
+                        descr.image_info = images.as_ptr().cast();
+                    }
+                }
+            }
+        }
+        debug_assert!(writes_iter.next().is_none());
+
+        for update in updates {
+            for write in update.writes {
+                update
+                    .set
+                    .write_descriptors(write.binding, write.element, write.data);
+            }
+        }
+
+        unsafe {
+            self.logical()
+                .update_descriptor_sets(writes, &([] as [vk::CopyDescriptorSet; 0]))
+        };
     }
 
     pub fn create_pipeline_layout(&self, info: PipelineLayoutInfo) -> Result<PipelineLayout> {
