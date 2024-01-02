@@ -5,9 +5,18 @@ use anyhow::{Context, Result};
 use vulkanalia::vk;
 use winit::window::Window;
 
-use self::render_passes::{EncoderExt, MainPass, MainPassInput};
+pub use self::managers::{MeshBuffers, MeshManager};
+pub use self::render_passes::{EncoderExt, MainPass, MainPassInput, Pass};
+pub use self::types::{
+    Color, Normal, PipelineVertexInputExt, Position2, Position2UV, Position2UVColor, Position3,
+    Position3NormalTangentUV, Position3NormalUV, Position3UV, Tangent, Vertex2, Vertex3, Vertex4,
+    VertexAttribute, VertexLocation, VertexType, UV,
+};
 
+mod managers;
 mod render_passes;
+mod resource_registry;
+mod types;
 
 pub struct RendererBuilder {
     window: Arc<Window>,

@@ -4,8 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+ahash = "0.8"
 anyhow = "1.0"
+bytemuck = "1.0"
+glam = "0.25"
+indexmap = "2.1"
 profiling = "1.0"
+range-alloc = "0.1"
 thiserror = "1.0"
 tracing = "0.1"
 vulkanalia = { version = "0.22", features = ["window", "libloading"] }

@@ -5,7 +5,7 @@ use vulkanalia::prelude::v1_0::*;
 
 use crate::device::WeakDevice;
 use crate::resources::{
-    CompareOp, ComputeShader, Format, FragmentShader, PipelineLayout, RenderPass, VertexShader,
+    CompareOp, ComputeShader, FragmentShader, PipelineLayout, RenderPass, VertexShader,
 };
 use crate::types::State;
 use crate::util::{FromGfx, ToVk};
@@ -222,9 +222,14 @@ pub struct VertexInputBinding {
 /// Graphics pipeline vertex attribute parameters.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct VertexInputAttribute {
+    /// The shader input location number for this attribute.
     pub location: u32,
-    pub format: Format,
+    /// The binding number which this attribute takes its data from.
     pub binding: u32,
+    /// The size and type of the vertex attribute data.
+    pub format: VertexFormat,
+    /// A byte offset of this attribute relative to the start of an element
+    /// in the vertex input binding.
     pub offset: u32,
 }
 
@@ -235,6 +240,154 @@ impl FromGfx<VertexInputAttribute> for vk::VertexInputAttributeDescription {
             binding: value.binding,
             format: value.format.to_vk(),
             offset: value.offset,
+        }
+    }
+}
+
+/// Vertex Format for a [`VertexInputAttribute`] (input).
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum VertexFormat {
+    /// Two unsigned bytes (u8). `vec2<u32>` in shaders.
+    Uint8x2 = 0,
+    /// Four unsigned bytes (u8). `vec4<u32>` in shaders.
+    Uint8x4 = 1,
+    /// Two signed bytes (i8). `vec2<i32>` in shaders.
+    Sint8x2 = 2,
+    /// Four signed bytes (i8). `vec4<i32>` in shaders.
+    Sint8x4 = 3,
+    /// Two unsigned bytes (u8). [0, 255] converted to float [0, 1] `vec2<f32>` in shaders.
+    Unorm8x2 = 4,
+    /// Four unsigned bytes (u8). [0, 255] converted to float [0, 1] `vec4<f32>` in shaders.
+    Unorm8x4 = 5,
+    /// Two signed bytes (i8). [-127, 127] converted to float [-1, 1] `vec2<f32>` in shaders.
+    Snorm8x2 = 6,
+    /// Four signed bytes (i8). [-127, 127] converted to float [-1, 1] `vec4<f32>` in shaders.
+    Snorm8x4 = 7,
+    /// Two unsigned shorts (u16). `vec2<u32>` in shaders.
+    Uint16x2 = 8,
+    /// Four unsigned shorts (u16). `vec4<u32>` in shaders.
+    Uint16x4 = 9,
+    /// Two signed shorts (i16). `vec2<i32>` in shaders.
+    Sint16x2 = 10,
+    /// Four signed shorts (i16). `vec4<i32>` in shaders.
+    Sint16x4 = 11,
+    /// Two unsigned shorts (u16). [0, 65535] converted to float [0, 1] `vec2<f32>` in shaders.
+    Unorm16x2 = 12,
+    /// Four unsigned shorts (u16). [0, 65535] converted to float [0, 1] `vec4<f32>` in shaders.
+    Unorm16x4 = 13,
+    /// Two signed shorts (i16). [-32767, 32767] converted to float [-1, 1] `vec2<f32>` in shaders.
+    Snorm16x2 = 14,
+    /// Four signed shorts (i16). [-32767, 32767] converted to float [-1, 1] `vec4<f32>` in shaders.
+    Snorm16x4 = 15,
+    /// Two half-precision floats (no Rust equiv). `vec2<f32>` in shaders.
+    Float16x2 = 16,
+    /// Four half-precision floats (no Rust equiv). `vec4<f32>` in shaders.
+    Float16x4 = 17,
+    /// One single-precision float (f32). `f32` in shaders.
+    Float32 = 18,
+    /// Two single-precision floats (f32). `vec2<f32>` in shaders.
+    Float32x2 = 19,
+    /// Three single-precision floats (f32). `vec3<f32>` in shaders.
+    Float32x3 = 20,
+    /// Four single-precision floats (f32). `vec4<f32>` in shaders.
+    Float32x4 = 21,
+    /// One unsigned int (u32). `u32` in shaders.
+    Uint32 = 22,
+    /// Two unsigned ints (u32). `vec2<u32>` in shaders.
+    Uint32x2 = 23,
+    /// Three unsigned ints (u32). `vec3<u32>` in shaders.
+    Uint32x3 = 24,
+    /// Four unsigned ints (u32). `vec4<u32>` in shaders.
+    Uint32x4 = 25,
+    /// One signed int (i32). `i32` in shaders.
+    Sint32 = 26,
+    /// Two signed ints (i32). `vec2<i32>` in shaders.
+    Sint32x2 = 27,
+    /// Three signed ints (i32). `vec3<i32>` in shaders.
+    Sint32x3 = 28,
+    /// Four signed ints (i32). `vec4<i32>` in shaders.
+    Sint32x4 = 29,
+    /// One double-precision float (f64). `f32` in shaders. Requires [`Features::VERTEX_ATTRIBUTE_64BIT`].
+    Float64 = 30,
+    /// Two double-precision floats (f64). `vec2<f32>` in shaders. Requires [`Features::VERTEX_ATTRIBUTE_64BIT`].
+    Float64x2 = 31,
+    /// Three double-precision floats (f64). `vec3<f32>` in shaders. Requires [`Features::VERTEX_ATTRIBUTE_64BIT`].
+    Float64x3 = 32,
+    /// Four double-precision floats (f64). `vec4<f32>` in shaders. Requires [`Features::VERTEX_ATTRIBUTE_64BIT`].
+    Float64x4 = 33,
+}
+
+impl VertexFormat {
+    /// Returns the byte size of the format.
+    pub const fn size(&self) -> u32 {
+        match self {
+            Self::Uint8x2 | Self::Sint8x2 | Self::Unorm8x2 | Self::Snorm8x2 => 2,
+            Self::Uint8x4
+            | Self::Sint8x4
+            | Self::Unorm8x4
+            | Self::Snorm8x4
+            | Self::Uint16x2
+            | Self::Sint16x2
+            | Self::Unorm16x2
+            | Self::Snorm16x2
+            | Self::Float16x2
+            | Self::Float32
+            | Self::Uint32
+            | Self::Sint32 => 4,
+            Self::Uint16x4
+            | Self::Sint16x4
+            | Self::Unorm16x4
+            | Self::Snorm16x4
+            | Self::Float16x4
+            | Self::Float32x2
+            | Self::Uint32x2
+            | Self::Sint32x2
+            | Self::Float64 => 8,
+            Self::Float32x3 | Self::Uint32x3 | Self::Sint32x3 => 12,
+            Self::Float32x4 | Self::Uint32x4 | Self::Sint32x4 | Self::Float64x2 => 16,
+            Self::Float64x3 => 24,
+            Self::Float64x4 => 32,
+        }
+    }
+}
+
+impl FromGfx<VertexFormat> for vk::Format {
+    fn from_gfx(value: VertexFormat) -> Self {
+        match value {
+            VertexFormat::Uint8x2 => Self::R8G8_UINT,
+            VertexFormat::Uint8x4 => Self::R8G8B8A8_UINT,
+            VertexFormat::Sint8x2 => Self::R8G8_SINT,
+            VertexFormat::Sint8x4 => Self::R8G8B8A8_SINT,
+            VertexFormat::Unorm8x2 => Self::R8G8_UNORM,
+            VertexFormat::Unorm8x4 => Self::R8G8B8A8_UNORM,
+            VertexFormat::Snorm8x2 => Self::R8G8_SNORM,
+            VertexFormat::Snorm8x4 => Self::R8G8B8A8_SNORM,
+            VertexFormat::Uint16x2 => Self::R16G16_UINT,
+            VertexFormat::Uint16x4 => Self::R16G16B16A16_UINT,
+            VertexFormat::Sint16x2 => Self::R16G16_SINT,
+            VertexFormat::Sint16x4 => Self::R16G16B16A16_SINT,
+            VertexFormat::Unorm16x2 => Self::R16G16_UNORM,
+            VertexFormat::Unorm16x4 => Self::R16G16B16A16_UNORM,
+            VertexFormat::Snorm16x2 => Self::R16G16_SNORM,
+            VertexFormat::Snorm16x4 => Self::R16G16B16A16_SNORM,
+            VertexFormat::Float16x2 => Self::R16G16_SFLOAT,
+            VertexFormat::Float16x4 => Self::R16G16B16A16_SFLOAT,
+            VertexFormat::Float32 => Self::R32_SFLOAT,
+            VertexFormat::Float32x2 => Self::R32G32_SFLOAT,
+            VertexFormat::Float32x3 => Self::R32G32B32_SFLOAT,
+            VertexFormat::Float32x4 => Self::R32G32B32A32_SFLOAT,
+            VertexFormat::Uint32 => Self::R32_UINT,
+            VertexFormat::Uint32x2 => Self::R32G32_UINT,
+            VertexFormat::Uint32x3 => Self::R32G32B32_UINT,
+            VertexFormat::Uint32x4 => Self::R32G32B32A32_UINT,
+            VertexFormat::Sint32 => Self::R32_SINT,
+            VertexFormat::Sint32x2 => Self::R32G32_SINT,
+            VertexFormat::Sint32x3 => Self::R32G32B32_SINT,
+            VertexFormat::Sint32x4 => Self::R32G32B32A32_SINT,
+            VertexFormat::Float64 => Self::R64_SFLOAT,
+            VertexFormat::Float64x2 => Self::R64G64_SFLOAT,
+            VertexFormat::Float64x3 => Self::R64G64B64_SFLOAT,
+            VertexFormat::Float64x4 => Self::R64G64B64A64_SFLOAT,
         }
     }
 }

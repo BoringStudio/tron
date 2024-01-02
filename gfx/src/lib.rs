@@ -24,7 +24,7 @@ pub use self::resources::{
     PipelineStageFlags, PolygonMode, PrimitiveTopology, PushConstant, Rasterizer, Rect, RenderPass,
     RenderPassInfo, Sampler, SamplerAddressMode, SamplerInfo, Samples, Semaphore, ShaderModule,
     ShaderModuleInfo, ShaderStage, ShaderStageFlags, StencilOp, StencilTest, StencilTests, StoreOp,
-    Subpass, SubpassDependency, Swizzle, UpdateDescriptorSet, VertexInputAttribute,
+    Subpass, SubpassDependency, Swizzle, UpdateDescriptorSet, VertexFormat, VertexInputAttribute,
     VertexInputBinding, VertexInputRate, VertexShader, Viewport, WritableDescriptorSet,
 };
 pub use self::surface::{PresentMode, Surface, SurfaceImage, SwapchainSupport};
