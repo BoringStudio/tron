@@ -62,7 +62,7 @@ impl ShaderPreprocessor {
                         resolved_name: file.absolute_path,
                         content: file.contents.to_owned(),
                     }),
-                    Ok(None) => Err(format!("file not found: {}", include)),
+                    Ok(None) => Err("file not found".to_owned()),
                     Err(err) => Err(format!("failed to read file: {}", err)),
                 }
             });

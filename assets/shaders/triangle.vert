@@ -1,5 +1,7 @@
 #version 450
 
+#include <math/color.glsl>
+
 layout(location = 0) out vec3 outColor;
 
 void main() {

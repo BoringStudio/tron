@@ -264,4 +264,11 @@ impl PhysicalDevicesExt for Vec<gfx::PhysicalDevice> {
 
 const NON_OPTIMAL_LIMIT: usize = 100;
 
-shared::embed!(Shaders("../../assets/shaders") = ["triangle.vert", "triangle.frag"]);
+shared::embed!(
+    Shaders("../../assets/shaders") = [
+        "math/color.glsl",
+        "math/const.glsl",
+        "triangle.vert",
+        "triangle.frag"
+    ]
+);
