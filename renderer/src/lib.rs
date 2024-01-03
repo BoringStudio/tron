@@ -7,6 +7,7 @@ use vulkanalia::vk;
 use winit::window::Window;
 
 pub use self::managers::{MeshBuffers, MeshManager};
+use self::pipelines::OpaqueMeshPipeline;
 pub use self::render_passes::{EncoderExt, MainPass, MainPassInput, Pass};
 pub use self::shader_preprocessor::{ShaderPreprocessor, ShaderPreprocessorScope};
 pub use self::types::{
@@ -14,8 +15,10 @@ pub use self::types::{
     Position3NormalTangentUV, Position3NormalUV, Position3UV, Tangent, Vertex2, Vertex3, Vertex4,
     VertexAttribute, VertexLocation, VertexType, UV,
 };
+use pipelines::{CachedGraphicsPipeline, RenderPassEncoderExt};
 
 mod managers;
+mod pipelines;
 mod render_passes;
 mod resource_registry;
 mod shader_preprocessor;
@@ -60,11 +63,9 @@ impl RendererBuilder {
             shader_preprocessor.add_file(path, contents)?;
         }
 
-        {
-            let compiler = shader_preprocessor.begin();
-            let _vert = compiler.make_vertex_shader(&device, "triangle.vert", "main")?;
-            let _frag = compiler.make_fragment_shader(&device, "triangle.frag", "main")?;
-        }
+        let opaque_mesh_pipeline =
+            OpaqueMeshPipeline::make_descr(&device, &mut shader_preprocessor)
+                .map(CachedGraphicsPipeline::new)?;
 
         Ok(Renderer {
             window: self.window,
@@ -72,6 +73,7 @@ impl RendererBuilder {
             queue,
             surface,
             shader_preprocessor,
+            opaque_mesh_pipeline,
             pass,
             fences,
             non_optimal_count: 0,
@@ -105,6 +107,7 @@ pub struct Renderer {
     queue: gfx::Queue,
     surface: gfx::Surface,
     shader_preprocessor: ShaderPreprocessor,
+    opaque_mesh_pipeline: CachedGraphicsPipeline,
     pass: MainPass,
     fences: Fences,
     non_optimal_count: usize,
@@ -140,7 +143,7 @@ impl Renderer {
         let mut encoder = self.queue.create_encoder()?;
 
         {
-            let _render_pass = encoder.with_render_pass(
+            let mut render_pass = encoder.with_render_pass(
                 &mut self.pass,
                 &MainPassInput {
                     max_image_count: surface_image.total_image_count(),
@@ -148,6 +151,10 @@ impl Renderer {
                 },
                 &self.device,
             )?;
+
+            render_pass
+                .bind_cached_graphics_pipeline(&mut self.opaque_mesh_pipeline, &self.device)?;
+            render_pass.draw(0..3, 0..1);
         }
 
         let [wait, signal] = surface_image.wait_signal();

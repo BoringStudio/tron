@@ -160,7 +160,7 @@ pub struct GraphicsPipelineInfo {
 }
 
 /// Graphics pipeline structure description.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GraphicsPipelineDescr {
     pub vertex_bindings: Vec<VertexInputBinding>,
     pub vertex_attributes: Vec<VertexInputAttribute>,
