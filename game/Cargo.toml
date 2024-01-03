@@ -19,3 +19,6 @@ renderer = { path = "../renderer" }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5"
+
+[features]
+link-shaderc = ["renderer/link-shaderc"]

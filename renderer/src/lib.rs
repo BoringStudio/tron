@@ -2,12 +2,13 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use shared::Embed;
 use vulkanalia::vk;
 use winit::window::Window;
 
 pub use self::managers::{MeshBuffers, MeshManager};
 pub use self::render_passes::{EncoderExt, MainPass, MainPassInput, Pass};
-pub use self::shaders::{ShaderPreprocessor, ShaderPreprocessorScope};
+pub use self::shader_preprocessor::{ShaderPreprocessor, ShaderPreprocessorScope};
 pub use self::types::{
     Color, Normal, PipelineVertexInputExt, Position2, Position2UV, Position2UVColor, Position3,
     Position3NormalTangentUV, Position3NormalUV, Position3UV, Tangent, Vertex2, Vertex3, Vertex4,
@@ -17,7 +18,7 @@ pub use self::types::{
 mod managers;
 mod render_passes;
 mod resource_registry;
-mod shaders;
+mod shader_preprocessor;
 mod types;
 
 pub struct RendererBuilder {
@@ -25,6 +26,7 @@ pub struct RendererBuilder {
     app_version: (u32, u32, u32),
     validation_layer: bool,
     frames_in_flight: NonZeroUsize,
+    optimize_shaders: bool,
 }
 
 impl RendererBuilder {
@@ -50,11 +52,26 @@ impl RendererBuilder {
 
         let fences = Fences::new(&device, self.frames_in_flight)?;
 
+        let mut shader_preprocessor = ShaderPreprocessor::new();
+        shader_preprocessor.set_optimizations_enabled(self.optimize_shaders);
+        for (path, contents) in Shaders::iter() {
+            let contents = std::str::from_utf8(contents)
+                .with_context(|| anyhow::anyhow!("invalid shader {path}"))?;
+            shader_preprocessor.add_file(path, contents)?;
+        }
+
+        {
+            let compiler = shader_preprocessor.begin();
+            let _vert = compiler.make_vertex_shader(&device, "triangle.vert", "main")?;
+            let _frag = compiler.make_fragment_shader(&device, "triangle.frag", "main")?;
+        }
+
         Ok(Renderer {
             window: self.window,
             device,
             queue,
             surface,
+            shader_preprocessor,
             pass,
             fences,
             non_optimal_count: 0,
@@ -75,6 +92,11 @@ impl RendererBuilder {
         self.frames_in_flight = frames_in_flight.try_into().unwrap();
         self
     }
+
+    pub fn optimize_shaders(mut self, optimize_shaders: bool) -> Self {
+        self.optimize_shaders = optimize_shaders;
+        self
+    }
 }
 
 pub struct Renderer {
@@ -82,6 +104,7 @@ pub struct Renderer {
     device: gfx::Device,
     queue: gfx::Queue,
     surface: gfx::Surface,
+    shader_preprocessor: ShaderPreprocessor,
     pass: MainPass,
     fences: Fences,
     non_optimal_count: usize,
@@ -94,6 +117,7 @@ impl Renderer {
             app_version: (0, 0, 1),
             validation_layer: false,
             frames_in_flight: NonZeroUsize::new(2).unwrap(),
+            optimize_shaders: true,
         }
     }
 
@@ -239,3 +263,5 @@ impl PhysicalDevicesExt for Vec<gfx::PhysicalDevice> {
 }
 
 const NON_OPTIMAL_LIMIT: usize = 100;
+
+shared::embed!(Shaders("../../assets/shaders") = ["triangle.vert", "triangle.frag"]);

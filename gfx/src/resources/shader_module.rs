@@ -14,6 +14,13 @@ pub struct VertexShader {
 }
 
 impl VertexShader {
+    pub fn new(module: ShaderModule, entry: impl Into<Cow<'static, str>>) -> Self {
+        Self {
+            module,
+            entry: entry.into(),
+        }
+    }
+
     pub fn module(&self) -> &ShaderModule {
         &self.module
     }
@@ -31,6 +38,13 @@ pub struct FragmentShader {
 }
 
 impl FragmentShader {
+    pub fn new(module: ShaderModule, entry: impl Into<Cow<'static, str>>) -> Self {
+        Self {
+            module,
+            entry: entry.into(),
+        }
+    }
+
     pub fn module(&self) -> &ShaderModule {
         &self.module
     }
@@ -48,6 +62,13 @@ pub struct ComputeShader {
 }
 
 impl ComputeShader {
+    pub fn new(module: ShaderModule, entry: impl Into<Cow<'static, str>>) -> Self {
+        Self {
+            module,
+            entry: entry.into(),
+        }
+    }
+
     pub fn module(&self) -> &ShaderModule {
         &self.module
     }
