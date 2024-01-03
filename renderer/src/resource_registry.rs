@@ -129,10 +129,7 @@ impl<T> Copy for RawResourceHandle<T> {}
 impl<T> Clone for RawResourceHandle<T> {
     #[inline(always)]
     fn clone(&self) -> Self {
-        Self {
-            id: self.id,
-            _phantom: Default::default(),
-        }
+        *self
     }
 }
 

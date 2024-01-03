@@ -16,3 +16,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 winit = { version = "0.29", default-features = false, features = ["x11", "rwh_06"] }
 
 renderer = { path = "../renderer" }
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0.5"

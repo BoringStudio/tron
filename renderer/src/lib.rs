@@ -7,6 +7,7 @@ use winit::window::Window;
 
 pub use self::managers::{MeshBuffers, MeshManager};
 pub use self::render_passes::{EncoderExt, MainPass, MainPassInput, Pass};
+pub use self::shaders::{ShaderPreprocessor, ShaderPreprocessorScope};
 pub use self::types::{
     Color, Normal, PipelineVertexInputExt, Position2, Position2UV, Position2UVColor, Position3,
     Position3NormalTangentUV, Position3NormalUV, Position3UV, Tangent, Vertex2, Vertex3, Vertex4,
@@ -16,6 +17,7 @@ pub use self::types::{
 mod managers;
 mod render_passes;
 mod resource_registry;
+mod shaders;
 mod types;
 
 pub struct RendererBuilder {

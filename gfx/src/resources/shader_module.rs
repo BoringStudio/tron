@@ -106,28 +106,28 @@ impl FromGfx<ShaderStageFlags> for vk::ShaderStageFlags {
 
 /// Shader stage in a pipeline.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum ShaderStage {
+pub enum ShaderType {
     Vertex,
     Fragment,
     Compute,
 }
 
-impl From<ShaderStage> for ShaderStageFlags {
-    fn from(value: ShaderStage) -> Self {
+impl From<ShaderType> for ShaderStageFlags {
+    fn from(value: ShaderType) -> Self {
         match value {
-            ShaderStage::Vertex => Self::VERTEX,
-            ShaderStage::Fragment => Self::FRAGMENT,
-            ShaderStage::Compute => Self::COMPUTE,
+            ShaderType::Vertex => Self::VERTEX,
+            ShaderType::Fragment => Self::FRAGMENT,
+            ShaderType::Compute => Self::COMPUTE,
         }
     }
 }
 
-impl FromGfx<ShaderStage> for vk::ShaderStageFlags {
-    fn from_gfx(value: ShaderStage) -> Self {
+impl FromGfx<ShaderType> for vk::ShaderStageFlags {
+    fn from_gfx(value: ShaderType) -> Self {
         match value {
-            ShaderStage::Vertex => Self::VERTEX,
-            ShaderStage::Fragment => Self::FRAGMENT,
-            ShaderStage::Compute => Self::COMPUTE,
+            ShaderType::Vertex => Self::VERTEX,
+            ShaderType::Fragment => Self::FRAGMENT,
+            ShaderType::Compute => Self::COMPUTE,
         }
     }
 }

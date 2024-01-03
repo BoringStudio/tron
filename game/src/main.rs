@@ -10,6 +10,10 @@ use winit::window::WindowBuilder;
 
 use renderer::Renderer;
 
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 fn main() -> Result<()> {
     let app: App = argh::from_env();
     app.run()

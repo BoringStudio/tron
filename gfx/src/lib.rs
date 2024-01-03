@@ -23,7 +23,7 @@ pub use self::resources::{
     MipmapMode, Pipeline, PipelineBindPoint, PipelineLayout, PipelineLayoutInfo,
     PipelineStageFlags, PolygonMode, PrimitiveTopology, PushConstant, Rasterizer, Rect, RenderPass,
     RenderPassInfo, Sampler, SamplerAddressMode, SamplerInfo, Samples, Semaphore, ShaderModule,
-    ShaderModuleInfo, ShaderStage, ShaderStageFlags, StencilOp, StencilTest, StencilTests, StoreOp,
+    ShaderModuleInfo, ShaderType, ShaderStageFlags, StencilOp, StencilTest, StencilTests, StoreOp,
     Subpass, SubpassDependency, Swizzle, UpdateDescriptorSet, VertexFormat, VertexInputAttribute,
     VertexInputBinding, VertexInputRate, VertexShader, Viewport, WritableDescriptorSet,
 };
