@@ -10,10 +10,24 @@ use crate::Graphics;
 /// A feature that can be requested when creating a device.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum DeviceFeature {
+    /// Adds a buffer device address to the [`Buffer`].
+    ///
+    /// [`Buffer`]: crate::Buffer
     BufferDeviceAddress,
+    /// Adds ability to query the frame presentation timing.
     DisplayTiming,
-    ScalarBlockLayout,
+    /// Adds [`Min`] and [`Max`] reduction modes to the [`SamplerInfo`].
+    ///
+    /// [`Min`]: crate::ReductionMode::Min
+    /// [`Max`]: crate::ReductionMode::Max
+    /// [`SamplerInfo`]: crate::SamplerInfo
+    SamplerFilterMinMax,
+    /// Must be enabled to use the [`Surface`]
+    ///
+    /// [`Surface`]: crate::Surface
     SurfacePresentation,
+    /// This extension enables C-like structure layout for SPIR-V blocks.
+    ScalarBlockLayout,
 }
 
 /// A wrapper around Vulkan physical device.
@@ -121,11 +135,22 @@ impl PhysicalDevice {
         let mut include_features_v1_2 = false;
         let mut include_features_sbl = false;
         let mut include_features_bda = false;
+        let mut include_features_sfmm = false;
 
         // === Begin fill feature requirements ===
         if requested_features.remove(&DeviceFeature::SurfacePresentation) {
             require_ext(&vk::KHR_SWAPCHAIN_EXTENSION)
                 .context("SurfacePresentation feature is required but not supported")?;
+        }
+
+        if requested_features.remove(&DeviceFeature::SamplerFilterMinMax) {
+            anyhow::ensure!(
+                self.features.v1_2.sampler_filter_minmax != 0,
+                "SamplerFilterMinMax feature is required but not supported"
+            );
+            features_v1_2.sampler_filter_minmax = 1;
+            include_features_v1_2 = true;
+            include_features_sfmm = true;
         }
 
         if requested_features.remove(&DeviceFeature::ScalarBlockLayout) {
@@ -162,6 +187,7 @@ impl PhysicalDevice {
         if graphics.vk1_2() {
             include_features_sbl = false;
             include_features_bda = false;
+            include_features_sfmm = false;
         } else {
             include_features_v1_2 = false;
         }
@@ -177,6 +203,9 @@ impl PhysicalDevice {
         if include_features_bda {
             require_ext(&vk::KHR_BUFFER_DEVICE_ADDRESS_EXTENSION)?;
             device_create_info = device_create_info.push_next(&mut features_bda);
+        }
+        if include_features_sfmm {
+            require_ext(&vk::EXT_SAMPLER_FILTER_MINMAX_EXTENSION)?;
         }
 
         // Ensure all required features are supported

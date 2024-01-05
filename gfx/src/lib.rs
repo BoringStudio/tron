@@ -22,10 +22,11 @@ pub use self::resources::{
     ImageViewInfo, ImageViewType, IndexType, LoadOp, LogicOp, MakeImageView, MappableBuffer,
     MipmapMode, Pipeline, PipelineBindPoint, PipelineLayout, PipelineLayoutInfo,
     PipelineStageFlags, PolygonMode, PrimitiveTopology, PushConstant, Rasterizer, Rect, RenderPass,
-    RenderPassInfo, Sampler, SamplerAddressMode, SamplerInfo, Samples, Semaphore, ShaderModule,
-    ShaderModuleInfo, ShaderType, ShaderStageFlags, StencilOp, StencilTest, StencilTests, StoreOp,
-    Subpass, SubpassDependency, Swizzle, UpdateDescriptorSet, VertexFormat, VertexInputAttribute,
-    VertexInputBinding, VertexInputRate, VertexShader, Viewport, WritableDescriptorSet,
+    RenderPassInfo, Sampler, SamplerAddressMode, SamplerInfo, ReductionMode, Samples,
+    Semaphore, ShaderModule, ShaderModuleInfo, ShaderStageFlags, ShaderType, StencilOp,
+    StencilTest, StencilTests, StoreOp, Subpass, SubpassDependency, Swizzle, UpdateDescriptorSet,
+    VertexFormat, VertexInputAttribute, VertexInputBinding, VertexInputRate, VertexShader,
+    Viewport, WritableDescriptorSet,
 };
 pub use self::surface::{PresentMode, Surface, SurfaceImage, SwapchainSupport};
 pub use self::types::{DeviceAddress, State};

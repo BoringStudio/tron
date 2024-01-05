@@ -576,7 +576,7 @@ impl Device {
             }
             Entry::Vacant(entry) => {
                 let handle = {
-                    let info = vk::SamplerCreateInfo::builder()
+                    let mut create_info = vk::SamplerCreateInfo::builder()
                         .mag_filter(info.mag_filter.to_vk())
                         .min_filter(info.min_filter.to_vk())
                         .mipmap_mode(info.mipmap_mode.to_vk())
@@ -593,7 +593,14 @@ impl Device {
                         .border_color(info.border_color.to_vk())
                         .unnormalized_coordinates(info.unnormalized_coordinates);
 
-                    unsafe { logical.create_sampler(&info, None) }?
+                    let mut reduction_mode_info;
+                    if let Some(reduction_mode) = info.reduction_mode {
+                        reduction_mode_info = vk::SamplerReductionModeCreateInfo::builder()
+                            .reduction_mode(reduction_mode.to_vk());
+                        create_info = create_info.push_next(&mut reduction_mode_info);
+                    }
+
+                    unsafe { logical.create_sampler(&create_info, None) }?
                 };
 
                 entry

@@ -21,6 +21,7 @@ pub struct SamplerInfo {
     pub max_lod: f32,
     pub border_color: BorderColor,
     pub unnormalized_coordinates: bool,
+    pub reduction_mode: Option<ReductionMode>,
 }
 
 impl SamplerInfo {
@@ -205,6 +206,33 @@ impl FromGfx<BorderColor> for vk::BorderColor {
             BorderColor::IntOpaqueBlack => Self::INT_OPAQUE_BLACK,
             BorderColor::FloatOpaqueWhite => Self::FLOAT_OPAQUE_WHITE,
             BorderColor::IntOpaqueWhite => Self::INT_OPAQUE_WHITE,
+        }
+    }
+}
+
+/// Describes the operation a sampler does on multiple texels before it produces the result.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum ReductionMode {
+    /// Compute the weighted average of the texel values based on the position of a sample.
+    WeightedAverage,
+    /// Compute the minimum between the texel values, component-wise.
+    /// Requires the [`SamplerFilterMinMax`] feature.
+    ///
+    /// [`SamplerFilterMinMax`]: crate::DeviceFeature::SamplerFilterMinMax
+    Min,
+    /// Compute the maximum between the texel values, component-wise.
+    /// Requires the [`SamplerFilterMinMax`] feature.
+    ///
+    /// [`SamplerFilterMinMax`]: crate::DeviceFeature::SamplerFilterMinMax
+    Max,
+}
+
+impl FromGfx<ReductionMode> for vk::SamplerReductionMode {
+    fn from_gfx(value: ReductionMode) -> Self {
+        match value {
+            ReductionMode::WeightedAverage => Self::WEIGHTED_AVERAGE,
+            ReductionMode::Min => Self::MIN,
+            ReductionMode::Max => Self::MAX,
         }
     }
 }
