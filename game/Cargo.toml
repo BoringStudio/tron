@@ -2,6 +2,7 @@
 name = "game"
 version = "0.1.0"
 edition = "2021"
+build = "../build.rs"
 
 [dependencies]
 anyhow = "1.0"
@@ -19,6 +20,9 @@ renderer = { path = "../renderer" }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5"
+
+[build-dependencies]
+cfg_aliases = "0.1"
 
 [features]
 link-shaderc = ["renderer/link-shaderc"]

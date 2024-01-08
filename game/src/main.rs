@@ -5,6 +5,7 @@ use anyhow::Result;
 use argh::FromArgs;
 use winit::event::*;
 use winit::event_loop::EventLoop;
+#[cfg(x11_platform)]
 use winit::platform::x11::{WindowBuilderExtX11, XWindowType};
 use winit::window::WindowBuilder;
 
@@ -28,6 +29,11 @@ struct App {
     /// enable profiling server
     #[argh(switch)]
     profiling: bool,
+
+    /// enable X11-specific popup mode
+    #[cfg(x11_platform)]
+    #[argh(switch)]
+    x11_as_popup: bool,
 }
 
 impl App {
@@ -52,11 +58,18 @@ impl App {
 
         let app_name = env!("CARGO_BIN_NAME").to_owned();
         let event_loop = EventLoop::new()?;
-        let window = WindowBuilder::new()
-            .with_x11_window_type(vec![XWindowType::Dialog, XWindowType::Normal])
-            .with_title(app_name)
-            .build(&event_loop)
-            .map(Arc::new)?;
+        let window = {
+            let mut builder = WindowBuilder::new();
+            builder = builder.with_title(app_name);
+
+            #[cfg(x11_platform)]
+            if self.x11_as_popup {
+                builder =
+                    builder.with_x11_window_type(vec![XWindowType::Dialog, XWindowType::Normal]);
+            }
+
+            builder.build(&event_loop).map(Arc::new)?
+        };
 
         let mut renderer = Renderer::builder(window.clone())
             .app_version((0, 0, 1))

@@ -24,7 +24,7 @@ impl VirtualFs {
 
             let mut dirs = Vec::new();
             for component in components {
-                match component.try_into()? {
+                match component {
                     PathComponent::RootDir | PathComponent::CurDir => dirs.clear(),
                     PathComponent::ParentDir => {
                         anyhow::ensure!(dirs.pop().is_some(), "parent dir is not accessible")
@@ -48,12 +48,7 @@ impl VirtualFs {
                 };
             }
 
-            children.insert(
-                file_name.to_owned(),
-                Node::File {
-                    contents: contents.into(),
-                },
-            );
+            children.insert(file_name.to_owned(), Node::File { contents });
             Ok(())
         }
         add_file_impl(&mut self.nodes, path.as_ref(), contents.into())
@@ -85,7 +80,7 @@ impl VirtualFs {
             // Resolve base path
             let mut dirs = Vec::<Item>::new();
             for component in base_components {
-                match component.try_into()? {
+                match component {
                     PathComponent::RootDir | PathComponent::CurDir => dirs.clear(),
                     PathComponent::ParentDir => {
                         anyhow::ensure!(
@@ -121,7 +116,7 @@ impl VirtualFs {
 
             // Resolve relative path
             for component in path_components {
-                match component.try_into()? {
+                match component {
                     PathComponent::RootDir => dirs.clear(),
                     PathComponent::CurDir => {}
                     PathComponent::ParentDir => {
@@ -157,10 +152,10 @@ impl VirtualFs {
 
                     let mut absolute_path = String::with_capacity(len);
                     for item in &dirs {
-                        absolute_path.push_str("/");
+                        absolute_path.push('/');
                         absolute_path.push_str(item.dir_name);
                     }
-                    absolute_path.push_str("/");
+                    absolute_path.push('/');
                     absolute_path.push_str(file_name);
 
                     Ok(Some(ResolvedFile {
