@@ -11,7 +11,7 @@ use winit::window::WindowBuilder;
 
 use renderer::Renderer;
 
-#[cfg(not(target_env = "msvc"))]
+#[cfg(not(any(target_env = "msvc", miri)))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 

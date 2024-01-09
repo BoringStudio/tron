@@ -11,9 +11,8 @@ use self::pipelines::OpaqueMeshPipeline;
 pub use self::render_passes::{EncoderExt, MainPass, MainPassInput, Pass};
 pub use self::shader_preprocessor::{ShaderPreprocessor, ShaderPreprocessorScope};
 pub use self::types::{
-    Color, Normal, PipelineVertexInputExt, Position2, Position2UV, Position2UVColor, Position3,
-    Position3NormalTangentUV, Position3NormalUV, Position3UV, Tangent, Vertex2, Vertex3, Vertex4,
-    VertexAttribute, VertexLocation, VertexType, UV,
+    Color, Mesh, MeshHandle, Normal, Position2, Position3, Tangent, VertexAttribute,
+    VertexAttributeKind, VertexAttributeData, UV0,
 };
 use pipelines::{CachedGraphicsPipeline, RenderPassEncoderExt};
 

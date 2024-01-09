@@ -1,199 +1,241 @@
-use std::borrow::Cow;
-
 use bytemuck::{Pod, Zeroable};
 use glam::{Vec2, Vec3, Vec4};
 
-pub trait PipelineVertexInputExt {
-    fn bindings_and_attributes(
-        &self,
-    ) -> (Vec<gfx::VertexInputBinding>, Vec<gfx::VertexInputAttribute>);
-}
-
-impl<T: AsRef<[VertexLayout]>> PipelineVertexInputExt for T {
-    fn bindings_and_attributes(
-        &self,
-    ) -> (Vec<gfx::VertexInputBinding>, Vec<gfx::VertexInputAttribute>) {
-        fn bindings_and_attributes_impl(
-            layouts: &[VertexLayout],
-        ) -> (Vec<gfx::VertexInputBinding>, Vec<gfx::VertexInputAttribute>) {
-            let mut bindings = Vec::with_capacity(layouts.len());
-            let mut attributes = Vec::new();
-
-            for (binding, layout) in layouts.iter().enumerate() {
-                bindings.push(gfx::VertexInputBinding {
-                    rate: layout.rate,
-                    stride: layout.stride,
-                });
-
-                let base_location = attributes.len();
-                attributes.extend(layout.locations.iter().enumerate().map(|(i, location)| {
-                    gfx::VertexInputAttribute {
-                        location: (base_location + i) as u32,
-                        binding: binding as u32,
-                        format: location.format,
-                        offset: location.offset,
-                    }
-                }));
-            }
-
-            (bindings, attributes)
-        }
-
-        bindings_and_attributes_impl(self.as_ref())
-    }
-}
-
-pub trait VertexType: std::fmt::Debug + Default + PartialEq + Pod {
-    const LOCATIONS: &'static [VertexLocation];
-    const RATE: gfx::VertexInputRate;
-
-    fn layout() -> VertexLayout {
-        VertexLayout {
-            locations: Cow::Borrowed(Self::LOCATIONS),
-            rate: Self::RATE,
-            stride: std::mem::size_of::<Self>() as u32,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct VertexLayout {
-    pub locations: Cow<'static, [VertexLocation]>,
-    pub rate: gfx::VertexInputRate,
-    pub stride: u32,
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct VertexLocation {
-    pub offset: u32,
-    pub format: gfx::VertexFormat,
-    pub kind: VertexAttributeKind,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum VertexAttributeKind {
-    Position2,
-    Position3,
-    Normal,
-    Tangent,
-    UV,
-    Color,
-}
-
-pub trait VertexAttribute: std::fmt::Debug + Default + PartialEq + Pod {
+pub trait VertexAttribute: std::fmt::Debug + Default + PartialEq + Pod + Send + Sync {
     const FORMAT: gfx::VertexFormat;
     const KIND: VertexAttributeKind;
 }
 
 macro_rules! define_vertex_attributes {
-    ($(
-        $(#[$meta:meta])*
-        $vis:vis $ident:ident($inner_vis:vis $inner:ty) => ($format:ident, $component:ident);
-    )*) => {
+    (
+        $(#[$kind_meta:meta])* kind: $kind:ident;
+        $($(#[$ident_meta:meta])* $ident:ident($inner:ty) => $format:ident;)*
+    ) => {
+        $(#[$kind_meta])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum $kind {
+            $($ident,)*
+        }
+
         $(
-            $(#[$meta])*
-            $vis struct $ident($inner_vis $inner);
+            $(#[$ident_meta])*
+            #[derive(Debug, Default, Clone, Copy, PartialEq, Pod, Zeroable)]
+            #[repr(transparent)]
+            pub struct $ident(pub $inner);
 
             impl VertexAttribute for $ident {
                 const FORMAT: gfx::VertexFormat = gfx::VertexFormat::$format;
-                const KIND: VertexAttributeKind = VertexAttributeKind::$component;
+                const KIND: VertexAttributeKind = VertexAttributeKind::$ident;
+            }
+
+            impl From<$inner> for $ident {
+                #[inline]
+                fn from(value: $inner) -> Self {
+                    Self(value)
+                }
+            }
+
+            impl From<$ident> for $inner {
+                #[inline]
+                fn from($ident(value): $ident) -> Self {
+                    value
+                }
+            }
+
+            impl AsRef<$inner> for $ident {
+                #[inline]
+                fn as_ref(&self) -> &$inner {
+                    &self.0
+                }
+            }
+
+            impl AsMut<$inner> for $ident {
+                #[inline]
+                fn as_mut(&mut self) -> &mut $inner {
+                    &mut self.0
+                }
+            }
+
+            impl std::ops::Deref for $ident {
+                type Target = $inner;
+
+                #[inline]
+                fn deref(&self) -> &Self::Target {
+                    &self.0
+                }
+            }
+
+            impl std::ops::DerefMut for $ident {
+                #[inline]
+                fn deref_mut(&mut self) -> &mut Self::Target {
+                    &mut self.0
+                }
             }
         )*
     };
 }
 
 define_vertex_attributes! {
+    /// The kind of a vertex attribute.
+    kind: VertexAttributeKind;
+
     /// A 2D position.
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Pod, Zeroable)]
-    #[repr(transparent)]
-    pub Position2(pub Vec2) => (Float32x2, Position2);
-
+    Position2(Vec2) => Float32x2;
     /// A 3D position.
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Pod, Zeroable)]
-    #[repr(transparent)]
-    pub Position3(pub Vec3) => (Float32x3, Position3);
-
+    Position3(Vec3) => Float32x3;
     /// A normal vector.
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Pod, Zeroable)]
-    #[repr(transparent)]
-    pub Normal(pub Vec3) => (Float32x3, Normal);
-
+    Normal(Vec3) => Float32x3;
     /// A tangent vector.
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Pod, Zeroable)]
-    #[repr(transparent)]
-    pub Tangent(pub Vec3) => (Float32x3, Tangent);
-
-    /// A UV coordinate.
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Pod, Zeroable)]
-    #[repr(transparent)]
-    pub UV(pub Vec2) => (Float32x2, UV);
-
+    Tangent(Vec3) => Float32x3;
+    /// A local UV coordinate.
+    UV0(Vec2) => Float32x2;
     /// RGBA color.
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Pod, Zeroable)]
-    #[repr(transparent)]
-    pub Color(pub Vec4) => (Float32x4, Color);
+    Color(Vec4) => Float32x4;
 }
 
-impl<T: VertexAttribute> VertexType for T {
-    const LOCATIONS: &'static [VertexLocation] = &[VertexLocation {
-        offset: 0,
-        format: T::FORMAT,
-        kind: T::KIND,
-    }];
-    const RATE: gfx::VertexInputRate = gfx::VertexInputRate::Vertex;
+pub struct VertexAttributeData {
+    kind: VertexAttributeKind,
+    ptr: *mut u8,
+    byte_len: usize,
+    drop_fn: unsafe fn(*mut u8, usize),
 }
 
-macro_rules! define_generic_vertex_types {
-    ($(
-        $(#[$meta:meta])*
-        $vis:vis $ident:ident($($comp:tt),*);
-    )*) => {$(
-        $(#[$meta])*
-        #[derive(Debug, Default, Clone, Copy, PartialEq)]
-        #[repr(C)]
-        pub struct $ident<$($comp),*>($(pub $comp),*);
+impl VertexAttributeData {
+    pub fn new<T: VertexAttribute>(mut data: Vec<T>) -> Self {
+        assert!(std::mem::size_of::<T>() != 0);
 
-        unsafe impl<$($comp: Pod),*> Pod for $ident<$($comp),*> {}
-        unsafe impl<$($comp: Zeroable),*> Zeroable for $ident<$($comp),*> {}
+        // Ensure that capacity is equal to len.
+        data.shrink_to_fit();
+        debug_assert!(data.len() == data.capacity());
 
-        impl<$($comp),*> VertexType for $ident<$($comp),*>
-        where
-            $($comp: VertexAttribute),*
-        {
-            const LOCATIONS: &'static [VertexLocation] =
-                &define_generic_vertex_types!(@location []; 0; $($comp),*);
-            const RATE: gfx::VertexInputRate = gfx::VertexInputRate::Vertex;
+        let mut data = std::mem::ManuallyDrop::new(data);
+        let ptr = data.as_mut_ptr();
+        let bytes = data.len() * std::mem::size_of::<T>();
+
+        Self {
+            kind: T::KIND,
+            ptr: ptr.cast(),
+            byte_len: bytes,
+            drop_fn: drop_vec::<T>,
         }
-    )*};
+    }
 
-    (@location [ $($t:expr,)* ]; $offset:expr;) => { [$($t,)*] };
-    (@location [ $($t:expr,)* ]; $offset:expr; $comp:tt $(, $rest:tt)*) => {
-        define_generic_vertex_types!(@location
-            [
-                $($t,)*
-                VertexLocation {
-                    offset: $offset,
-                    format: <$comp as VertexAttribute>::FORMAT,
-                    kind: <$comp as VertexAttribute>::KIND,
-                },
-            ];
-            $offset + std::mem::size_of::<$comp>() as u32;
-            $($rest),*
-        )
-    };
+    pub fn kind(&self) -> VertexAttributeKind {
+        self.kind
+    }
+
+    pub fn byte_len(&self) -> usize {
+        self.byte_len
+    }
+
+    pub fn untyped_data(&self) -> &[u8] {
+        // SAFETY: `self.ptr` is a valid pointer to a slice of `self.byte_len` bytes.
+        unsafe { std::slice::from_raw_parts(self.ptr, self.byte_len) }
+    }
+
+    pub fn typed_data<T: VertexAttribute>(&self) -> Option<&[T]> {
+        if self.kind == T::KIND {
+            Some(bytemuck::cast_slice(self.untyped_data()))
+        } else {
+            None
+        }
+    }
+
+    pub fn typed_data_mut<T: VertexAttribute>(&mut self) -> Option<&mut [T]> {
+        if self.kind == T::KIND {
+            // SAFETY: `self.ptr` is a valid pointer to a slice of `self.byte_len` bytes.
+            let data = unsafe { std::slice::from_raw_parts_mut(self.ptr, self.byte_len) };
+            Some(bytemuck::cast_slice_mut(data))
+        } else {
+            None
+        }
+    }
 }
 
-define_generic_vertex_types! {
-    /// Vertex with 2 attributes.
-    pub Vertex2(A1, A2);
-    /// Vertex with 3 attributes.
-    pub Vertex3(A1, A2, A3);
-    /// Vertex with 4 attributes.
-    pub Vertex4(A1, A2, A3, A4);
+impl<T: VertexAttribute> From<Vec<T>> for VertexAttributeData {
+    fn from(data: Vec<T>) -> Self {
+        Self::new(data)
+    }
 }
 
-pub type Position2UV = Vertex2<Position2, UV>;
-pub type Position2UVColor = Vertex3<Position2, UV, Color>;
-pub type Position3UV = Vertex2<Position3, UV>;
-pub type Position3NormalUV = Vertex3<Position3, Normal, UV>;
-pub type Position3NormalTangentUV = Vertex4<Position3, Normal, Tangent, UV>;
+impl Drop for VertexAttributeData {
+    fn drop(&mut self) {
+        // SAFETY:
+        // - `T` is not a ZST.
+        // - `self.ptr` was aquired from a `Vec<T>` with a length equal to capacity.
+        // - `self.byte_len` is equal to `vec.len() * std::mem::size_of::<T>()`.
+        unsafe { (self.drop_fn)(self.ptr, self.byte_len) }
+    }
+}
+
+// SAFETY: `VertexAttributeData` can only be constructed from `Vec<T>`
+// where `T: VertexAttribute`, where `VertexAttribute: Send + Sync`.
+unsafe impl Send for VertexAttributeData {}
+unsafe impl Sync for VertexAttributeData {}
+
+/// # Safety
+/// The following must be true:
+/// - `T` must not be a ZST.
+/// - `ptr` must be aquired from a `Vec<T>` with a length equal to capacity.
+/// - `bytes` must be equal to `vec.len() * std::mem::size_of::<T>()`.
+unsafe fn drop_vec<T>(ptr: *mut u8, bytes: usize) {
+    let len = bytes / std::mem::size_of::<T>();
+    Vec::<T>::from_raw_parts(ptr.cast(), len, len);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn usage_with_different_alignment() {
+        const POSITIONS: &[Position2] = &[
+            Position2(Vec2::new(1.0, 2.0)),
+            Position2(Vec2::new(3.0, 4.0)),
+        ];
+
+        let positions = POSITIONS.to_owned();
+        let mut attribute = VertexAttributeData::new(positions);
+        assert_eq!(attribute.byte_len(), 16);
+        assert_eq!(attribute.untyped_data().len(), 16);
+        assert_eq!(attribute.typed_data::<Position2>(), Some(POSITIONS));
+        assert_eq!(attribute.typed_data::<UV0>(), None);
+
+        assert_eq!(
+            attribute.typed_data_mut::<Position2>(),
+            Some(&mut [
+                Position2(Vec2::new(1.0, 2.0)),
+                Position2(Vec2::new(3.0, 4.0)),
+            ] as &mut [Position2])
+        );
+        assert_eq!(attribute.typed_data_mut::<UV0>(), None);
+    }
+
+    #[test]
+    fn from_vec_with_extra_capacity() {
+        const POSITIONS: &[Position2] = &[
+            Position2(Vec2::new(1.0, 2.0)),
+            Position2(Vec2::new(3.0, 4.0)),
+        ];
+
+        let mut positions = POSITIONS.to_owned();
+
+        positions.reserve(10);
+        assert!(positions.capacity() > positions.len());
+
+        let mut attribute = VertexAttributeData::new(positions);
+        assert_eq!(attribute.byte_len(), 16);
+        assert_eq!(attribute.untyped_data().len(), 16);
+        assert_eq!(attribute.typed_data::<Position2>(), Some(POSITIONS));
+        assert_eq!(attribute.typed_data::<UV0>(), None);
+
+        assert_eq!(
+            attribute.typed_data_mut::<Position2>(),
+            Some(&mut [
+                Position2(Vec2::new(1.0, 2.0)),
+                Position2(Vec2::new(3.0, 4.0)),
+            ] as &mut [Position2])
+        );
+        assert_eq!(attribute.typed_data_mut::<UV0>(), None);
+    }
+}

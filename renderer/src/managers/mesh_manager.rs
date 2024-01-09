@@ -46,25 +46,12 @@ impl MeshManager {
             return Ok(GpuMesh::new_empty());
         }
 
-        // TODO: use generic attribute storage
-        let has_positions = !mesh.positions.is_empty();
-        let has_normals = !mesh.normals.is_empty();
-        let has_tangents = !mesh.tangents.is_empty();
-        let has_uv0 = !mesh.uv0.is_empty();
+        let mut vertex_attribute_ranges = Vec::with_capacity(mesh.attribute_data.len());
 
-        let mut vertex_attribute_ranges = Vec::with_capacity(
-            has_positions as usize
-                + has_normals as usize
-                + has_tangents as usize
-                + has_uv0 as usize,
-        );
-
-        if has_positions {
-            let data: &[u8] = bytemuck::cast_slice(&mesh.positions);
-
+        for attribute in &mesh.attribute_data {
             vertex_attribute_ranges.push((
-                VertexAttributeKind::Position3,
-                self.alloc_range_for_vertices(device, encoder, data.len() as _)?,
+                attribute.kind(),
+                self.alloc_range_for_vertices(device, encoder, attribute.byte_len() as _)?,
             ));
         }
 
