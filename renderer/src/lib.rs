@@ -20,7 +20,7 @@ use pipelines::{CachedGraphicsPipeline, RenderPassEncoderExt};
 mod managers;
 mod pipelines;
 mod render_passes;
-mod resource_registry;
+mod resource_handle;
 mod shader_preprocessor;
 mod types;
 

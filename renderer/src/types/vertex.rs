@@ -67,11 +67,11 @@ pub struct VertexLayout {
 pub struct VertexLocation {
     pub offset: u32,
     pub format: gfx::VertexFormat,
-    pub component: VertexComponent,
+    pub kind: VertexAttributeKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum VertexComponent {
+pub enum VertexAttributeKind {
     Position2,
     Position3,
     Normal,
@@ -82,7 +82,7 @@ pub enum VertexComponent {
 
 pub trait VertexAttribute: std::fmt::Debug + Default + PartialEq + Pod {
     const FORMAT: gfx::VertexFormat;
-    const COMPONENT: VertexComponent;
+    const KIND: VertexAttributeKind;
 }
 
 macro_rules! define_vertex_attributes {
@@ -96,7 +96,7 @@ macro_rules! define_vertex_attributes {
 
             impl VertexAttribute for $ident {
                 const FORMAT: gfx::VertexFormat = gfx::VertexFormat::$format;
-                const COMPONENT: VertexComponent = VertexComponent::$component;
+                const KIND: VertexAttributeKind = VertexAttributeKind::$component;
             }
         )*
     };
@@ -138,7 +138,7 @@ impl<T: VertexAttribute> VertexType for T {
     const LOCATIONS: &'static [VertexLocation] = &[VertexLocation {
         offset: 0,
         format: T::FORMAT,
-        component: T::COMPONENT,
+        kind: T::KIND,
     }];
     const RATE: gfx::VertexInputRate = gfx::VertexInputRate::Vertex;
 }
@@ -174,7 +174,7 @@ macro_rules! define_generic_vertex_types {
                 VertexLocation {
                     offset: $offset,
                     format: <$comp as VertexAttribute>::FORMAT,
-                    component: <$comp as VertexAttribute>::COMPONENT,
+                    kind: <$comp as VertexAttribute>::KIND,
                 },
             ];
             $offset + std::mem::size_of::<$comp>() as u32;

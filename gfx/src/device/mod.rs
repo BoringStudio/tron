@@ -122,6 +122,10 @@ impl Device {
         self.inner.physical
     }
 
+    pub fn limits(&self) -> &vk::PhysicalDeviceLimits {
+        &self.inner.properties.v1_0.limits
+    }
+
     pub fn properties(&self) -> &DeviceProperties {
         &self.inner.properties
     }

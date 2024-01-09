@@ -271,7 +271,7 @@ impl CommandBuffer {
             anyhow::ensure!(data.len() % 4 == 0, "unaligned buffer data length");
             anyhow::ensure!(data.len() <= 65536, "too much data to update");
 
-            self.references.buffers.push(buffer.clone());
+            self.references.buffers.insert(buffer.clone());
 
             let logical = device.logical();
             unsafe { logical.cmd_update_buffer(self.handle, buffer.handle(), offset, data) }
@@ -279,10 +279,10 @@ impl CommandBuffer {
         Ok(())
     }
 
-    pub(crate) fn bind_vertex_buffers(&mut self, first: u32, buffers: &[(&Buffer, u64)]) {
+    pub(crate) fn bind_vertex_buffers(&mut self, first_binding: u32, buffers: &[(&Buffer, u64)]) {
         if let Some(device) = self.state.device_from_full() {
             for &(buffer, _) in buffers {
-                self.references.buffers.push(buffer.clone());
+                self.references.buffers.insert(buffer.clone());
             }
 
             let alloc = DeallocOnDrop(&mut self.alloc);
@@ -292,7 +292,9 @@ impl CommandBuffer {
                 alloc.alloc_slice_fill_iter(buffers.iter().map(|&(buffer, _)| buffer.handle()));
 
             let logical = device.logical();
-            unsafe { logical.cmd_bind_vertex_buffers(self.handle, first, buffers, offsets) };
+            unsafe {
+                logical.cmd_bind_vertex_buffers(self.handle, first_binding, buffers, offsets)
+            };
         }
     }
 
@@ -303,7 +305,7 @@ impl CommandBuffer {
         index_type: IndexType,
     ) {
         if let Some(device) = self.state.device_from_full() {
-            self.references.buffers.push(buffer.clone());
+            self.references.buffers.insert(buffer.clone());
 
             unsafe {
                 device.logical().cmd_bind_index_buffer(
@@ -323,8 +325,8 @@ impl CommandBuffer {
         regions: &[BufferCopy],
     ) {
         if let Some(device) = self.state.device_from_full() {
-            self.references.buffers.push(src_buffer.clone());
-            self.references.buffers.push(dst_buffer.clone());
+            self.references.buffers.insert(src_buffer.clone());
+            self.references.buffers.insert(dst_buffer.clone());
 
             let alloc = DeallocOnDrop(&mut self.alloc);
 
@@ -384,7 +386,7 @@ impl CommandBuffer {
         regions: &[BufferImageCopy],
     ) {
         if let Some(device) = self.state.device_from_full() {
-            self.references.buffers.push(src_buffer.clone());
+            self.references.buffers.insert(src_buffer.clone());
             self.references.images.push(dst_image.clone());
 
             let alloc = DeallocOnDrop(&mut self.alloc);
@@ -449,7 +451,7 @@ impl CommandBuffer {
                 self.references.images.push(item.image.clone());
             }
             for item in buffer_memory_barriers {
-                self.references.buffers.push(item.buffer.clone());
+                self.references.buffers.insert(item.buffer.clone());
             }
 
             let alloc = DeallocOnDrop(&mut self.alloc);
@@ -563,7 +565,7 @@ impl CommandBufferState {
 
 #[derive(Default, Debug)]
 pub(crate) struct References {
-    buffers: Vec<Buffer>,
+    buffers: FastHashSet<Buffer>,
     images: Vec<Image>,
     framebuffers: Vec<Framebuffer>,
     graphics_pipelines: Vec<GraphicsPipeline>,

@@ -1,59 +1,38 @@
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
-use indexmap::IndexMap;
-
-pub struct ResourceRegistry<T, H> {
-    mapping: IndexMap<usize, ResourceStorage<T>, ahash::RandomState>,
-    _handle_type: PhantomData<H>,
+pub struct ResourceHandleAllocator<T> {
+    next: AtomicUsize,
+    free_list: Mutex<Vec<usize>>,
+    _phantom: PhantomData<T>,
 }
 
-impl<T, H> ResourceRegistry<T, H> {
-    pub fn new() -> Self {
+impl<T> ResourceHandleAllocator<T> {
+    pub fn alloc(&self) -> ResourceHandle<T> {
+        let id = self
+            .free_list
+            .lock()
+            .unwrap()
+            .pop()
+            .unwrap_or_else(|| self.next.fetch_add(1, Ordering::Relaxed));
+
+        ResourceHandle::new(id)
+    }
+
+    pub fn dealloc(&self, handle: &ResourceHandle<T>) {
+        self.free_list.lock().unwrap().push(handle.id);
+    }
+}
+
+impl<T> Default for ResourceHandleAllocator<T> {
+    fn default() -> Self {
         Self {
-            mapping: Default::default(),
-            _handle_type: Default::default(),
+            next: AtomicUsize::new(0),
+            free_list: Mutex::new(Vec::new()),
+            _phantom: PhantomData,
         }
     }
-
-    pub fn insert(&mut self, handle: &ResourceHandle<H>, data: T) {
-        self.mapping.insert(
-            handle.id,
-            ResourceStorage {
-                weak_handle: handle.downgrade(),
-                data,
-            },
-        );
-    }
-
-    pub fn values(&self) -> impl ExactSizeIterator<Item = &T> {
-        self.mapping.values().map(|storage| &storage.data)
-    }
-
-    pub fn values_mut(&mut self) -> impl ExactSizeIterator<Item = &mut T> {
-        self.mapping.values_mut().map(|storage| &mut storage.data)
-    }
-
-    pub fn get(&self, handle: RawResourceHandle<H>) -> &T {
-        &self.mapping.get(&handle.id).unwrap().data
-    }
-
-    pub fn get_mut(&mut self, handle: &ResourceHandle<H>) -> &mut T {
-        &mut self.mapping.get_mut(&handle.id).unwrap().data
-    }
-}
-
-impl<T, H> Default for ResourceRegistry<T, H> {
-    #[inline]
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-struct ResourceStorage<T> {
-    weak_handle: Weak<()>,
-    data: T,
 }
 
 pub struct ResourceHandle<T> {
@@ -63,12 +42,7 @@ pub struct ResourceHandle<T> {
 }
 
 impl<T> ResourceHandle<T> {
-    pub fn allocate(id: &AtomicUsize) -> Self {
-        let id = id.fetch_add(1, Ordering::Relaxed);
-        Self::new(id)
-    }
-
-    pub fn new(id: usize) -> Self {
+    fn new(id: usize) -> Self {
         Self {
             id,
             refcount: Default::default(),
@@ -148,5 +122,3 @@ impl<T> PartialEq for RawResourceHandle<T> {
         self.id == other.id
     }
 }
-
-pub(crate) static RESOURCE_ID: AtomicUsize = AtomicUsize::new(0);

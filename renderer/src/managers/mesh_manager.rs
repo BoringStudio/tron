@@ -3,28 +3,23 @@ use std::ops::Range;
 use anyhow::Result;
 use range_alloc::RangeAllocator;
 
-use crate::resource_registry::ResourceRegistry;
-use crate::types::Mesh;
+use crate::resource_handle::ResourceHandle;
+use crate::types::{Mesh, VertexAttributeKind};
 
 pub struct MeshManager {
     buffers: MeshBuffers,
-    vertex_alloc: RangeAllocator<usize>,
-    index_alloc: RangeAllocator<usize>,
-    registry: ResourceRegistry<InternalMesh, Mesh>,
+    vertex_alloc: RangeAllocator<u64>,
+    index_alloc: RangeAllocator<u64>,
+    registry: Vec<Option<GpuMesh>>,
 }
 
 impl MeshManager {
-    pub fn new(device: &gfx::Device, vertex_size: usize) -> Result<Self> {
-        const INITIAL_VERTEX_COUNT: usize = 1 << 16;
-        const INITIAL_INDEX_COUNT: usize = 1 << 16;
+    pub fn new(device: &gfx::Device) -> Result<Self> {
+        const INITIAL_VERTICES_CAPACITY: u64 = 1 << 16;
+        const INITIAL_INDEX_COUNT: u64 = 1 << 16;
 
-        let buffers = MeshBuffers::new(
-            device,
-            INITIAL_INDEX_COUNT,
-            vertex_size,
-            INITIAL_INDEX_COUNT,
-        )?;
-        let vertex_alloc = RangeAllocator::new(0..INITIAL_VERTEX_COUNT);
+        let buffers = MeshBuffers::new(device, INITIAL_INDEX_COUNT, INITIAL_INDEX_COUNT)?;
+        let vertex_alloc = RangeAllocator::new(0..INITIAL_VERTICES_CAPACITY);
         let index_alloc = RangeAllocator::new(0..INITIAL_INDEX_COUNT);
 
         Ok(Self {
@@ -39,147 +34,239 @@ impl MeshManager {
         &self.buffers
     }
 
-    pub fn vertex_count(&self) -> usize {
-        self.vertex_alloc.initial_range().end
+    pub fn add(
+        &mut self,
+        device: &gfx::Device,
+        encoder: &mut gfx::Encoder,
+        mesh: &Mesh,
+    ) -> Result<GpuMesh> {
+        let vertex_count = mesh.vertex_count;
+        let index_count = mesh.indices.len();
+        if vertex_count == 0 || index_count == 0 {
+            return Ok(GpuMesh::new_empty());
+        }
+
+        // TODO: use generic attribute storage
+        let has_positions = !mesh.positions.is_empty();
+        let has_normals = !mesh.normals.is_empty();
+        let has_tangents = !mesh.tangents.is_empty();
+        let has_uv0 = !mesh.uv0.is_empty();
+
+        let mut vertex_attribute_ranges = Vec::with_capacity(
+            has_positions as usize
+                + has_normals as usize
+                + has_tangents as usize
+                + has_uv0 as usize,
+        );
+
+        if has_positions {
+            let data: &[u8] = bytemuck::cast_slice(&mesh.positions);
+
+            vertex_attribute_ranges.push((
+                VertexAttributeKind::Position3,
+                self.alloc_range_for_vertices(device, encoder, data.len() as _)?,
+            ));
+        }
+
+        todo!()
     }
 
-    pub fn index_count(&self) -> usize {
-        self.index_alloc.initial_range().end
+    fn alloc_range_for_vertices(
+        &mut self,
+        device: &gfx::Device,
+        encoder: &mut gfx::Encoder,
+        size: u64,
+    ) -> Result<Range<u64>> {
+        match self.vertex_alloc.allocate_range(size) {
+            Ok(range) => Ok(range),
+            Err(_) => {
+                self.realloc(device, encoder, size, 0)?;
+                Ok(self
+                    .vertex_alloc
+                    .allocate_range(size)
+                    .expect("`vertex_alloc` must grow after `realloc`"))
+            }
+        }
+    }
+
+    fn alloc_range_for_indices(
+        &mut self,
+        device: &gfx::Device,
+        encoder: &mut gfx::Encoder,
+        count: usize,
+    ) -> Result<Range<u64>> {
+        match self.index_alloc.allocate_range(count as _) {
+            Ok(range) => Ok(range),
+            Err(_) => {
+                self.realloc(device, encoder, 0, count as _)?;
+                Ok(self
+                    .index_alloc
+                    .allocate_range(count as _)
+                    .expect("`index_alloc` must grow after `realloc`"))
+            }
+        }
     }
 
     fn realloc(
         &mut self,
         device: &gfx::Device,
         encoder: &mut gfx::Encoder,
-        remaining_vertices: usize,
-        remaining_indices: usize,
-    ) {
-        let new_vertex_count = (self.vertex_count() + remaining_vertices).next_power_of_two();
-        let new_index_count = (self.index_count() + remaining_indices).next_power_of_two();
+        additional_vertices_capacity: u64,
+        additional_index_count: u64,
+    ) -> Result<()> {
+        let update_vertices = additional_vertices_capacity > 0;
+        let update_indices = additional_index_count > 0;
+        if !update_vertices && !update_indices {
+            return Ok(());
+        }
 
-        let new_buffers = MeshBuffers::new(
-            device,
-            new_vertex_count,
-            self.buffers.vertex_size,
-            new_index_count,
-        );
+        let max_buffer_size = device.limits().max_storage_buffer_range as u64;
 
-        let mut new_vertex_alloc = RangeAllocator::new(0..new_vertex_count);
-        let mut new_index_alloc = RangeAllocator::new(0..new_index_count);
+        // Make vertices buffer if needed
+        let current_vertices_size = self.index_alloc.initial_range().end;
+        let new_vertices = if update_vertices {
+            let new_vertices_size = current_vertices_size
+                .checked_add(additional_vertices_capacity)
+                .and_then(|size| size.checked_next_power_of_two())
+                .expect("too many vertices")
+                .min(max_buffer_size);
+
+            anyhow::ensure!(
+                new_vertices_size > current_vertices_size,
+                "max vertex buffer size exceeded ({max_buffer_size} bytes)"
+            );
+
+            Some((make_vertices(device, new_vertices_size)?, new_vertices_size))
+        } else {
+            None
+        };
+
+        // Make indices buffer if needed
+        let current_index_count = self.index_alloc.initial_range().end;
+        let current_indices_size = current_index_count.saturating_mul(INDEX_SIZE);
+        let new_indices = if update_indices {
+            let new_indices_size = current_indices_size
+                .checked_add(additional_index_count.saturating_mul(INDEX_SIZE))
+                .and_then(|size| size.checked_next_power_of_two())
+                .expect("too many indices")
+                .min(max_buffer_size);
+
+            anyhow::ensure!(
+                !update_indices || new_indices_size > current_indices_size,
+                "max index buffer size exceeded ({max_buffer_size} bytes)"
+            );
+            anyhow::ensure!(
+                new_indices_size % INDEX_SIZE == 0,
+                "unaligned index buffer size ({new_indices_size} bytes, must be multiple of {INDEX_SIZE})"
+            );
+
+            Some((make_indices(device, new_indices_size)?, new_indices_size))
+        } else {
+            None
+        };
+
+        // Update vertex buffer
+        if let Some((new_vertices, new_vertices_size)) = new_vertices {
+            let old_buffer = std::mem::replace(&mut self.buffers.vertices, new_vertices);
+            self.vertex_alloc.grow_to(new_vertices_size);
+            encoder.copy_buffer(
+                &old_buffer,
+                &self.buffers.vertices,
+                &[gfx::BufferCopy {
+                    src_offset: 0,
+                    dst_offset: 0,
+                    size: current_vertices_size,
+                }],
+            );
+        }
+
+        // Update index buffer
+        if let Some((new_indices, new_indices_size)) = new_indices {
+            let old_buffer = std::mem::replace(&mut self.buffers.indices, new_indices);
+            self.index_alloc.grow_to(new_indices_size / INDEX_SIZE);
+            encoder.copy_buffer(
+                &old_buffer,
+                &self.buffers.indices,
+                &[gfx::BufferCopy {
+                    src_offset: 0,
+                    dst_offset: 0,
+                    size: current_indices_size,
+                }],
+            );
+        }
+
+        Ok(())
     }
 }
 
-pub struct InternalMesh {
-    pub vertices_range: Range<usize>,
-    pub indices_range: Range<usize>,
+pub struct GpuMesh {
+    pub vertex_count: u32,
+    pub vertex_attribute_ranges: Vec<(VertexAttributeKind, Range<u64>)>,
+    pub indices_range: Range<u64>,
 }
 
-impl InternalMesh {
-    pub fn indices(&self) -> Range<u32> {
-        Range {
-            start: self.indices_range.start as u32,
-            end: self.indices_range.end as u32,
+impl GpuMesh {
+    pub fn new_empty() -> Self {
+        Self {
+            vertex_count: 0,
+            vertex_attribute_ranges: Default::default(),
+            indices_range: 0..0,
         }
+    }
+
+    pub fn attributes(&self) -> impl Iterator<Item = VertexAttributeKind> + '_ {
+        self.vertex_attribute_ranges
+            .iter()
+            .map(|(component, _)| *component)
+    }
+
+    pub fn get_attribute_range(&self, component: VertexAttributeKind) -> Option<Range<u64>> {
+        self.vertex_attribute_ranges
+            .iter()
+            .find_map(|(c, range)| (*c == component).then_some(range.clone()))
+    }
+
+    pub fn indices(&self) -> Range<u64> {
+        self.indices_range.clone()
     }
 }
 
 pub struct MeshBuffers {
     pub vertices: gfx::Buffer,
     pub indices: gfx::Buffer,
-    pub vertex_size: usize,
 }
 
 impl MeshBuffers {
-    fn new(
-        device: &gfx::Device,
-        vertex_count: usize,
-        vertex_size: usize,
-        index_count: usize,
-    ) -> Result<Self> {
-        let vertices_len = vertex_count * vertex_size;
-        let indices_len = index_count * INDEX_SIZE;
-
-        let vertices = device.create_buffer(gfx::BufferInfo {
-            align: VERTEX_ALIGN_MASK,
-            size: vertices_len as u64,
-            usage: gfx::BufferUsage::TRANSFER_DST | gfx::BufferUsage::VERTEX,
-        })?;
-
-        let indices = device.create_buffer(gfx::BufferInfo {
-            align: INDEX_ALIGN_MASK,
-            size: indices_len as u64,
-            usage: gfx::BufferUsage::TRANSFER_DST | gfx::BufferUsage::INDEX,
-        })?;
-
+    fn new(device: &gfx::Device, vertices_capacity: u64, index_count: u64) -> Result<Self> {
         Ok(Self {
-            vertices,
-            indices,
-            vertex_size,
+            vertices: make_vertices(device, vertices_capacity)?,
+            indices: make_indices(device, index_count * INDEX_SIZE)?,
         })
-    }
-
-    pub fn bind(&self, pass: &mut gfx::EncoderCommon) {
-        pass.bind_vertex_buffers(0, &[(&self.vertices, 0)]);
-        pass.bind_index_buffer(&self.indices, 0, gfx::IndexType::U32);
-    }
-
-    fn copy_vertices_from(
-        &self,
-        encoder: &mut gfx::Encoder,
-        from: &Self,
-        src_range: Range<usize>,
-        dst_range: Range<usize>,
-    ) {
-        copy_buffer_part(
-            encoder,
-            &from.vertices,
-            &self.vertices,
-            src_range,
-            dst_range,
-            from.vertex_size,
-        );
-    }
-
-    fn copy_indices_from(
-        &self,
-        encoder: &mut gfx::Encoder,
-        from: &Self,
-        src_range: Range<usize>,
-        dst_range: Range<usize>,
-    ) {
-        copy_buffer_part(
-            encoder,
-            &from.indices,
-            &self.indices,
-            src_range,
-            dst_range,
-            INDEX_SIZE,
-        );
     }
 }
 
-fn copy_buffer_part(
-    encoder: &mut gfx::Encoder,
-    src: &gfx::Buffer,
-    dst: &gfx::Buffer,
-    src_range: Range<usize>,
-    dst_range: Range<usize>,
-    item_size: usize,
-) {
-    let src_offset = src_range.start * item_size;
-    let size = src_range.end * item_size - src_offset;
-    let dst_offset = dst_range.start * item_size;
-    encoder.copy_buffer(
-        src,
-        dst,
-        &[gfx::BufferCopy {
-            src_offset: src_offset as u64,
-            dst_offset: dst_offset as u64,
-            size: size as u64,
-        }],
-    );
+fn make_vertices(device: &gfx::Device, size: u64) -> Result<gfx::Buffer> {
+    device.create_buffer(gfx::BufferInfo {
+        align: VERTEX_ALIGN_MASK,
+        size,
+        usage: gfx::BufferUsage::TRANSFER_DST
+            | gfx::BufferUsage::TRANSFER_SRC
+            | gfx::BufferUsage::STORAGE,
+    })
+}
+
+fn make_indices(device: &gfx::Device, size: u64) -> Result<gfx::Buffer> {
+    device.create_buffer(gfx::BufferInfo {
+        align: INDEX_ALIGN_MASK,
+        size,
+        usage: gfx::BufferUsage::TRANSFER_DST
+            | gfx::BufferUsage::TRANSFER_SRC
+            | gfx::BufferUsage::STORAGE
+            | gfx::BufferUsage::INDEX,
+    })
 }
 
 const VERTEX_ALIGN_MASK: u64 = 0b1111;
 const INDEX_ALIGN_MASK: u64 = 0b11;
-const INDEX_SIZE: usize = std::mem::size_of::<u32>();
+const INDEX_TYPE: gfx::IndexType = gfx::IndexType::U32;
+const INDEX_SIZE: u64 = INDEX_TYPE.index_size() as u64;

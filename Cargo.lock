@@ -1061,7 +1061,6 @@ dependencies = [
  "bytemuck",
  "gfx",
  "glam",
- "indexmap",
  "once_cell",
  "profiling",
  "range-alloc",

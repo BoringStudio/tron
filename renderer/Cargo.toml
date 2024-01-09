@@ -8,7 +8,6 @@ ahash = "0.8"
 anyhow = "1.0"
 bytemuck = "1.0"
 glam = "0.25"
-indexmap = "2.1"
 once_cell = "1.19"
 profiling = "1.0"
 range-alloc = "0.1"
@@ -22,4 +21,4 @@ gfx = { path = "../gfx" }
 shared = { path = "../shared" }
 
 [features]
-link-shaderc = ["shaderc/build-from-source"]
+link-shaderc = ["shaderc/build-from-source", "shaderc/prefer-static-linking"]

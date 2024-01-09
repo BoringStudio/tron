@@ -25,6 +25,13 @@ impl IndexType {
             _ => None,
         }
     }
+
+    pub const fn index_size(self) -> usize {
+        match self {
+            Self::U16 => 2,
+            Self::U32 => 4,
+        }
+    }
 }
 
 impl FromGfx<IndexType> for vk::IndexType {

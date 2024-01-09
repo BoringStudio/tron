@@ -267,10 +267,11 @@ impl EncoderCommon {
         self.command_buffer.bind_compute_pipeline(pipeline);
     }
 
-    /// Bind vertex buffers to a command buffer.
-    pub fn bind_vertex_buffers(&mut self, first: u32, buffers: &[(&Buffer, u64)]) {
+    /// Bind vertex buffers to a command buffer starting from the `first_binding`.
+    pub fn bind_vertex_buffers(&mut self, first_binding: u32, buffers: &[(&Buffer, u64)]) {
         assert!(self.capabilities.supports_graphics());
-        self.command_buffer.bind_vertex_buffers(first, buffers);
+        self.command_buffer
+            .bind_vertex_buffers(first_binding, buffers);
     }
 
     /// Bind an index buffer to a command buffer.
