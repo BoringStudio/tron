@@ -494,6 +494,9 @@ unsafe fn collect_info(handle: vk::PhysicalDevice) -> (DeviceProperties, DeviceF
             features_di.descriptor_binding_variable_descriptor_count;
         features_v1_2.runtime_descriptor_array = features_di.runtime_descriptor_array;
     }
+    if !vk1_2 && has_device_ext(&vk::EXT_SAMPLER_FILTER_MINMAX_EXTENSION) {
+        features_v1_2.sampler_filter_minmax = 1;
+    }
     if !vk1_2 && has_device_ext(&vk::EXT_SCALAR_BLOCK_LAYOUT_EXTENSION) {
         features_v1_2.scalar_block_layout = features_sbl.scalar_block_layout;
     }
