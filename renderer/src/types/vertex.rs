@@ -23,6 +23,10 @@ macro_rules! define_vertex_attributes {
             #[repr(transparent)]
             pub struct $ident(pub $inner);
 
+            impl $ident {
+                pub const ZERO: Self = Self(<$inner>::ZERO);
+            }
+
             impl VertexAttribute for $ident {
                 const FORMAT: gfx::VertexFormat = gfx::VertexFormat::$format;
                 const KIND: VertexAttributeKind = VertexAttributeKind::$ident;
@@ -79,10 +83,8 @@ define_vertex_attributes! {
     /// The kind of a vertex attribute.
     kind: VertexAttributeKind;
 
-    /// A 2D position.
-    Position2(Vec2) => Float32x2;
     /// A 3D position.
-    Position3(Vec3) => Float32x3;
+    Position(Vec3) => Float32x3;
     /// A normal vector.
     Normal(Vec3) => Float32x3;
     /// A tangent vector.
@@ -189,33 +191,33 @@ mod tests {
 
     #[test]
     fn usage_with_different_alignment() {
-        const POSITIONS: &[Position2] = &[
-            Position2(Vec2::new(1.0, 2.0)),
-            Position2(Vec2::new(3.0, 4.0)),
+        const POSITIONS: &[Position] = &[
+            Position(Vec3::new(1.0, 2.0, 0.0)),
+            Position(Vec3::new(3.0, 4.0, 0.0)),
         ];
 
         let positions = POSITIONS.to_owned();
         let mut attribute = VertexAttributeData::new(positions);
         assert_eq!(attribute.byte_len(), 16);
         assert_eq!(attribute.untyped_data().len(), 16);
-        assert_eq!(attribute.typed_data::<Position2>(), Some(POSITIONS));
+        assert_eq!(attribute.typed_data::<Position>(), Some(POSITIONS));
         assert_eq!(attribute.typed_data::<UV0>(), None);
 
         assert_eq!(
-            attribute.typed_data_mut::<Position2>(),
+            attribute.typed_data_mut::<Position>(),
             Some(&mut [
-                Position2(Vec2::new(1.0, 2.0)),
-                Position2(Vec2::new(3.0, 4.0)),
-            ] as &mut [Position2])
+                Position(Vec3::new(1.0, 2.0, 0.0)),
+                Position(Vec3::new(3.0, 4.0, 0.0)),
+            ] as &mut [Position])
         );
         assert_eq!(attribute.typed_data_mut::<UV0>(), None);
     }
 
     #[test]
     fn from_vec_with_extra_capacity() {
-        const POSITIONS: &[Position2] = &[
-            Position2(Vec2::new(1.0, 2.0)),
-            Position2(Vec2::new(3.0, 4.0)),
+        const POSITIONS: &[Position] = &[
+            Position(Vec3::new(1.0, 2.0, 0.0)),
+            Position(Vec3::new(3.0, 4.0, 0.0)),
         ];
 
         let mut positions = POSITIONS.to_owned();
@@ -226,15 +228,15 @@ mod tests {
         let mut attribute = VertexAttributeData::new(positions);
         assert_eq!(attribute.byte_len(), 16);
         assert_eq!(attribute.untyped_data().len(), 16);
-        assert_eq!(attribute.typed_data::<Position2>(), Some(POSITIONS));
+        assert_eq!(attribute.typed_data::<Position>(), Some(POSITIONS));
         assert_eq!(attribute.typed_data::<UV0>(), None);
 
         assert_eq!(
-            attribute.typed_data_mut::<Position2>(),
+            attribute.typed_data_mut::<Position>(),
             Some(&mut [
-                Position2(Vec2::new(1.0, 2.0)),
-                Position2(Vec2::new(3.0, 4.0)),
-            ] as &mut [Position2])
+                Position(Vec3::new(1.0, 2.0, 0.0)),
+                Position(Vec3::new(3.0, 4.0, 0.0)),
+            ] as &mut [Position])
         );
         assert_eq!(attribute.typed_data_mut::<UV0>(), None);
     }

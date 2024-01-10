@@ -39,13 +39,13 @@ impl MeshManager {
         encoder: &mut gfx::Encoder,
         mesh: &Mesh,
     ) -> Result<GpuMesh> {
-        let vertex_count = mesh.vertex_count;
-        let index_count = mesh.indices.len();
+        let vertex_count = mesh.vertex_count();
+        let index_count = mesh.indices().len();
         if vertex_count == 0 || index_count == 0 {
             return Ok(GpuMesh::new_empty());
         }
 
-        let mut vertex_attribute_ranges = Vec::with_capacity(mesh.attribute_data.len());
+        let mut vertex_attribute_ranges = Vec::with_capacity(mesh.attribute_data().len());
         let mut vertex_attribute_copies = Vec::with_capacity(vertex_attribute_ranges.len());
         let indices_range;
         let indices_copy;
@@ -53,7 +53,7 @@ impl MeshManager {
         let staging_buffer = {
             // Create a host-coherent staging buffer
             let total_attribute_size = mesh
-                .attribute_data
+                .attribute_data()
                 .iter()
                 .map(|a| a.byte_len())
                 .sum::<usize>();
@@ -78,7 +78,7 @@ impl MeshManager {
             let mut staging_buffer_offset = 0;
 
             // Allocate ranges for vertex attributes
-            for attribute in &mesh.attribute_data {
+            for attribute in mesh.attribute_data() {
                 let data = attribute.untyped_data();
                 let len = data.len();
 
@@ -108,9 +108,9 @@ impl MeshManager {
             // the exact remaining capacity required for `mesh.indices`.
             unsafe {
                 std::ptr::copy_nonoverlapping(
-                    mesh.indices.as_ptr().cast::<u8>(),
+                    mesh.indices().as_ptr().cast::<u8>(),
                     staging_buffer_data.add(staging_buffer_offset).cast(),
-                    std::mem::size_of_val::<[_]>(mesh.indices.as_slice()),
+                    std::mem::size_of_val::<[u32]>(mesh.indices()),
                 );
             }
 
