@@ -3,8 +3,7 @@ use std::ops::Range;
 use anyhow::Result;
 use range_alloc::RangeAllocator;
 
-use crate::resource_handle::ResourceHandle;
-use crate::types::{Mesh, VertexAttributeKind};
+use crate::types::{Mesh, MeshHandle, VertexAttributeKind};
 
 pub struct MeshManager {
     buffers: MeshBuffers,
@@ -34,7 +33,7 @@ impl MeshManager {
         &self.buffers
     }
 
-    pub fn add(
+    pub fn upload_mesh(
         &mut self,
         device: &gfx::Device,
         encoder: &mut gfx::Encoder,
@@ -47,15 +46,127 @@ impl MeshManager {
         }
 
         let mut vertex_attribute_ranges = Vec::with_capacity(mesh.attribute_data.len());
+        let mut vertex_attribute_copies = Vec::with_capacity(vertex_attribute_ranges.len());
+        let indices_range;
+        let indices_copy;
 
-        for attribute in &mesh.attribute_data {
-            vertex_attribute_ranges.push((
-                attribute.kind(),
-                self.alloc_range_for_vertices(device, encoder, attribute.byte_len() as _)?,
-            ));
+        let staging_buffer = {
+            // Create a host-coherent staging buffer
+            let total_attribute_size = mesh
+                .attribute_data
+                .iter()
+                .map(|a| a.byte_len())
+                .sum::<usize>();
+            let total_index_size = index_count * (INDEX_SIZE as usize);
+
+            let mut staging_buffer = device.create_mappable_buffer(
+                gfx::BufferInfo {
+                    align: VERTEX_ALIGN_MASK.max(INDEX_ALIGN_MASK),
+                    size: (total_attribute_size + total_index_size) as u64,
+                    usage: gfx::BufferUsage::TRANSFER_SRC,
+                },
+                gfx::MemoryUsage::UPLOAD | gfx::MemoryUsage::TRANSIENT,
+            )?;
+
+            // Map staging buffer to host memory
+            let staging_buffer_data = device.map_memory(
+                &mut staging_buffer,
+                0,
+                (total_attribute_size + total_index_size) as _,
+            )?;
+            let staging_buffer_data = staging_buffer_data.as_mut_ptr();
+            let mut staging_buffer_offset = 0;
+
+            // Allocate ranges for vertex attributes
+            for attribute in &mesh.attribute_data {
+                let data = attribute.untyped_data();
+                let len = data.len();
+
+                // SAFETY: `staging_buffer_data` is a valid pointer to a slice of at least `len` bytes.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        data.as_ptr(),
+                        staging_buffer_data.add(staging_buffer_offset).cast(),
+                        len,
+                    );
+                }
+
+                let range = self.alloc_range_for_vertices(device, encoder, len as _)?;
+                vertex_attribute_copies.push(gfx::BufferCopy {
+                    src_offset: staging_buffer_offset as u64,
+                    dst_offset: range.start,
+                    size: range.end - range.start,
+                });
+                vertex_attribute_ranges.push((attribute.kind(), range));
+
+                staging_buffer_offset += len;
+            }
+
+            // Allocate range for indices
+
+            // SAFETY: `staging_buffer_data` is a valid pointer to a slice with
+            // the exact remaining capacity required for `mesh.indices`.
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    mesh.indices.as_ptr().cast::<u8>(),
+                    staging_buffer_data.add(staging_buffer_offset).cast(),
+                    std::mem::size_of_val::<[_]>(mesh.indices.as_slice()),
+                );
+            }
+
+            indices_range = self.alloc_range_for_indices(device, encoder, index_count)?;
+            indices_copy = gfx::BufferCopy {
+                src_offset: staging_buffer_offset as u64,
+                dst_offset: indices_range.start,
+                size: indices_range.end - indices_range.start,
+            };
+
+            // Unmap and freeze staging buffer
+            device.unmap_memory(&mut staging_buffer);
+            staging_buffer.freeze()
+        };
+
+        // Encode copy commands
+        encoder.copy_buffer(
+            &staging_buffer,
+            &self.buffers.vertices,
+            &vertex_attribute_copies,
+        );
+        encoder.copy_buffer(
+            &staging_buffer,
+            &self.buffers.indices,
+            std::slice::from_ref(&indices_copy),
+        );
+
+        // Done
+        Ok(GpuMesh {
+            vertex_count,
+            vertex_attribute_ranges,
+            indices_range,
+        })
+    }
+
+    pub fn insert(&mut self, handle: &MeshHandle, mesh: GpuMesh) {
+        let index = handle.index();
+        if index >= self.registry.len() {
+            self.registry.resize_with(index + 1, || None);
+        }
+        self.registry[index] = Some(mesh);
+    }
+
+    pub fn remove(&mut self, handle: &MeshHandle) {
+        let index = handle.index();
+        let mesh = self.registry[index].take().expect("handle must be valid");
+
+        for (_, range) in mesh.vertex_attribute_ranges {
+            if !range.is_empty() {
+                self.vertex_alloc.free_range(range);
+            }
         }
 
-        todo!()
+        if !mesh.indices_range.is_empty() {
+            self.index_alloc.free_range(mesh.indices_range);
+        }
     }
 
     fn alloc_range_for_vertices(
@@ -219,8 +330,8 @@ impl GpuMesh {
 }
 
 pub struct MeshBuffers {
-    pub vertices: gfx::Buffer,
-    pub indices: gfx::Buffer,
+    vertices: gfx::Buffer,
+    indices: gfx::Buffer,
 }
 
 impl MeshBuffers {
@@ -229,6 +340,10 @@ impl MeshBuffers {
             vertices: make_vertices(device, vertices_capacity)?,
             indices: make_indices(device, index_count * INDEX_SIZE)?,
         })
+    }
+
+    pub fn bind_index_buffer(&self, encoder: &mut gfx::Encoder) {
+        encoder.bind_index_buffer(&self.indices, 0, INDEX_TYPE);
     }
 }
 

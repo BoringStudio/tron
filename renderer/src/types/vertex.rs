@@ -110,7 +110,7 @@ impl VertexAttributeData {
 
         let mut data = std::mem::ManuallyDrop::new(data);
         let ptr = data.as_mut_ptr();
-        let bytes = data.len() * std::mem::size_of::<T>();
+        let bytes = std::mem::size_of_val::<[T]>(data.as_slice());
 
         Self {
             kind: T::KIND,

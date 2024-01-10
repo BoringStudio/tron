@@ -24,9 +24,10 @@ use crate::resources::{
     ComponentMask, ComputePipeline, ComputePipelineInfo, DescriptorBindingFlags, DescriptorSetInfo,
     DescriptorSetLayout, DescriptorSetLayoutFlags, DescriptorSetLayoutInfo, DescriptorSlice, Fence,
     FenceState, Framebuffer, FramebufferInfo, GraphicsPipeline, GraphicsPipelineInfo, Image,
-    ImageInfo, ImageView, ImageViewInfo, ImageViewType, MappableBuffer, PipelineLayout,
-    PipelineLayoutInfo, RenderPass, RenderPassInfo, Sampler, SamplerInfo, Semaphore, ShaderModule,
-    ShaderModuleInfo, StencilTest, UpdateDescriptorSet, WritableDescriptorSet,
+    ImageInfo, ImageView, ImageViewInfo, ImageViewType, MappableBuffer, MemoryUsage,
+    PipelineLayout, PipelineLayoutInfo, RenderPass, RenderPassInfo, Sampler, SamplerInfo,
+    Semaphore, ShaderModule, ShaderModuleInfo, StencilTest, UpdateDescriptorSet,
+    WritableDescriptorSet,
 };
 use crate::surface::Surface;
 use crate::types::{DeviceAddress, State};
@@ -332,7 +333,7 @@ impl Device {
     pub fn create_mappable_buffer(
         &self,
         info: BufferInfo,
-        memory_usage: gpu_alloc::UsageFlags,
+        memory_usage: MemoryUsage,
     ) -> Result<MappableBuffer> {
         self.create_buffer_impl(info, Some(memory_usage))
     }
@@ -340,11 +341,28 @@ impl Device {
     fn create_buffer_impl(
         &self,
         info: BufferInfo,
-        memory_usage: Option<gpu_alloc::UsageFlags>,
+        memory_usage: Option<MemoryUsage>,
     ) -> Result<MappableBuffer> {
         let logical = &self.inner.logical;
 
-        let mut memory_usage = memory_usage.unwrap_or_else(gpu_alloc::UsageFlags::empty);
+        let mut alloc_flags = gpu_alloc::UsageFlags::empty();
+        if let Some(memory_usage) = memory_usage {
+            // NOTE: memory usage is passed for the mappable buffer only.
+            alloc_flags |= gpu_alloc::UsageFlags::HOST_ACCESS;
+            if memory_usage.contains(MemoryUsage::UPLOAD) {
+                alloc_flags |= gpu_alloc::UsageFlags::UPLOAD;
+            }
+            if memory_usage.contains(MemoryUsage::DOWNLOAD) {
+                alloc_flags |= gpu_alloc::UsageFlags::DOWNLOAD;
+            }
+            if memory_usage.contains(MemoryUsage::FAST_DEVICE_ACCESS) {
+                alloc_flags |= gpu_alloc::UsageFlags::FAST_DEVICE_ACCESS;
+            }
+            if memory_usage.contains(MemoryUsage::TRANSIENT) {
+                alloc_flags |= gpu_alloc::UsageFlags::TRANSIENT;
+            }
+        }
+
         let has_device_address = info.usage.contains(BufferUsage::SHADER_DEVICE_ADDRESS);
         if has_device_address {
             anyhow::ensure!(
@@ -352,7 +370,7 @@ impl Device {
                 "`SHADER_DEVICE_ADDRESS` buffer usage requires `BufferDeviceAddress`
                 feature"
             );
-            memory_usage |= gpu_alloc::UsageFlags::DEVICE_ADDRESS;
+            alloc_flags |= gpu_alloc::UsageFlags::DEVICE_ADDRESS;
         }
 
         let handle = {
@@ -379,7 +397,7 @@ impl Device {
             let request = gpu_alloc::Request {
                 size: reqs.memory_requirements.size,
                 align_mask: (reqs.memory_requirements.alignment - 1) | info.align,
-                usage: memory_usage,
+                usage: alloc_flags,
                 memory_types: reqs.memory_requirements.memory_type_bits,
             };
 
@@ -416,7 +434,7 @@ impl Device {
         Ok(MappableBuffer::new(
             handle.disarm(),
             info,
-            memory_usage,
+            alloc_flags,
             address,
             self.downgrade(),
             block,

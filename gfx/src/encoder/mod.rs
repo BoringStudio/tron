@@ -7,7 +7,7 @@ use crate::device::Device;
 use crate::queue::QueueFlags;
 use crate::resources::{
     Buffer, BufferInfo, BufferUsage, ClearValue, ComputePipeline, DescriptorSet, Filter,
-    Framebuffer, GraphicsPipeline, Image, ImageLayout, IndexType, PipelineBindPoint,
+    Framebuffer, GraphicsPipeline, Image, ImageLayout, IndexType, MemoryUsage, PipelineBindPoint,
     PipelineLayout, Rect, RenderPass, ShaderStageFlags, Viewport,
 };
 use crate::PipelineStageFlags;
@@ -98,7 +98,7 @@ impl Encoder {
                         size,
                         usage: BufferUsage::TRANSFER_SRC,
                     },
-                    gpu_alloc::UsageFlags::UPLOAD | gpu_alloc::UsageFlags::TRANSIENT,
+                    MemoryUsage::UPLOAD | MemoryUsage::TRANSIENT,
                 )?;
                 device.upload_to_memory(&mut staging, 0, data)?;
 

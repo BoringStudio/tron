@@ -21,7 +21,7 @@ impl<T> ResourceHandleAllocator<T> {
     }
 
     pub fn dealloc(&self, handle: &ResourceHandle<T>) {
-        self.free_list.lock().unwrap().push(handle.id);
+        self.free_list.lock().unwrap().push(handle.index);
     }
 }
 
@@ -36,7 +36,7 @@ impl<T> Default for ResourceHandleAllocator<T> {
 }
 
 pub struct ResourceHandle<T> {
-    id: usize,
+    index: usize,
     refcount: Arc<()>,
     _phantom: std::marker::PhantomData<T>,
 }
@@ -44,15 +44,19 @@ pub struct ResourceHandle<T> {
 impl<T> ResourceHandle<T> {
     fn new(id: usize) -> Self {
         Self {
-            id,
+            index: id,
             refcount: Default::default(),
             _phantom: Default::default(),
         }
     }
 
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
     pub fn raw(&self) -> RawResourceHandle<T> {
         RawResourceHandle {
-            id: self.id,
+            index: self.index,
             _phantom: Default::default(),
         }
     }
@@ -65,7 +69,7 @@ impl<T> ResourceHandle<T> {
 impl<T> Clone for ResourceHandle<T> {
     fn clone(&self) -> Self {
         Self {
-            id: self.id,
+            index: self.index,
             refcount: self.refcount.clone(),
             _phantom: self._phantom,
         }
@@ -75,27 +79,27 @@ impl<T> Clone for ResourceHandle<T> {
 impl<T> Eq for ResourceHandle<T> {}
 impl<T> PartialEq for ResourceHandle<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
+        self.index == other.index
     }
 }
 
 impl<T> std::hash::Hash for ResourceHandle<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.id.hash(state)
+        self.index.hash(state)
     }
 }
 
 impl<T> std::fmt::Debug for ResourceHandle<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ResourceHandle")
-            .field("id", &self.id)
+            .field("id", &self.index)
             .field("refcount", &Arc::strong_count(&self.refcount))
             .finish()
     }
 }
 
 pub struct RawResourceHandle<T> {
-    pub id: usize,
+    pub index: usize,
     _phantom: PhantomData<T>,
 }
 
@@ -110,7 +114,7 @@ impl<T> Clone for RawResourceHandle<T> {
 impl<T> std::fmt::Debug for RawResourceHandle<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RawResourceHandle")
-            .field("id", &self.id)
+            .field("id", &self.index)
             .finish()
     }
 }
@@ -119,6 +123,6 @@ impl<T> Eq for RawResourceHandle<T> {}
 impl<T> PartialEq for RawResourceHandle<T> {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
+        self.index == other.index
     }
 }

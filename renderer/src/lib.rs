@@ -6,15 +6,16 @@ use shared::Embed;
 use vulkanalia::vk;
 use winit::window::Window;
 
-pub use self::managers::{MeshBuffers, MeshManager};
-use self::pipelines::OpaqueMeshPipeline;
 pub use self::render_passes::{EncoderExt, MainPass, MainPassInput, Pass};
 pub use self::shader_preprocessor::{ShaderPreprocessor, ShaderPreprocessorScope};
 pub use self::types::{
     Color, Mesh, MeshHandle, Normal, Position2, Position3, Tangent, VertexAttribute,
-    VertexAttributeKind, VertexAttributeData, UV0,
+    VertexAttributeData, VertexAttributeKind, UV0,
 };
-use pipelines::{CachedGraphicsPipeline, RenderPassEncoderExt};
+
+use self::managers::MeshManager;
+use self::pipelines::{CachedGraphicsPipeline, OpaqueMeshPipeline, RenderPassEncoderExt};
+use self::resource_handle::ResourceHandleAllocator;
 
 mod managers;
 mod pipelines;
@@ -66,16 +67,23 @@ impl RendererBuilder {
             OpaqueMeshPipeline::make_descr(&device, &mut shader_preprocessor)
                 .map(CachedGraphicsPipeline::new)?;
 
+        let mesh_manager = MeshManager::new(&device)?;
+        let mesh_handle_allocator = ResourceHandleAllocator::default();
+
         Ok(Renderer {
-            window: self.window,
-            device,
-            queue,
-            surface,
-            shader_preprocessor,
+            mesh_manager,
+            mesh_handle_allocator,
+
             opaque_mesh_pipeline,
             pass,
+
+            window: self.window,
             fences,
             non_optimal_count: 0,
+
+            queue,
+            surface,
+            device,
         })
     }
 
@@ -101,15 +109,22 @@ impl RendererBuilder {
 }
 
 pub struct Renderer {
-    window: Arc<Window>,
-    device: gfx::Device,
-    queue: gfx::Queue,
-    surface: gfx::Surface,
-    shader_preprocessor: ShaderPreprocessor,
+    mesh_manager: MeshManager,
+    mesh_handle_allocator: ResourceHandleAllocator<Mesh>,
+
+    // TODO: replace with render graph
     opaque_mesh_pipeline: CachedGraphicsPipeline,
     pass: MainPass,
+
+    window: Arc<Window>,
     fences: Fences,
     non_optimal_count: usize,
+
+    queue: gfx::Queue,
+    surface: gfx::Surface,
+
+    // NOTE: device must be dropped last
+    device: gfx::Device,
 }
 
 impl Renderer {
@@ -140,6 +155,8 @@ impl Renderer {
         };
 
         let mut encoder = self.queue.create_encoder()?;
+
+        self.mesh_manager.buffers().bind_index_buffer(&mut encoder);
 
         {
             let mut render_pass = encoder.with_render_pass(
@@ -197,6 +214,15 @@ impl Renderer {
 
         profiling::finish_frame!();
         Ok(())
+    }
+
+    pub fn add_mesh(&mut self, encoder: &mut gfx::Encoder, mesh: &Mesh) -> Result<MeshHandle> {
+        let mesh = self.mesh_manager.upload_mesh(&self.device, encoder, mesh)?;
+
+        let handle = self.mesh_handle_allocator.alloc();
+        self.mesh_manager.insert(&handle, mesh);
+
+        Ok(handle)
     }
 }
 

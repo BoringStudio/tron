@@ -145,6 +145,32 @@ impl FromGfx<BufferUsage> for vk::BufferUsageFlags {
     }
 }
 
+bitflags::bitflags! {
+    /// Bitmask specifying properties for a memory type.
+    #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+    pub struct MemoryUsage: u8 {
+        /// Hints for allocator to find memory with faster device access.
+        const FAST_DEVICE_ACCESS = 0x01;
+
+        /// Hints allocator that memory will be used for data downloading.
+        /// Allocator will strongly prefer host-cached memory.
+        const DOWNLOAD = 0x04;
+
+        /// Hints allocator that memory will be used for data uploading.
+        /// If `DOWNLOAD` flag is not set then allocator will assume that
+        /// host will access memory in write-only manner and may
+        /// pick not host-cached.
+        const UPLOAD = 0x08;
+
+        /// Hints allocator that memory will be used for short duration
+        /// allowing to use faster algorithm with less memory overhead.
+        /// If use holds returned memory block for too long then
+        /// effective memory overhead increases instead.
+        /// Best use case is for staging buffer for single batch of operations.
+        const TRANSIENT = 0x10;
+    }
+}
+
 /// A wrapper around a Vulkan buffer object.
 ///
 /// Buffers represent linear arrays of data which are used for various purposes
@@ -242,15 +268,6 @@ pub struct MappableBuffer {
     buffer: Buffer,
 }
 
-impl std::ops::Deref for MappableBuffer {
-    type Target = Buffer;
-
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.buffer
-    }
-}
-
 impl MappableBuffer {
     pub(crate) fn new(
         handle: vk::Buffer,
@@ -279,6 +296,18 @@ impl MappableBuffer {
         &mut *(buffer as *mut Buffer).cast::<Self>()
     }
 
+    pub fn info(&self) -> &BufferInfo {
+        self.buffer.info()
+    }
+
+    pub fn address(&self) -> Option<DeviceAddress> {
+        self.buffer.address()
+    }
+
+    pub fn handle(&self) -> vk::Buffer {
+        self.buffer.handle()
+    }
+
     pub fn freeze(self) -> Buffer {
         self.buffer
     }
@@ -287,8 +316,8 @@ impl MappableBuffer {
     ///
     /// The following must be true:
     /// - Returned mutable reference must not be used to replace the value.
-    pub unsafe fn memory_block(&mut self) -> &mut MemoryBlock<vk::DeviceMemory> {
-        &mut *self.inner.memory_block.get()
+    pub(crate) unsafe fn memory_block(&mut self) -> &mut MemoryBlock<vk::DeviceMemory> {
+        &mut *self.buffer.inner.memory_block.get()
     }
 }
 
