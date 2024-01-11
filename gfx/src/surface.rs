@@ -722,6 +722,7 @@ where
     })
 }
 
+/// An error returned when a surface cannot be created.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum CreateSurfaceError {
     #[error(transparent)]
@@ -744,6 +745,7 @@ impl From<OutOfDeviceMemory> for CreateSurfaceError {
     }
 }
 
+/// A runtime surface error.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum SurfaceError {
     #[error(transparent)]

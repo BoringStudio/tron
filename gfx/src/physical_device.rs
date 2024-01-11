@@ -553,6 +553,7 @@ unsafe fn collect_info(handle: vk::PhysicalDevice) -> (DeviceProperties, DeviceF
     (properties, features)
 }
 
+/// An error returned when a logical device could not be created.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum CreateDeviceError<E> {
     #[error(transparent)]

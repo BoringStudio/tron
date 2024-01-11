@@ -198,8 +198,8 @@ mod tests {
 
         let positions = POSITIONS.to_owned();
         let mut attribute = VertexAttributeData::new(positions);
-        assert_eq!(attribute.byte_len(), 16);
-        assert_eq!(attribute.untyped_data().len(), 16);
+        assert_eq!(attribute.byte_len(), 24);
+        assert_eq!(attribute.untyped_data().len(), 24);
         assert_eq!(attribute.typed_data::<Position>(), Some(POSITIONS));
         assert_eq!(attribute.typed_data::<UV0>(), None);
 
@@ -226,8 +226,8 @@ mod tests {
         assert!(positions.capacity() > positions.len());
 
         let mut attribute = VertexAttributeData::new(positions);
-        assert_eq!(attribute.byte_len(), 16);
-        assert_eq!(attribute.untyped_data().len(), 16);
+        assert_eq!(attribute.byte_len(), 24);
+        assert_eq!(attribute.untyped_data().len(), 24);
         assert_eq!(attribute.typed_data::<Position>(), Some(POSITIONS));
         assert_eq!(attribute.typed_data::<UV0>(), None);
 

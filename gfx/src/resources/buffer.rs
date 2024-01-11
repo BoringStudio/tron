@@ -262,6 +262,9 @@ impl From<MappableBuffer> for Buffer {
     }
 }
 
+/// A host-visible buffer that can be mapped for reading and/or writing.
+///
+/// See [`Buffer`] for more information.
 #[derive(Eq, PartialEq)]
 #[repr(transparent)]
 pub struct MappableBuffer {

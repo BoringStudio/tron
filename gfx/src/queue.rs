@@ -37,7 +37,7 @@ impl QueuesQuery for SingleQueueQuery {
     type QueryState = ();
     type Query = [(usize, usize); 1];
     type Queues = Queue;
-    type Error = QueueNotFoundError;
+    type Error = QueueNotFound;
 
     fn query(
         self,
@@ -48,7 +48,7 @@ impl QueuesQuery for SingleQueueQuery {
                 return Ok(([(index, 1)], ()));
             }
         }
-        Err(QueueNotFoundError {
+        Err(QueueNotFound {
             capabilities: self.0.to_gfx(),
         })
     }
@@ -110,11 +110,13 @@ impl FromGfx<QueueFlags> for vk::QueueFlags {
     }
 }
 
+/// A collection of queues.
 pub struct QueueFamily {
     pub capabilities: QueueFlags,
     pub queues: Vec<Queue>,
 }
 
+/// A global queue id.
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct QueueId {
     pub family: u32,
@@ -390,6 +392,7 @@ pub enum PresentStatus {
     OutOfDate,
 }
 
+/// Queue presentation error.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum PresentError {
     #[error(transparent)]
@@ -400,6 +403,7 @@ pub enum PresentError {
     SurfaceLost(#[from] SurfaceLost),
 }
 
+/// Runtime queue error.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum QueueError {
     #[error(transparent)]
@@ -408,8 +412,9 @@ pub enum QueueError {
     DeviceLost(#[from] DeviceLost),
 }
 
+/// Queue not found error.
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("no queue found with capabilities {capabilities:?}")]
-pub struct QueueNotFoundError {
+pub struct QueueNotFound {
     pub capabilities: QueueFlags,
 }

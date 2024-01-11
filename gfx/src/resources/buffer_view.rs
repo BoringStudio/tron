@@ -48,8 +48,8 @@ impl From<Buffer> for BufferRange {
 /// - [`BufferUsage::UNIFORM_TEXEL_BUFFER`]
 /// - [`BufferUsage::STORAGE_TEXEL_BUFFER`]
 ///
-/// [`BufferUsage::UNIFORM_TEXEL_BUFFER`]: crate::BufferUsage::UNIFORM_TEXEL_BUFFER
-/// [`BufferUsage::STORAGE_TEXEL_BUFFER`]: crate::BufferUsage::STORAGE_TEXEL_BUFFER
+/// [`BufferUsage::UNIFORM_TEXEL_BUFFER`]: crate::BufferUsage::UNIFORM_TEXEL
+/// [`BufferUsage::STORAGE_TEXEL_BUFFER`]: crate::BufferUsage::STORAGE_TEXEL
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct BufferView {

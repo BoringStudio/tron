@@ -6,7 +6,7 @@ use smallvec::SmallVec;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::resources::{DescriptorSetLayout, DescriptorSetLayoutFlags, DescriptorSetSize};
-use crate::OutOfDeviceMemory;
+use crate::types::OutOfDeviceMemory;
 
 #[derive(Default)]
 pub(crate) struct DescriptorAlloc {
@@ -489,6 +489,7 @@ unsafe fn create_descriptor_pool(
     }
 }
 
+/// Descriptor set allocation error.
 #[derive(thiserror::Error, Debug)]
 pub enum DescriptorAllocError {
     #[error(transparent)]

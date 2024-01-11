@@ -581,6 +581,7 @@ impl References {
     }
 }
 
+/// Structure specifying a buffer copy operation.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct BufferCopy {
     pub src_offset: u64,
@@ -599,6 +600,7 @@ impl FromGfx<BufferCopy> for vk::BufferCopy {
     }
 }
 
+/// Structure specifying an image copy operation.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ImageCopy {
     pub src_subresource: ImageSubresourceLayers,
@@ -620,6 +622,7 @@ impl FromGfx<ImageCopy> for vk::ImageCopy {
     }
 }
 
+/// Structure specifying a buffer image copy operation.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct BufferImageCopy {
     pub buffer_offset: u64,
@@ -643,6 +646,7 @@ impl FromGfx<BufferImageCopy> for vk::BufferImageCopy {
     }
 }
 
+/// Structure specifying an image blit operation.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ImageBlit {
     pub src_subresource: ImageSubresourceLayers,
@@ -662,12 +666,14 @@ impl FromGfx<ImageBlit> for vk::ImageBlit {
     }
 }
 
+/// Structure specifying a global memory barrier.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct MemoryBarrier {
     pub src: AccessFlags,
     pub dst: AccessFlags,
 }
 
+/// Structure specifying a buffer memory barrier.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct BufferMemoryBarrier<'a> {
     pub buffer: &'a Buffer,
@@ -678,6 +684,7 @@ pub struct BufferMemoryBarrier<'a> {
     pub size: u64,
 }
 
+/// Structure specifying the parameters of an image memory barrier.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ImageMemoryBarrier<'a> {
     pub image: &'a Image,
@@ -733,6 +740,7 @@ impl<'a> From<ImageLayoutTransition<'a>> for ImageMemoryBarrier<'a> {
     }
 }
 
+/// Structure specifying an image layout transition operation.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ImageLayoutTransition<'a> {
     pub image: &'a Image,
@@ -744,6 +752,7 @@ pub struct ImageLayoutTransition<'a> {
 }
 
 bitflags::bitflags! {
+    /// Bitmask specifying memory access types that will participate in a memory dependency.
     #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
     pub struct AccessFlags: u32 {
         const INDIRECT_COMMAND_READ = 1;

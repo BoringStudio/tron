@@ -6,9 +6,14 @@ pub use self::encoder::{
     EncoderCommon, ImageBlit, ImageCopy, ImageLayoutTransition, ImageMemoryBarrier, MemoryBarrier,
     RenderPassEncoder,
 };
-pub use self::graphics::{Graphics, InstanceConfig};
-pub use self::physical_device::{DeviceFeature, DeviceFeatures, DeviceProperties, PhysicalDevice};
-pub use self::queue::{PresentStatus, Queue, QueueFamily, QueueId, QueuesQuery, SingleQueueQuery};
+pub use self::graphics::{Graphics, InitGraphicsError, InstanceConfig};
+pub use self::physical_device::{
+    CreateDeviceError, DeviceFeature, DeviceFeatures, DeviceProperties, PhysicalDevice,
+};
+pub use self::queue::{
+    PresentError, PresentStatus, Queue, QueueError, QueueFamily, QueueFlags, QueueId,
+    QueueNotFound, QueuesQuery, SingleQueueQuery,
+};
 pub use self::resources::{
     AttachmentInfo, BlendFactor, BlendOp, Blending, BorderColor, Bounds, Buffer, BufferInfo,
     BufferRange, BufferUsage, BufferView, BufferViewInfo, ClearColor, ClearDepth,

@@ -416,6 +416,7 @@ impl std::fmt::Debug for ImageSource {
     }
 }
 
+/// Components of a [`Format`].
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum FormatChannels {
@@ -430,6 +431,7 @@ pub enum FormatChannels {
     DS,
 }
 
+/// A type of a [`Format`].
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum FormatType {
     Uint,
@@ -442,6 +444,7 @@ pub enum FormatType {
     Sfloat,
 }
 
+/// Structure specifying a [`Format`] properties.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct FormatDescription<Channels, Bits, Type> {
     pub channels: Channels,
@@ -451,10 +454,13 @@ pub struct FormatDescription<Channels, Bits, Type> {
 
 macro_rules! declare_format {
     (
+        $(#[$format_meta:meta])*
         $enum_name:ident,
         {
             $($ident:ident => $orig:ident as ($channels:ident, $bits:literal, $ty:ident)),*$(,)?
-        }) => {
+        }
+    ) => {
+        $(#[$format_meta])*
         #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
         pub enum $enum_name {
             $($ident),*,
@@ -490,6 +496,7 @@ macro_rules! declare_format {
 }
 
 declare_format! {
+    /// Available image formats.
     Format, {
         R8Unorm => R8_UNORM as (R, 8, Unorm),
         R8Snorm => R8_SNORM as (R, 8, Snorm),
@@ -671,6 +678,7 @@ impl FromGfx<Option<Format>> for vk::Format {
 }
 
 bitflags::bitflags! {
+    /// Bitmask specifying which aspects of an image are included in a view.
     #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
     pub struct ImageAspectFlags: u8 {
         const COLOR = 1;

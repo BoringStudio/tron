@@ -9,7 +9,8 @@ use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::ExtDebugUtilsExtension as _;
 use vulkanalia::Instance;
 
-use crate::{OutOfDeviceMemory, PhysicalDevice};
+use crate::physical_device::PhysicalDevice;
+use crate::types::OutOfDeviceMemory;
 
 /// Graphics instance configuration.
 #[derive(Debug, Clone)]
@@ -317,6 +318,7 @@ static INIT_CONFIG: Mutex<InstanceConfig> = Mutex::new(InstanceConfig {
     validation_layer_enabled: true,
 });
 
+/// An error returned when initializing the graphics instance fails.
 #[derive(Debug, thiserror::Error)]
 pub enum InitGraphicsError {
     #[error(transparent)]

@@ -1656,6 +1656,7 @@ fn map_memory_device_properties(
     }
 }
 
+/// An error returned when memory mapping fails.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum MapError {
     #[error(transparent)]
@@ -1680,6 +1681,7 @@ impl From<gpu_alloc::MapError> for MapError {
     }
 }
 
+/// An error returned when a render pass cannot be created.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum CreateRenderPassError {
     #[error(transparent)]

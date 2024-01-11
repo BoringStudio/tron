@@ -14,6 +14,7 @@ pub struct UpdateDescriptorSet<'a> {
     pub writes: &'a [DescriptorSetWrite<'a>],
 }
 
+/// Structure specifying the parameters of a descriptor set write operation.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct DescriptorSetWrite<'a> {
     pub binding: u32,
