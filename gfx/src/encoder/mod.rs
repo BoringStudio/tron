@@ -1,16 +1,14 @@
 use std::ops::Range;
 
-use anyhow::Result;
-
 pub use self::command_buffer::*;
-use crate::device::Device;
+use crate::device::{Device, MapError};
 use crate::queue::QueueFlags;
 use crate::resources::{
     Buffer, BufferInfo, BufferUsage, ClearValue, ComputePipeline, DescriptorSet, Filter,
     Framebuffer, GraphicsPipeline, Image, ImageLayout, IndexType, MemoryUsage, PipelineBindPoint,
-    PipelineLayout, Rect, RenderPass, ShaderStageFlags, Viewport,
+    PipelineLayout, PipelineStageFlags, Rect, RenderPass, ShaderStageFlags, Viewport,
 };
-use crate::PipelineStageFlags;
+use crate::types::OutOfDeviceMemory;
 
 mod command_buffer;
 
@@ -32,7 +30,7 @@ impl Encoder {
     }
 
     /// Finish recording the command buffer.
-    pub fn finish(mut self) -> Result<CommandBuffer> {
+    pub fn finish(mut self) -> Result<CommandBuffer, OutOfDeviceMemory> {
         std::mem::forget(self.guard);
         self.inner.command_buffer.end()?;
         Ok(self.inner.command_buffer)
@@ -48,30 +46,30 @@ impl Encoder {
         &mut self,
         framebuffer: &'a Framebuffer,
         clears: &[ClearValue],
-    ) -> Result<RenderPassEncoder<'_, 'a>> {
+    ) -> RenderPassEncoder<'_, 'a> {
         assert!(self.capabilities.supports_graphics());
-        self.command_buffer.begin_render_pass(framebuffer, clears)?;
+        self.command_buffer.begin_render_pass(framebuffer, clears);
 
-        Ok(RenderPassEncoder {
+        RenderPassEncoder {
             framebuffer,
             render_pass: &framebuffer.info().render_pass,
             inner: &mut self.inner,
-        })
+        }
     }
 
     /// Update a buffer with data (directly).
-    pub fn update_buffer<T>(&mut self, buffer: &Buffer, offset: u64, data: &[T]) -> Result<()>
+    pub fn update_buffer<T>(&mut self, buffer: &Buffer, offset: u64, data: &[T])
     where
         T: bytemuck::Pod,
     {
         if data.is_empty() {
-            return Ok(());
+            return;
         }
         // SAFETY: `data` is a slice of `T`, which is `Pod` and `repr(C)`, so it is safe to cast.
         let data = unsafe {
             std::slice::from_raw_parts(data.as_ptr() as *const u8, std::mem::size_of_val(data))
         };
-        self.command_buffer.update_buffer(buffer, offset, data)
+        self.command_buffer.update_buffer(buffer, offset, data);
     }
 
     /// Upload data to a buffer.
@@ -81,7 +79,7 @@ impl Encoder {
         offset: u64,
         data: &[T],
         device: &Device,
-    ) -> Result<()>
+    ) -> Result<(), MapError>
     where
         T: bytemuck::Pod,
     {
@@ -90,7 +88,10 @@ impl Encoder {
 
         match std::mem::size_of_val(data) as u64 {
             0 => Ok(()),
-            size if size <= SMALL_BUFFER_SIZE => self.update_buffer(buffer, offset, data),
+            size if size <= SMALL_BUFFER_SIZE && size % 4 == 0 && offset % 4 == 0 => {
+                self.update_buffer(buffer, offset, data);
+                Ok(())
+            }
             size => {
                 let mut staging = device.create_mappable_buffer(
                     BufferInfo {

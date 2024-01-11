@@ -1,4 +1,6 @@
-pub use self::device::{Device, WeakDevice};
+use vulkanalia::vk;
+
+pub use self::device::{CreateRenderPassError, DescriptorAllocError, Device, MapError, WeakDevice};
 pub use self::encoder::{
     AccessFlags, BufferCopy, BufferImageCopy, BufferMemoryBarrier, CommandBuffer, Encoder,
     EncoderCommon, ImageBlit, ImageCopy, ImageLayoutTransition, ImageMemoryBarrier, MemoryBarrier,
@@ -28,8 +30,10 @@ pub use self::resources::{
     VertexFormat, VertexInputAttribute, VertexInputBinding, VertexInputRate, VertexShader,
     Viewport, WritableDescriptorSet,
 };
-pub use self::surface::{PresentMode, Surface, SurfaceImage, SwapchainSupport};
-pub use self::types::{DeviceAddress, State};
+pub use self::surface::{
+    CreateSurfaceError, PresentMode, Surface, SurfaceError, SurfaceImage, SwapchainSupport,
+};
+pub use self::types::{DeviceAddress, DeviceLost, OutOfDeviceMemory, State};
 
 mod device;
 mod encoder;
@@ -40,3 +44,14 @@ mod resources;
 mod surface;
 mod types;
 mod util;
+
+#[track_caller]
+pub(crate) fn out_of_host_memory() -> ! {
+    std::alloc::handle_alloc_error(unsafe { std::alloc::Layout::from_size_align_unchecked(1, 1) })
+}
+
+#[track_caller]
+#[cold]
+pub(crate) fn unexpected_vulkan_error(e: vk::ErrorCode) -> ! {
+    panic!("unexpected Vulkan error: {e}")
+}

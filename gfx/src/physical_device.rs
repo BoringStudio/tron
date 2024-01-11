@@ -1,11 +1,11 @@
-use anyhow::{Context, Result};
 use shared::{FastHashMap, FastHashSet};
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::InstanceV1_1;
 
+use crate::graphics::Graphics;
 use crate::queue::{Queue, QueueFamily, QueueId, QueuesQuery};
+use crate::types::{DeviceLost, OutOfDeviceMemory};
 use crate::util::ToGfx;
-use crate::Graphics;
 
 /// A feature that can be requested when creating a device.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -69,13 +69,15 @@ impl PhysicalDevice {
         self,
         features: &[DeviceFeature],
         queues: Q,
-    ) -> Result<(crate::device::Device, Q::Queues)>
+    ) -> Result<(crate::device::Device, Q::Queues), CreateDeviceError<Q::Error>>
     where
         Q: QueuesQuery,
     {
         let graphics = self.graphics();
 
-        let (queue_families, queues_query_state) = queues.query(&self.properties.queue_families)?;
+        let (queue_families, queues_query_state) = queues
+            .query(&self.properties.queue_families)
+            .map_err(CreateDeviceError::QueueQueryFailed)?;
         let queue_families = queue_families.as_ref();
 
         let mut device_create_info = vk::DeviceCreateInfo::builder();
@@ -84,15 +86,13 @@ impl PhysicalDevice {
         let mut priorities = FastHashMap::<usize, Vec<f32>>::default();
         for &(family_idx, count) in queue_families {
             let Some(family) = self.properties.queue_families.get(family_idx) else {
-                anyhow::bail!("requested queue family not found: {family_idx}");
+                return Err(CreateDeviceError::UnknownFamilyIndex);
             };
             let priorities = priorities.entry(family_idx).or_default();
             let queue_count = priorities.len() + count;
-            anyhow::ensure!(
-                queue_count <= family.queue_count as usize,
-                "too many queues requested for the queue family {family_idx}: {queue_count} out of {}",
-                family.queue_count
-            );
+            if queue_count > family.queue_count as usize {
+                return Err(CreateDeviceError::TooManyQueues);
+            }
 
             priorities.resize(queue_count, 1.0f32);
         }
@@ -114,14 +114,13 @@ impl PhysicalDevice {
         let mut extensions = Vec::new();
         let mut require_ext = {
             let supported_extensions = &self.properties.extensions;
-            |ext: &vk::Extension| -> Result<()> {
+            |ext: &vk::Extension| -> bool {
                 let ext = &ext.name;
                 let supported = supported_extensions.contains(ext);
-                anyhow::ensure!(supported, "extension {ext} is missing");
-                if !extensions.contains(&ext.as_ptr()) {
+                if supported && !extensions.contains(&ext.as_ptr()) {
                     extensions.push(ext.as_ptr());
                 }
-                Ok(())
+                supported
             }
         };
 
@@ -139,14 +138,17 @@ impl PhysicalDevice {
 
         // === Begin fill feature requirements ===
         if requested_features.remove(&DeviceFeature::SurfacePresentation) {
-            require_ext(&vk::KHR_SWAPCHAIN_EXTENSION)
-                .context("SurfacePresentation feature is required but not supported")?;
+            let supported = require_ext(&vk::KHR_SWAPCHAIN_EXTENSION);
+            assert!(
+                supported,
+                "`SurfacePresentation` feature is requested but not supported"
+            );
         }
 
         if requested_features.remove(&DeviceFeature::SamplerFilterMinMax) {
-            anyhow::ensure!(
+            assert!(
                 self.features.v1_2.sampler_filter_minmax != 0,
-                "SamplerFilterMinMax feature is required but not supported"
+                "`SamplerFilterMinMax` feature is requested but not supported"
             );
             features_v1_2.sampler_filter_minmax = 1;
             include_features_v1_2 = true;
@@ -154,9 +156,9 @@ impl PhysicalDevice {
         }
 
         if requested_features.remove(&DeviceFeature::ScalarBlockLayout) {
-            anyhow::ensure!(
+            assert!(
                 self.features.v1_2.scalar_block_layout != 0,
-                "ScalarBlockLayout feature is required but not supported"
+                "`ScalarBlockLayout` feature is requested but not supported"
             );
             features_v1_2.scalar_block_layout = 1;
             include_features_v1_2 = true;
@@ -165,9 +167,9 @@ impl PhysicalDevice {
         }
 
         if requested_features.remove(&DeviceFeature::BufferDeviceAddress) {
-            anyhow::ensure!(
+            assert!(
                 self.features.v1_2.buffer_device_address != 0,
-                "BufferDeviceAddress feature is required but not supported"
+                "`BufferDeviceAddress` feature is requested but not supported"
             );
             features_v1_2.buffer_device_address = 1;
             include_features_v1_2 = true;
@@ -176,8 +178,11 @@ impl PhysicalDevice {
         }
 
         if requested_features.remove(&DeviceFeature::DisplayTiming) {
-            require_ext(&vk::GOOGLE_DISPLAY_TIMING_EXTENSION)
-                .context("DisplayTiming feature is required but not supported")?;
+            let supported = require_ext(&vk::GOOGLE_DISPLAY_TIMING_EXTENSION);
+            assert!(
+                supported,
+                "`DisplayTiming` feature is requested but not supported"
+            );
         }
         // === End fill feature requirements ===
 
@@ -197,19 +202,31 @@ impl PhysicalDevice {
             device_create_info = device_create_info.push_next(&mut features_v1_2);
         }
         if include_features_sbl {
-            require_ext(&vk::EXT_SCALAR_BLOCK_LAYOUT_EXTENSION)?;
+            let supported = require_ext(&vk::EXT_SCALAR_BLOCK_LAYOUT_EXTENSION);
+            assert!(
+                supported,
+                "`ScalarBlockLayout` feature is requested but not supported"
+            );
             device_create_info = device_create_info.push_next(&mut features_sbl);
         }
         if include_features_bda {
-            require_ext(&vk::KHR_BUFFER_DEVICE_ADDRESS_EXTENSION)?;
+            let supported = require_ext(&vk::KHR_BUFFER_DEVICE_ADDRESS_EXTENSION);
+            assert!(
+                supported,
+                "`BufferDeviceAddress` feature is requested but not supported"
+            );
             device_create_info = device_create_info.push_next(&mut features_bda);
         }
         if include_features_sfmm {
-            require_ext(&vk::EXT_SAMPLER_FILTER_MINMAX_EXTENSION)?;
+            let supported = require_ext(&vk::EXT_SAMPLER_FILTER_MINMAX_EXTENSION);
+            assert!(
+                supported,
+                "`SamplerFilterMinMax` feature is requested but not supported"
+            )
         }
 
         // Ensure all required features are supported
-        anyhow::ensure!(
+        assert!(
             requested_features.is_empty(),
             "some features are required but not supported: {}",
             requested_features
@@ -225,7 +242,16 @@ impl PhysicalDevice {
         let logical = unsafe {
             graphics
                 .instance()
-                .create_device(self.handle, &device_create_info, None)?
+                .create_device(self.handle, &device_create_info, None)
+                .map_err(|e| match e {
+                    vk::ErrorCode::OUT_OF_HOST_MEMORY => crate::out_of_host_memory(),
+                    vk::ErrorCode::OUT_OF_DEVICE_MEMORY => {
+                        CreateDeviceError::from(OutOfDeviceMemory)
+                    }
+                    vk::ErrorCode::INITIALIZATION_FAILED => CreateDeviceError::InitializationFailed,
+                    vk::ErrorCode::DEVICE_LOST => CreateDeviceError::from(DeviceLost),
+                    _ => crate::unexpected_vulkan_error(e),
+                })?
         };
         let device = crate::device::Device::new(
             logical,
@@ -454,6 +480,7 @@ unsafe fn collect_info(handle: vk::PhysicalDevice) -> (DeviceProperties, DeviceF
         properties_v1_2.max_descriptor_set_update_after_bind_input_attachments =
             properties_di.max_descriptor_set_update_after_bind_input_attachments;
 
+        features_v1_2.descriptor_indexing = 1;
         features_v1_2.shader_input_attachment_array_dynamic_indexing =
             features_di.shader_input_attachment_array_dynamic_indexing;
         features_v1_2.shader_uniform_texel_buffer_array_dynamic_indexing =
@@ -524,4 +551,20 @@ unsafe fn collect_info(handle: vk::PhysicalDevice) -> (DeviceProperties, DeviceF
         v1_3: features_v1_3.build(),
     };
     (properties, features)
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum CreateDeviceError<E> {
+    #[error(transparent)]
+    OutOfDeviceMemory(#[from] OutOfDeviceMemory),
+    #[error(transparent)]
+    DeviceLost(#[from] DeviceLost),
+    #[error("queue query failed")]
+    QueueQueryFailed(#[source] E),
+    #[error("requested queue family index is out of bounds")]
+    UnknownFamilyIndex,
+    #[error("requested too many queues in a single family")]
+    TooManyQueues,
+    #[error("device initialization could not be completed for implementation-specific reasons")]
+    InitializationFailed,
 }

@@ -1,4 +1,3 @@
-use anyhow::Result;
 use arrayvec::ArrayVec;
 use bumpalo::Bump;
 use vulkanalia::prelude::v1_0::*;
@@ -7,18 +6,20 @@ use vulkanalia::vk::KhrSwapchainExtension;
 use crate::encoder::{CommandBuffer, Encoder};
 use crate::resources::{Fence, PipelineStageFlags, Semaphore};
 use crate::surface::SurfaceImage;
-use crate::util::{DeallocOnDrop, FromGfx, FromVk};
+use crate::types::{DeviceLost, OutOfDeviceMemory, SurfaceLost};
+use crate::util::{DeallocOnDrop, FromGfx, FromVk, ToGfx};
 
 /// A query for a set of queues.
 pub trait QueuesQuery {
     type QueryState;
     type Query: AsRef<[(usize, usize)]>;
     type Queues;
+    type Error;
 
     fn query(
         self,
         families: &[vk::QueueFamilyProperties],
-    ) -> Result<(Self::Query, Self::QueryState)>;
+    ) -> Result<(Self::Query, Self::QueryState), Self::Error>;
     fn collect(state: Self::QueryState, families: Vec<QueueFamily>) -> Self::Queues;
 }
 
@@ -36,17 +37,20 @@ impl QueuesQuery for SingleQueueQuery {
     type QueryState = ();
     type Query = [(usize, usize); 1];
     type Queues = Queue;
+    type Error = QueueNotFoundError;
 
     fn query(
         self,
         families: &[vk::QueueFamilyProperties],
-    ) -> Result<(Self::Query, Self::QueryState)> {
+    ) -> Result<(Self::Query, Self::QueryState), Self::Error> {
         for (index, family) in families.iter().enumerate() {
             if family.queue_count > 0 && family.queue_flags.contains(self.0) {
                 return Ok(([(index, 1)], ()));
             }
         }
-        anyhow::bail!("queue not found {:?}", self.0);
+        Err(QueueNotFoundError {
+            capabilities: self.0.to_gfx(),
+        })
     }
 
     fn collect(_state: Self::QueryState, mut families: Vec<QueueFamily>) -> Self::Queues {
@@ -156,13 +160,17 @@ impl Queue {
     }
 
     /// Wait for a queue to become idle.
-    pub fn wait_idle(&self) -> Result<()> {
-        unsafe { self.device.logical().queue_wait_idle(self.handle) }?;
-        Ok(())
+    pub fn wait_idle(&self) -> Result<(), QueueError> {
+        unsafe { self.device.logical().queue_wait_idle(self.handle) }.map_err(|e| match e {
+            vk::ErrorCode::OUT_OF_HOST_MEMORY => crate::out_of_host_memory(),
+            vk::ErrorCode::OUT_OF_DEVICE_MEMORY => QueueError::OutOfDeviceMemory(OutOfDeviceMemory),
+            vk::ErrorCode::DEVICE_LOST => QueueError::DeviceLost(DeviceLost),
+            _ => crate::unexpected_vulkan_error(e),
+        })
     }
 
     /// Begin recording a command buffer.
-    pub fn create_encoder(&mut self) -> Result<Encoder> {
+    pub fn create_encoder(&mut self) -> Result<Encoder, OutOfDeviceMemory> {
         let logical = self.device.logical();
 
         let mut command_buffer = match self.command_buffers.pop() {
@@ -173,7 +181,8 @@ impl Queue {
                         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
                         .queue_family_index(self.id.family);
 
-                    self.pool = unsafe { logical.create_command_pool(&info, None) }?;
+                    self.pool = unsafe { logical.create_command_pool(&info, None) }
+                        .map_err(OutOfDeviceMemory::on_creation)?;
                 }
 
                 let handle = {
@@ -182,7 +191,8 @@ impl Queue {
                         .level(vk::CommandBufferLevel::PRIMARY)
                         .command_buffer_count(1);
 
-                    let mut buffers = unsafe { logical.allocate_command_buffers(&info) }?;
+                    let mut buffers = unsafe { logical.allocate_command_buffers(&info) }
+                        .map_err(OutOfDeviceMemory::on_creation)?;
                     buffers.remove(0)
                 };
 
@@ -210,7 +220,7 @@ impl Queue {
         command_buffers: I,
         signal: &mut [&mut Semaphore],
         mut fence: Option<&mut Fence>,
-    ) -> Result<()>
+    ) -> Result<(), QueueError>
     where
         I: IntoIterator<Item = CommandBuffer>,
         I::IntoIter: ExactSizeIterator,
@@ -253,12 +263,19 @@ impl Queue {
                 .logical()
                 .queue_submit(self.handle, std::slice::from_ref(&info), fence)
         };
+        if let Some(vk::ErrorCode::OUT_OF_HOST_MEMORY) = res.err() {
+            crate::out_of_host_memory();
+        }
 
         self.device
             .epochs()
             .submit(self.id, owned_command_buffers.drain(..));
 
-        res.map_err(Into::into)
+        res.map_err(|e| match e {
+            vk::ErrorCode::OUT_OF_DEVICE_MEMORY => QueueError::OutOfDeviceMemory(OutOfDeviceMemory),
+            vk::ErrorCode::DEVICE_LOST => QueueError::DeviceLost(DeviceLost),
+            _ => crate::unexpected_vulkan_error(e),
+        })
     }
 
     /// Submit a single command buffer to the queue.
@@ -266,7 +283,7 @@ impl Queue {
         &mut self,
         command_buffer: CommandBuffer,
         fence: Option<&Fence>,
-    ) -> Result<()> {
+    ) -> Result<(), QueueError> {
         let info = vk::SubmitInfo::builder()
             .command_buffers(&[command_buffer.handle()])
             .build();
@@ -278,17 +295,24 @@ impl Queue {
                 .logical()
                 .queue_submit(self.handle, std::slice::from_ref(&info), fence)
         };
+        if let Some(vk::ErrorCode::OUT_OF_HOST_MEMORY) = res.err() {
+            crate::out_of_host_memory();
+        }
 
         self.device
             .epochs()
             .submit(self.id, std::iter::once(command_buffer));
 
-        res.map_err(Into::into)
+        res.map_err(|e| match e {
+            vk::ErrorCode::OUT_OF_DEVICE_MEMORY => QueueError::OutOfDeviceMemory(OutOfDeviceMemory),
+            vk::ErrorCode::DEVICE_LOST => QueueError::DeviceLost(DeviceLost),
+            _ => crate::unexpected_vulkan_error(e),
+        })
     }
 
     /// Present an image to the surface.
-    pub fn present(&mut self, mut image: SurfaceImage<'_>) -> Result<PresentStatus> {
-        anyhow::ensure!(
+    pub fn present(&mut self, mut image: SurfaceImage<'_>) -> Result<PresentStatus, PresentError> {
+        assert!(
             image
                 .supported_families()
                 .get(self.id.family as usize)
@@ -312,6 +336,9 @@ impl Queue {
                 )
             }
         };
+        if let Some(vk::ErrorCode::OUT_OF_HOST_MEMORY) = res.err() {
+            crate::out_of_host_memory();
+        }
 
         image.consume();
 
@@ -321,11 +348,16 @@ impl Queue {
             Ok(vk::SuccessCode::SUBOPTIMAL_KHR) => Ok(PresentStatus::Suboptimal),
             Ok(_) => Ok(PresentStatus::Ok),
             Err(vk::ErrorCode::OUT_OF_DATE_KHR) => Ok(PresentStatus::OutOfDate),
-            Err(e) => anyhow::bail!(e),
+            Err(e) => Err(match e {
+                vk::ErrorCode::OUT_OF_DEVICE_MEMORY => PresentError::from(OutOfDeviceMemory),
+                vk::ErrorCode::DEVICE_LOST => PresentError::from(DeviceLost),
+                vk::ErrorCode::SURFACE_LOST_KHR => PresentError::from(SurfaceLost),
+                _ => crate::unexpected_vulkan_error(e),
+            }),
         }
     }
 
-    fn restore_command_buffers(&mut self) -> Result<()> {
+    fn restore_command_buffers(&mut self) -> Result<(), OutOfDeviceMemory> {
         let logical = self.device.logical();
 
         let offset = self.command_buffers.len();
@@ -338,8 +370,12 @@ impl Queue {
                 logical.reset_command_buffer(
                     cb.handle(),
                     vk::CommandBufferResetFlags::RELEASE_RESOURCES,
-                )?
+                )
             }
+            .map_err(|e| match e {
+                vk::ErrorCode::OUT_OF_DEVICE_MEMORY => OutOfDeviceMemory,
+                _ => crate::unexpected_vulkan_error(e),
+            })?;
         }
 
         Ok(())
@@ -352,4 +388,28 @@ pub enum PresentStatus {
     Ok,
     Suboptimal,
     OutOfDate,
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum PresentError {
+    #[error(transparent)]
+    OutOfDeviceMemory(#[from] OutOfDeviceMemory),
+    #[error(transparent)]
+    DeviceLost(#[from] DeviceLost),
+    #[error(transparent)]
+    SurfaceLost(#[from] SurfaceLost),
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum QueueError {
+    #[error(transparent)]
+    OutOfDeviceMemory(#[from] OutOfDeviceMemory),
+    #[error(transparent)]
+    DeviceLost(#[from] DeviceLost),
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("no queue found with capabilities {capabilities:?}")]
+pub struct QueueNotFoundError {
+    pub capabilities: QueueFlags,
 }

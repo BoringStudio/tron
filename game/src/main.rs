@@ -132,7 +132,9 @@ impl App {
         event_loop.run(handle_event)?;
         tracing::debug!("event loop stopped");
 
-        renderer_thread.join().unwrap().wait_idle()
+        renderer_thread.join().unwrap().wait_idle()?;
+
+        Ok(())
     }
 }
 

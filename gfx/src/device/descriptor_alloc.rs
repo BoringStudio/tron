@@ -6,6 +6,7 @@ use smallvec::SmallVec;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::resources::{DescriptorSetLayout, DescriptorSetLayoutFlags, DescriptorSetSize};
+use crate::OutOfDeviceMemory;
 
 #[derive(Default)]
 pub(crate) struct DescriptorAlloc {
@@ -195,11 +196,9 @@ impl DescriptorBucket {
             ) {
                 Ok(new_sets) => new_sets,
                 Err(vk::ErrorCode::OUT_OF_DEVICE_MEMORY) => {
-                    return Err(DescriptorAllocError::OutOfDeviceMemory)
+                    return Err(DescriptorAllocError::OutOfDeviceMemory(OutOfDeviceMemory))
                 }
-                Err(vk::ErrorCode::OUT_OF_HOST_MEMORY) => {
-                    return Err(DescriptorAllocError::OutOfHostMemory)
-                }
+                Err(vk::ErrorCode::OUT_OF_HOST_MEMORY) => crate::out_of_host_memory(),
                 Err(vk::ErrorCode::FRAGMENTED_POOL) => {
                     tracing::error!(
                         descriptor_pool = ?pool.handle,
@@ -212,7 +211,7 @@ impl DescriptorBucket {
                     pool.remaining = 0;
                     continue;
                 }
-                Err(e) => panic!("Unexpected Vulkan error: {e}"),
+                Err(e) => crate::unexpected_vulkan_error(e),
             };
 
             extend_allocated_sets(
@@ -265,12 +264,10 @@ impl DescriptorBucket {
             ) {
                 Ok(new_sets) => new_sets,
                 Err(vk::ErrorCode::OUT_OF_DEVICE_MEMORY) => {
-                    return Err(DescriptorAllocError::OutOfDeviceMemory)
+                    return Err(DescriptorAllocError::OutOfDeviceMemory(OutOfDeviceMemory))
                 }
-                Err(vk::ErrorCode::OUT_OF_HOST_MEMORY) => {
-                    return Err(DescriptorAllocError::OutOfHostMemory)
-                }
-                Err(e) => panic!("failed to allocate descriptor sets from a new pool: {e}"),
+                Err(vk::ErrorCode::OUT_OF_HOST_MEMORY) => crate::out_of_host_memory(),
+                Err(e) => crate::unexpected_vulkan_error(e),
             };
 
             extend_allocated_sets(
@@ -483,20 +480,20 @@ unsafe fn create_descriptor_pool(
         None,
     ) {
         Ok(handle) => Ok(handle),
-        Err(vk::ErrorCode::OUT_OF_HOST_MEMORY) => Err(DescriptorAllocError::OutOfHostMemory),
-        Err(vk::ErrorCode::OUT_OF_DEVICE_MEMORY) => Err(DescriptorAllocError::OutOfDeviceMemory),
+        Err(vk::ErrorCode::OUT_OF_HOST_MEMORY) => crate::out_of_host_memory(),
+        Err(vk::ErrorCode::OUT_OF_DEVICE_MEMORY) => {
+            Err(DescriptorAllocError::OutOfDeviceMemory(OutOfDeviceMemory))
+        }
         Err(vk::ErrorCode::FRAGMENTATION) => Err(DescriptorAllocError::Fragmentation),
-        Err(e) => panic!("Unexpected Vulkan error: {e}"),
+        Err(e) => crate::unexpected_vulkan_error(e),
     }
 }
 
 #[derive(thiserror::Error, Debug)]
-pub(crate) enum DescriptorAllocError {
-    #[error("out of device memory")]
-    OutOfDeviceMemory,
-    #[error("out of host memory")]
-    OutOfHostMemory,
-    #[error("pool fragmentation")]
+pub enum DescriptorAllocError {
+    #[error(transparent)]
+    OutOfDeviceMemory(#[from] OutOfDeviceMemory),
+    #[error("a pool allocation has failed due to fragmentation of the pool's memory")]
     Fragmentation,
 }
 

@@ -138,7 +138,7 @@ impl Renderer {
         }
     }
 
-    pub fn wait_idle(&self) -> Result<()> {
+    pub fn wait_idle(&self) -> Result<(), gfx::DeviceLost> {
         self.device.wait_idle()
     }
 
@@ -235,7 +235,7 @@ impl Fences {
     fn new(device: &gfx::Device, count: NonZeroUsize) -> Result<Self> {
         let fences = (0..count.get())
             .map(|_| device.create_fence())
-            .collect::<Result<Box<[_]>>>()?;
+            .collect::<Result<Box<[_]>, _>>()?;
 
         Ok(Self {
             fences,

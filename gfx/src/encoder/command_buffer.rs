@@ -1,6 +1,5 @@
 use std::ops::Range;
 
-use anyhow::Result;
 use bumpalo::Bump;
 use glam::{IVec3, UVec3};
 use shared::FastHashSet;
@@ -13,6 +12,7 @@ use crate::resources::{
     Image, ImageLayout, ImageSubresourceLayers, ImageSubresourceRange, IndexType, LoadOp,
     PipelineBindPoint, PipelineLayout, PipelineStageFlags, Rect, ShaderStageFlags, Viewport,
 };
+use crate::types::OutOfDeviceMemory;
 use crate::util::{compute_supported_access, DeallocOnDrop, FromGfx, ToVk};
 
 /// A recorded sequence of commands that can be submitted to a queue.
@@ -61,7 +61,7 @@ impl CommandBuffer {
         &mut self.references
     }
 
-    pub fn begin(&mut self) -> Result<()> {
+    pub fn begin(&mut self) -> Result<(), OutOfDeviceMemory> {
         let device;
         let device = match &self.state {
             CommandBufferState::Full { owner } => owner,
@@ -80,30 +80,27 @@ impl CommandBuffer {
         let info = vk::CommandBufferBeginInfo::builder()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
 
-        unsafe { device.logical().begin_command_buffer(self.handle, &info) }?;
-        Ok(())
+        unsafe { device.logical().begin_command_buffer(self.handle, &info) }
+            .map_err(OutOfDeviceMemory::on_creation)
     }
 
-    pub fn end(&mut self) -> Result<()> {
+    pub fn end(&mut self) -> Result<(), OutOfDeviceMemory> {
         let device = match &self.state {
             CommandBufferState::Full { owner } => owner,
             CommandBufferState::Finished { .. } => return Ok(()),
         };
 
-        unsafe { device.logical().end_command_buffer(self.handle) }?;
+        unsafe { device.logical().end_command_buffer(self.handle) }
+            .map_err(OutOfDeviceMemory::on_creation)?;
         self.state = CommandBufferState::Finished {
             owner: device.downgrade(),
         };
         Ok(())
     }
 
-    pub(crate) fn begin_render_pass(
-        &mut self,
-        framebuffer: &Framebuffer,
-        clear: &[ClearValue],
-    ) -> Result<()> {
+    pub(crate) fn begin_render_pass(&mut self, framebuffer: &Framebuffer, clear: &[ClearValue]) {
         let Some(device) = self.state.device_from_full() else {
-            return Ok(());
+            return;
         };
         let logical = device.logical();
 
@@ -114,23 +111,20 @@ impl CommandBuffer {
         let pass = &framebuffer.info().render_pass;
 
         let mut clear = clear.iter();
-        let mut clear_values_invalid = false;
         let clear_values =
             alloc.alloc_slice_fill_iter(pass.info().attachments.iter().map(|attachment| {
                 if attachment.load_op == LoadOp::Clear(()) {
-                    if let Some(clear) = clear.next().and_then(|v| v.try_to_vk(attachment.format)) {
-                        return clear;
-                    } else {
-                        clear_values_invalid = true;
-                    }
+                    clear
+                        .next()
+                        .expect("not enough clear values")
+                        .try_to_vk(attachment.format)
+                        .expect("invalid clear value")
+                } else {
+                    vk::ClearValue::default()
                 }
-
-                vk::ClearValue::default()
             }));
-        anyhow::ensure!(
-            !clear_values_invalid && clear.next().is_none(),
-            "clear values are invalid"
-        );
+
+        assert!(clear.next().is_none(), "too many clear values");
 
         let info = vk::RenderPassBeginInfo::builder()
             .render_pass(pass.handle())
@@ -141,8 +135,7 @@ impl CommandBuffer {
                 extent: framebuffer.info().extent.to_vk(),
             });
 
-        unsafe { logical.cmd_begin_render_pass(self.handle, &info, vk::SubpassContents::INLINE) }
-        Ok(())
+        unsafe { logical.cmd_begin_render_pass(self.handle, &info, vk::SubpassContents::INLINE) };
     }
 
     pub(crate) fn end_render_pass(&mut self) {
@@ -260,23 +253,17 @@ impl CommandBuffer {
         }
     }
 
-    pub(crate) fn update_buffer(
-        &mut self,
-        buffer: &Buffer,
-        offset: u64,
-        data: &[u8],
-    ) -> Result<()> {
+    pub(crate) fn update_buffer(&mut self, buffer: &Buffer, offset: u64, data: &[u8]) {
         if let Some(device) = self.state.device_from_full() {
-            anyhow::ensure!(offset % 4 == 0, "unaligned buffer offset");
-            anyhow::ensure!(data.len() % 4 == 0, "unaligned buffer data length");
-            anyhow::ensure!(data.len() <= 65536, "too much data to update");
+            assert!(offset % 4 == 0, "unaligned buffer offset");
+            assert!(data.len() % 4 == 0, "unaligned buffer data length");
+            assert!(data.len() <= 65536, "too much data to update");
 
             self.references.buffers.insert(buffer.clone());
 
             let logical = device.logical();
-            unsafe { logical.cmd_update_buffer(self.handle, buffer.handle(), offset, data) }
+            unsafe { logical.cmd_update_buffer(self.handle, buffer.handle(), offset, data) };
         }
-        Ok(())
     }
 
     pub(crate) fn bind_vertex_buffers(&mut self, first_binding: u32, buffers: &[(&Buffer, u64)]) {

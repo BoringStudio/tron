@@ -2,14 +2,18 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
 use shared::util::WithDefer;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::{KhrSurfaceExtension, KhrSwapchainExtension};
+use vulkanalia::Instance;
+use winit::raw_window_handle::{
+    HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
+};
 use winit::window::Window;
 
 use crate::device::WeakDevice;
 use crate::resources::{Format, Image, ImageInfo, ImageUsageFlags, Samples, Semaphore};
+use crate::types::{DeviceLost, OutOfDeviceMemory, SurfaceLost};
 use crate::util::{FromGfx, ToVk, TryFromVk};
 
 /// Presentation mode supported for a surface.
@@ -86,17 +90,22 @@ pub struct Surface {
 
 impl Surface {
     pub(crate) fn new(
-        handle: vk::SurfaceKHR,
+        instance: &Instance,
         window: Arc<Window>,
         device: &crate::device::Device,
-    ) -> Result<Self> {
+    ) -> Result<Self, CreateSurfaceError> {
+        let handle = create_raw_surface(instance, &*window)?;
+
         let instance = device.graphics().instance();
         let swapchain_support = SwapchainSupport::new(instance, device.physical(), handle)?;
 
-        anyhow::ensure!(
-            !swapchain_support.supported_families.is_empty(),
-            "no queues with present capability found"
-        );
+        if swapchain_support
+            .supported_families
+            .iter()
+            .all(|item| !*item)
+        {
+            return Err(CreateSurfaceError::NoPresentQueueFound);
+        }
 
         let image_available = device.create_semaphore()?;
 
@@ -111,6 +120,11 @@ impl Surface {
         })
     }
 
+    /// Returns an underlying Vulkan surface handle.
+    pub fn handle(&self) -> vk::SurfaceKHR {
+        self.handle
+    }
+
     /// Returns swapchain properties.
     pub fn swapchain_support(&self) -> &SwapchainSupport {
         &self.swapchain_support
@@ -119,7 +133,7 @@ impl Surface {
     /// Recreates the swapchain with the last parameters.
     ///
     /// NOTE: doesn't initialize the swapchain if it wasn't initialized before.
-    pub fn update(&mut self) -> Result<()> {
+    pub fn update(&mut self) -> Result<(), SurfaceError> {
         if let Some(swapchain) = &mut self.swapchain {
             let usage = swapchain.usage;
             let format = swapchain.format;
@@ -132,11 +146,11 @@ impl Surface {
     }
 
     /// Configures the swapchain with the best parameters.
-    pub fn configure(&mut self) -> Result<()> {
+    pub fn configure(&mut self) -> Result<(), SurfaceError> {
         let format = self
             .swapchain_support
             .find_best_surface_format()
-            .context("no suitable surface format found")?;
+            .ok_or(SurfaceError::NoSuitableFormat)?;
 
         let mode = self.swapchain_support.find_best_present_mode();
 
@@ -149,8 +163,11 @@ impl Surface {
         usage: ImageUsageFlags,
         format: Format,
         mode: PresentMode,
-    ) -> Result<()> {
-        let device = self.owner.upgrade().context("device was already dropped")?;
+    ) -> Result<(), SurfaceError> {
+        let device = self
+            .owner
+            .upgrade()
+            .ok_or(SurfaceError::SurfaceLost(SurfaceLost))?;
         let instance = device.graphics().instance();
         let logical = device.logical();
 
@@ -162,27 +179,27 @@ impl Surface {
 
         self.swapchain_support = SwapchainSupport::new(instance, device.physical(), self.handle)?;
         let capabilities = &self.swapchain_support.capabilities;
-        anyhow::ensure!(
-            capabilities.supported_usage_flags.contains(usage.to_vk()),
-            "usage mode {usage:?} is not supported"
-        );
+        if !capabilities.supported_usage_flags.contains(usage.to_vk()) {
+            return Err(SurfaceError::UsageNotSupported { usage });
+        }
 
         let surface_format = self
             .swapchain_support
             .surface_formats
             .iter()
             .find(|item| Format::from_vk(item.format) == Some(format))
-            .with_context(|| format!("surface format {format:?} is not supported"))?;
+            .ok_or(SurfaceError::FormatNotSupported { format })?;
 
-        anyhow::ensure!(
-            self.swapchain_support
-                .present_modes
-                .iter()
-                .copied()
-                .filter_map(PresentMode::try_from_vk)
-                .any(|item| item == mode),
-            "present mode {mode:?} is not supported"
-        );
+        if self
+            .swapchain_support
+            .present_modes
+            .iter()
+            .copied()
+            .filter_map(PresentMode::try_from_vk)
+            .all(|item| item != mode)
+        {
+            return Err(SurfaceError::PresentModeNotSupported { mode });
+        }
 
         let mut image_count = capabilities.min_image_count + 1;
         if capabilities.max_image_count != 0 && image_count > capabilities.max_image_count {
@@ -226,11 +243,23 @@ impl Surface {
                 .clipped(true)
                 .old_swapchain(old_swapchain);
 
-            unsafe { logical.create_swapchain_khr(&info, None) }?
+            unsafe { logical.create_swapchain_khr(&info, None) }.map_err(|e| match e {
+                vk::ErrorCode::OUT_OF_HOST_MEMORY => crate::out_of_host_memory(),
+                vk::ErrorCode::OUT_OF_DEVICE_MEMORY => {
+                    SurfaceError::OutOfDeviceMemory(OutOfDeviceMemory)
+                }
+                vk::ErrorCode::DEVICE_LOST => SurfaceError::DeviceLost(DeviceLost),
+                vk::ErrorCode::SURFACE_LOST_KHR => SurfaceError::SurfaceLost(SurfaceLost),
+                vk::ErrorCode::NATIVE_WINDOW_IN_USE_KHR => SurfaceError::WindowInUse,
+                vk::ErrorCode::INITIALIZATION_FAILED => SurfaceError::InitializationFailed,
+                _ => crate::unexpected_vulkan_error(e),
+            })?
         }
         .with_defer(|swapchain| unsafe { logical.destroy_swapchain_khr(swapchain, None) });
 
-        let images = unsafe { logical.get_swapchain_images_khr(*handle) }?;
+        let images = unsafe { logical.get_swapchain_images_khr(*handle) }
+            .map_err(OutOfDeviceMemory::on_creation)?;
+
         let images = images
             .into_iter()
             .map(|handle| {
@@ -246,13 +275,13 @@ impl Surface {
                 };
                 let id = IMAGE_ID.fetch_add(1, Ordering::Relaxed).try_into().unwrap();
                 let image = Image::new_surface(handle, info, device.downgrade(), id);
-                Ok::<_, anyhow::Error>(SwapchainImageState {
+                Ok(SwapchainImageState {
                     image,
                     acquire,
                     release,
                 })
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>, OutOfDeviceMemory>>()?;
         let image_count = images.len();
 
         let handle = handle.disarm();
@@ -280,24 +309,21 @@ impl Surface {
     }
 
     /// Acquires the next image from the swapchain.
-    pub fn aquire_image(&mut self) -> Result<SurfaceImage<'_>> {
-        let device = self.owner.upgrade().context("device was already dropped")?;
+    pub fn aquire_image(&mut self) -> Result<SurfaceImage<'_>, SurfaceError> {
+        let device = self
+            .owner
+            .upgrade()
+            .ok_or(SurfaceError::SurfaceLost(SurfaceLost))?;
         self.cleanup_unused_swapchains(&device);
 
         let index = loop {
-            let swapchain = self
-                .swapchain
-                .as_mut()
-                .context("swapchain not configured")?;
+            let swapchain = self.swapchain.as_mut().ok_or(SurfaceError::NotConfigured)?;
 
             let available_images =
                 swapchain.images.len() as u32 - self.swapchain_support.capabilities.min_image_count;
-            anyhow::ensure!(
-                swapchain.acquired_count <= available_images,
-                "too many acquired images: acquired {}, available {}",
-                swapchain.acquired_count,
-                available_images
-            );
+            if swapchain.acquired_count > available_images {
+                return Err(SurfaceError::TooManyAcquiredImages);
+            }
 
             let res = unsafe {
                 device.logical().acquire_next_image_khr(
@@ -322,7 +348,17 @@ impl Surface {
                     self.configure_ext(usage, format, mode)?;
                     continue;
                 }
-                Err(e) => anyhow::bail!("failed to acquire next swapchain image: {e}"),
+                Err(e) => {
+                    return Err(match e {
+                        vk::ErrorCode::OUT_OF_HOST_MEMORY => crate::out_of_host_memory(),
+                        vk::ErrorCode::OUT_OF_DEVICE_MEMORY => {
+                            SurfaceError::OutOfDeviceMemory(OutOfDeviceMemory)
+                        }
+                        vk::ErrorCode::DEVICE_LOST => SurfaceError::DeviceLost(DeviceLost),
+                        vk::ErrorCode::SURFACE_LOST_KHR => SurfaceError::SurfaceLost(SurfaceLost),
+                        _ => crate::unexpected_vulkan_error(e),
+                    })
+                }
             }
         };
 
@@ -462,7 +498,18 @@ impl SwapchainSupport {
         instance: &Instance,
         physical_device: vk::PhysicalDevice,
         surface: vk::SurfaceKHR,
-    ) -> Result<Self> {
+    ) -> Result<Self, SurfaceError> {
+        fn make_err(e: vk::ErrorCode) -> SurfaceError {
+            match e {
+                vk::ErrorCode::OUT_OF_HOST_MEMORY => crate::out_of_host_memory(),
+                vk::ErrorCode::OUT_OF_DEVICE_MEMORY => {
+                    SurfaceError::OutOfDeviceMemory(OutOfDeviceMemory)
+                }
+                vk::ErrorCode::SURFACE_LOST_KHR => SurfaceError::SurfaceLost(SurfaceLost),
+                _ => crate::unexpected_vulkan_error(e),
+            }
+        }
+
         let queue_family_count = unsafe {
             instance
                 .get_physical_device_queue_family_properties(physical_device)
@@ -477,16 +524,22 @@ impl SwapchainSupport {
                     surface,
                 )
             })
-            .collect::<Result<Box<[_]>, _>>()?;
+            .collect::<Result<Box<[_]>, _>>()
+            .map_err(make_err)?;
 
         let capabilities = unsafe {
             instance.get_physical_device_surface_capabilities_khr(physical_device, surface)
-        }?;
+        }
+        .map_err(make_err)?;
+
         let surface_formats =
-            unsafe { instance.get_physical_device_surface_formats_khr(physical_device, surface) }?;
+            unsafe { instance.get_physical_device_surface_formats_khr(physical_device, surface) }
+                .map_err(make_err)?;
+
         let present_modes = unsafe {
             instance.get_physical_device_surface_present_modes_khr(physical_device, surface)
-        }?;
+        }
+        .map_err(make_err)?;
 
         Ok(Self {
             supported_families,
@@ -553,6 +606,169 @@ impl SwapchainSupport {
             ))
             .build()
     }
+}
+
+fn create_raw_surface<W>(
+    instance: &Instance,
+    window: &W,
+) -> Result<vk::SurfaceKHR, CreateSurfaceError>
+where
+    W: HasDisplayHandle + HasWindowHandle,
+{
+    let require_extension = |ext: &'static vk::Extension| -> Result<(), CreateSurfaceError> {
+        if instance.extensions().contains(&ext.name) {
+            Ok(())
+        } else {
+            Err(CreateSurfaceError::ExtensionNotSupported {
+                extension: &ext.name,
+            })
+        }
+    };
+
+    match (
+        window.display_handle().map(|handle| handle.as_raw())?,
+        window.window_handle().map(|handle| handle.as_raw())?,
+    ) {
+        #[cfg(target_os = "windows")]
+        (RawDisplayHandle::Windows(_), RawWindowHandle::Win32(window)) => {
+            use vk::KhrWin32SurfaceExtension;
+
+            require_extension(&vk::KHR_WIN32_SURFACE_EXTENSION)?;
+
+            let hinstance_ptr = window
+                .hinstance
+                .map(|hinstance| hinstance.get() as vk::HINSTANCE)
+                .unwrap_or(std::ptr::null_mut());
+            let hwnd_ptr = window.hwnd.get() as vk::HWND;
+
+            let info = vk::Win32SurfaceCreateInfoKHR::builder()
+                .hinstance(hinstance_ptr)
+                .hwnd(hwnd_ptr);
+
+            unsafe { instance.create_win32_surface_khr(&info, None) }
+        }
+        #[cfg(any(
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "linux",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
+        (RawDisplayHandle::Xcb(display), RawWindowHandle::Xcb(window)) => {
+            use vk::KhrXcbSurfaceExtension;
+
+            require_extension(&vk::KHR_XCB_SURFACE_EXTENSION)?;
+
+            let connection_ptr = display
+                .connection
+                .map(|connection| connection.as_ptr())
+                .unwrap_or(std::ptr::null_mut());
+
+            let info = vk::XcbSurfaceCreateInfoKHR::builder()
+                .window(window.window.get())
+                .connection(connection_ptr);
+
+            unsafe { instance.create_xcb_surface_khr(&info, None) }
+        }
+        #[cfg(any(
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "linux",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
+        (RawDisplayHandle::Xlib(display), RawWindowHandle::Xlib(window)) => {
+            use vk::KhrXlibSurfaceExtension;
+
+            require_extension(&vk::KHR_XLIB_SURFACE_EXTENSION)?;
+
+            let display_ptr = display
+                .display
+                .map(|display| display.as_ptr())
+                .unwrap_or(std::ptr::null_mut());
+
+            let info = vk::XlibSurfaceCreateInfoKHR {
+                dpy: display_ptr.cast(),
+                window: window.window,
+                ..Default::default()
+            };
+
+            unsafe { instance.create_xlib_surface_khr(&info, None) }
+        }
+        #[cfg(any(
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "linux",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
+        (RawDisplayHandle::Wayland(display), RawWindowHandle::Wayland(window)) => {
+            use vk::KhrWaylandSurfaceExtension;
+
+            require_extension(&vk::KHR_WAYLAND_SURFACE_EXTENSION)?;
+
+            let info = vk::WaylandSurfaceCreateInfoKHR::builder()
+                .display(display.display.as_ptr())
+                .surface(window.surface.as_ptr());
+
+            unsafe { instance.create_wayland_surface_khr(&info, None) }
+        }
+        _ => return Err(CreateSurfaceError::UnsupportedWindowOrDisplay),
+    }
+    .map_err(|e| match e {
+        vk::ErrorCode::OUT_OF_HOST_MEMORY => crate::out_of_host_memory(),
+        vk::ErrorCode::OUT_OF_DEVICE_MEMORY => CreateSurfaceError::from(OutOfDeviceMemory),
+        e => crate::unexpected_vulkan_error(e),
+    })
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum CreateSurfaceError {
+    #[error(transparent)]
+    SurfaceError(#[from] SurfaceError),
+    #[error(transparent)]
+    WindowError(#[from] winit::raw_window_handle::HandleError),
+    #[error("unsupported window and display kind combination")]
+    UnsupportedWindowOrDisplay,
+    #[error("no queues with present capability found")]
+    NoPresentQueueFound,
+    #[error("required Vulkan extension `{extension}` is not supported")]
+    ExtensionNotSupported {
+        extension: &'static vk::ExtensionName,
+    },
+}
+
+impl From<OutOfDeviceMemory> for CreateSurfaceError {
+    fn from(e: OutOfDeviceMemory) -> Self {
+        Self::SurfaceError(SurfaceError::OutOfDeviceMemory(e))
+    }
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum SurfaceError {
+    #[error(transparent)]
+    OutOfDeviceMemory(#[from] OutOfDeviceMemory),
+    #[error(transparent)]
+    DeviceLost(#[from] DeviceLost),
+    #[error(transparent)]
+    SurfaceLost(#[from] SurfaceLost),
+    #[error("the requested window is already in use")]
+    WindowInUse,
+    #[error("surface initialization could not be completed for implementation-specific reasons")]
+    InitializationFailed,
+    #[error("surface has not been configured yet")]
+    NotConfigured,
+    #[error("too many acquired surface images")]
+    TooManyAcquiredImages,
+
+    #[error("no suitable surface format found")]
+    NoSuitableFormat,
+    #[error("surface usage {usage:?} is not supported")]
+    UsageNotSupported { usage: ImageUsageFlags },
+    #[error("surface format {format:?} is not supported")]
+    FormatNotSupported { format: Format },
+    #[error("surface present mode {mode:?} is not supported")]
+    PresentModeNotSupported { mode: PresentMode },
 }
 
 static IMAGE_ID: AtomicU64 = AtomicU64::new(1);

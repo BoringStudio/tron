@@ -347,7 +347,7 @@ impl MeshBuffers {
     }
 }
 
-fn make_vertices(device: &gfx::Device, size: u64) -> Result<gfx::Buffer> {
+fn make_vertices(device: &gfx::Device, size: u64) -> Result<gfx::Buffer, gfx::OutOfDeviceMemory> {
     device.create_buffer(gfx::BufferInfo {
         align: VERTEX_ALIGN_MASK,
         size,
@@ -357,7 +357,7 @@ fn make_vertices(device: &gfx::Device, size: u64) -> Result<gfx::Buffer> {
     })
 }
 
-fn make_indices(device: &gfx::Device, size: u64) -> Result<gfx::Buffer> {
+fn make_indices(device: &gfx::Device, size: u64) -> Result<gfx::Buffer, gfx::OutOfDeviceMemory> {
     device.create_buffer(gfx::BufferInfo {
         align: INDEX_ALIGN_MASK,
         size,

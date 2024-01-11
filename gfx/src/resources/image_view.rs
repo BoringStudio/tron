@@ -1,27 +1,27 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::device::{Device, WeakDevice};
 use crate::resources::{Image, ImageAspectFlags, ImageExtent, ImageInfo};
+use crate::types::OutOfDeviceMemory;
 use crate::util::{FromGfx, ToVk};
 
 /// An object that can be used to create an [`ImageView`].
 pub trait MakeImageView {
-    fn make_image_view(&self, device: &Device) -> Result<ImageView>;
+    fn make_image_view(&self, device: &Device) -> Result<ImageView, OutOfDeviceMemory>;
 }
 
 impl MakeImageView for Image {
-    fn make_image_view(&self, device: &Device) -> Result<ImageView> {
+    fn make_image_view(&self, device: &Device) -> Result<ImageView, OutOfDeviceMemory> {
         let info = ImageViewInfo::new(self.clone());
         device.create_image_view(info)
     }
 }
 
 impl MakeImageView for ImageView {
-    fn make_image_view(&self, _device: &Device) -> Result<ImageView> {
+    fn make_image_view(&self, _device: &Device) -> Result<ImageView, OutOfDeviceMemory> {
         Ok(self.clone())
     }
 }

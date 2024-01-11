@@ -164,7 +164,7 @@ impl<'a> ShaderPreprocessorScope<'a> {
         shader_type: gfx::ShaderType,
     ) -> Result<gfx::ShaderModule> {
         let info = self.compile_shader(path.as_ref(), entry.as_ref(), shader_type)?;
-        device.create_shader_module(info)
+        device.create_shader_module(info).map_err(Into::into)
     }
 
     fn compile_shader(

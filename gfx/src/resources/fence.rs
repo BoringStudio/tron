@@ -1,8 +1,8 @@
-use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::device::WeakDevice;
 use crate::queue::QueueId;
+use crate::types::DeviceLost;
 
 /// Tracked state of a fence.
 #[derive(Default, Debug, Clone, Copy)]
@@ -49,12 +49,12 @@ impl Fence {
         self.state
     }
 
-    pub(crate) fn set_unsignalled(&mut self) -> Result<()> {
-        if let FenceState::Armed { .. } = &self.state {
-            anyhow::bail!("armed fence cannot be marked as an unsignalled");
-        }
+    pub(crate) fn set_unsignalled(&mut self) {
+        assert!(
+            !matches!(&self.state, FenceState::Armed { .. }),
+            "armed fence cannot be marked as an unsignalled"
+        );
         self.state = FenceState::Unsignalled;
-        Ok(())
     }
 
     pub(crate) fn set_armed(
@@ -62,7 +62,7 @@ impl Fence {
         queue_id: QueueId,
         epoch: u64,
         device: &crate::device::Device,
-    ) -> Result<()> {
+    ) -> Result<(), DeviceLost> {
         match &self.state {
             FenceState::Unsignalled => {
                 self.state = FenceState::Armed { queue_id, epoch };
@@ -70,29 +70,33 @@ impl Fence {
             }
             FenceState::Armed { .. } => {
                 let signalled = device.update_armed_fence_state(self)?;
-                anyhow::ensure!(signalled, "trying to arm an already armed fence");
+                assert!(!signalled, "trying to arm an already armed fence");
 
                 // TODO: update previous epoch
                 self.state = FenceState::Armed { queue_id, epoch };
                 Ok(())
             }
             FenceState::Signalled => {
-                anyhow::bail!("arming a signalled fence")
+                // Logic error
+                panic!("signalled fence cannot be armed")
             }
         }
     }
 
-    pub(crate) fn set_signalled(&mut self) -> Result<Option<(QueueId, u64)>> {
+    pub(crate) fn set_signalled(&mut self) -> Option<(QueueId, u64)> {
         match self.state {
-            FenceState::Unsignalled => anyhow::bail!("signalling an unarmed fence"),
+            FenceState::Unsignalled => {
+                // Logic error
+                panic!("signalling an unarmed fence")
+            }
             FenceState::Armed {
                 queue_id: queue,
                 epoch,
             } => {
                 self.state = FenceState::Signalled;
-                Ok(Some((queue, epoch)))
+                Some((queue, epoch))
             }
-            FenceState::Signalled => Ok(None),
+            FenceState::Signalled => None,
         }
     }
 }

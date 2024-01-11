@@ -146,9 +146,9 @@ impl Pass for MainPass {
         encoder: &'a mut gfx::Encoder,
     ) -> Result<gfx::RenderPassEncoder<'a, 'b>> {
         let framebuffer = self.get_or_init_framebuffer(device, input)?;
-        encoder.with_framebuffer(
+        Ok(encoder.with_framebuffer(
             framebuffer,
             &[gfx::ClearColor(0.02, 0.02, 0.02, 1.0).into()],
-        )
+        ))
     }
 }

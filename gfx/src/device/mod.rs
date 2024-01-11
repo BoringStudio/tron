@@ -1,7 +1,6 @@
 use std::mem::MaybeUninit;
 use std::sync::{Arc, Mutex, Weak};
 
-use anyhow::Result;
 use bumpalo::Bump;
 use gpu_alloc::{GpuAllocator, MemoryBlock};
 use gpu_alloc_vulkanalia::AsMemoryDevice;
@@ -13,6 +12,7 @@ use vulkanalia::vk::{DeviceV1_1, DeviceV1_2};
 use winit::window::Window;
 
 pub(crate) use self::descriptor_alloc::AllocatedDescriptorSet;
+pub use self::descriptor_alloc::DescriptorAllocError;
 
 use self::descriptor_alloc::DescriptorAlloc;
 use self::epochs::Epochs;
@@ -22,15 +22,15 @@ use crate::queue::QueueId;
 use crate::resources::{
     Blending, Buffer, BufferInfo, BufferUsage, BufferView, BufferViewInfo, ColorBlend,
     ComponentMask, ComputePipeline, ComputePipelineInfo, DescriptorBindingFlags, DescriptorSetInfo,
-    DescriptorSetLayout, DescriptorSetLayoutFlags, DescriptorSetLayoutInfo, DescriptorSlice, Fence,
-    FenceState, Framebuffer, FramebufferInfo, GraphicsPipeline, GraphicsPipelineInfo, Image,
-    ImageInfo, ImageView, ImageViewInfo, ImageViewType, MappableBuffer, MemoryUsage,
-    PipelineLayout, PipelineLayoutInfo, RenderPass, RenderPassInfo, Sampler, SamplerInfo,
-    Semaphore, ShaderModule, ShaderModuleInfo, StencilTest, UpdateDescriptorSet,
-    WritableDescriptorSet,
+    DescriptorSetLayout, DescriptorSetLayoutFlags, DescriptorSetLayoutInfo, DescriptorSetSize,
+    DescriptorSlice, DescriptorType, Fence, FenceState, Framebuffer, FramebufferInfo,
+    GraphicsPipeline, GraphicsPipelineInfo, Image, ImageInfo, ImageView, ImageViewInfo,
+    ImageViewType, MappableBuffer, MemoryUsage, PipelineLayout, PipelineLayoutInfo, RenderPass,
+    RenderPassInfo, Sampler, SamplerInfo, Semaphore, ShaderModule, ShaderModuleInfo, StencilTest,
+    UpdateDescriptorSet, WritableDescriptorSet,
 };
-use crate::surface::Surface;
-use crate::types::{DeviceAddress, State};
+use crate::surface::{CreateSurfaceError, Surface};
+use crate::types::{DeviceAddress, DeviceLost, OutOfDeviceMemory, State};
 use crate::util::{FromGfx, ToVk};
 
 mod descriptor_alloc;
@@ -139,7 +139,7 @@ impl Device {
         WeakDevice(Arc::downgrade(&self.inner))
     }
 
-    pub fn wait_idle(&self) -> Result<()> {
+    pub fn wait_idle(&self) -> Result<(), DeviceLost> {
         self.inner.wait_idle()
     }
 
@@ -148,7 +148,7 @@ impl Device {
         buffer: &mut MappableBuffer,
         offset: u64,
         size: usize,
-    ) -> Result<&mut [MaybeUninit<u8>]> {
+    ) -> Result<&mut [MaybeUninit<u8>], MapError> {
         Ok(unsafe {
             let ptr = buffer
                 .memory_block()
@@ -171,7 +171,7 @@ impl Device {
         buffer: &mut MappableBuffer,
         offset: u64,
         data: &[T],
-    ) -> Result<()>
+    ) -> Result<(), MapError>
     where
         T: bytemuck::Pod,
     {
@@ -189,11 +189,12 @@ impl Device {
         Ok(())
     }
 
-    pub fn create_semaphore(&self) -> Result<Semaphore> {
+    pub fn create_semaphore(&self) -> Result<Semaphore, OutOfDeviceMemory> {
         let logical = &self.inner.logical;
 
         let info = vk::SemaphoreCreateInfo::builder();
-        let handle = unsafe { logical.create_semaphore(&info, None) }?;
+        let handle = unsafe { logical.create_semaphore(&info, None) }
+            .map_err(OutOfDeviceMemory::on_creation)?;
 
         tracing::debug!(semaphore = ?handle, "created semaphore");
 
@@ -204,11 +205,12 @@ impl Device {
         self.logical().destroy_semaphore(handle, None);
     }
 
-    pub fn create_fence(&self) -> Result<Fence> {
+    pub fn create_fence(&self) -> Result<Fence, OutOfDeviceMemory> {
         let logical = &self.inner.logical;
 
         let info = vk::FenceCreateInfo::builder();
-        let handle = unsafe { logical.create_fence(&info, None) }?;
+        let handle =
+            unsafe { logical.create_fence(&info, None) }.map_err(OutOfDeviceMemory::on_creation)?;
 
         tracing::debug!(fence = ?handle, "created fence");
 
@@ -219,11 +221,17 @@ impl Device {
         self.logical().destroy_fence(handle, None);
     }
 
-    pub fn update_armed_fence_state(&self, fence: &mut Fence) -> Result<bool> {
-        let status = unsafe { self.logical().get_fence_status(fence.handle()) }?;
+    pub fn update_armed_fence_state(&self, fence: &mut Fence) -> Result<bool, DeviceLost> {
+        let status =
+            unsafe { self.logical().get_fence_status(fence.handle()) }.map_err(|e| match e {
+                vk::ErrorCode::DEVICE_LOST => DeviceLost,
+                vk::ErrorCode::OUT_OF_HOST_MEMORY => crate::out_of_host_memory(),
+                _ => crate::unexpected_vulkan_error(e),
+            })?;
+
         match status {
             vk::SuccessCode::SUCCESS => {
-                if let Some((queue, epoch)) = fence.set_signalled()? {
+                if let Some((queue, epoch)) = fence.set_signalled() {
                     self.epochs().close_epoch(queue, epoch);
                 }
                 Ok(true)
@@ -233,47 +241,46 @@ impl Device {
         }
     }
 
-    pub fn reset_fences(&self, fences: &mut [&mut Fence]) -> Result<()> {
+    pub fn reset_fences(&self, fences: &mut [&mut Fence]) -> Result<(), DeviceLost> {
         let handles = fences
             .iter_mut()
             .map(|fence| {
                 if matches!(fence.state(), FenceState::Armed { .. }) {
-                    match self.update_armed_fence_state(fence) {
-                        // Signalled -> ok
-                        Ok(true) => {}
-                        // Armed and not signalled yet -> error
-                        Ok(false) => return Err(anyhow::anyhow!("armed fence cannot be reset")),
-                        // Failed to check -> error
-                        Err(e) => return Err(e),
-                    }
+                    let signalled = self.update_armed_fence_state(fence)?;
+
+                    // Armed and not signalled yet -> logic error
+                    assert!(signalled, "armed fence cannot be reset");
                 }
                 Ok(fence.handle())
             })
-            .collect::<Result<SmallVec<[_; 16]>>>()?;
+            .collect::<Result<SmallVec<[_; 16]>, DeviceLost>>()?;
 
-        unsafe { self.logical().reset_fences(&handles) }?;
+        if let Err(e) = unsafe { self.logical().reset_fences(&handles) } {
+            crate::unexpected_vulkan_error(e);
+        }
 
         for fence in fences {
-            fence.set_unsignalled()?;
+            fence.set_unsignalled();
         }
 
         Ok(())
     }
 
-    pub fn wait_fences(&self, fences: &mut [&mut Fence], wait_all: bool) -> Result<()> {
+    pub fn wait_fences(&self, fences: &mut [&mut Fence], wait_all: bool) -> Result<(), DeviceLost> {
         let handles = fences
             .iter()
             .filter_map(|fence| match fence.state() {
                 // Waiting for an unarmed fence -> error (preventing deadlock)
                 FenceState::Unsignalled => {
-                    Some(Err(anyhow::anyhow!("waiting for an unarmed fence")))
+                    // Logic error
+                    panic!("waiting for an unarmed fence")
                 }
                 // Waiting for an armed fence -> ok
-                FenceState::Armed { .. } => Some(Ok(fence.handle())),
+                FenceState::Armed { .. } => Some(fence.handle()),
                 // Already signalled fences could be skipped
                 FenceState::Signalled => None,
             })
-            .collect::<Result<SmallVec<[_; 16]>>>()?;
+            .collect::<SmallVec<[_; 16]>>();
 
         if handles.is_empty() {
             return Ok(());
@@ -283,7 +290,12 @@ impl Device {
             self.inner
                 .logical
                 .wait_for_fences(&handles, wait_all, u64::MAX)
-        }?;
+        }
+        .map_err(|e| match e {
+            vk::ErrorCode::DEVICE_LOST => DeviceLost,
+            vk::ErrorCode::OUT_OF_HOST_MEMORY => crate::out_of_host_memory(),
+            _ => crate::unexpected_vulkan_error(e),
+        })?;
 
         let all_signalled = wait_all || handles.len() == 1;
 
@@ -291,7 +303,7 @@ impl Device {
 
         for fence in fences {
             if all_signalled || self.update_armed_fence_state(fence)? {
-                if let Some(epoch) = fence.set_signalled()? {
+                if let Some(epoch) = fence.set_signalled() {
                     epochs_to_close.push(epoch);
                 }
             }
@@ -317,15 +329,14 @@ impl Device {
         Ok(())
     }
 
-    pub fn create_surface(&self, window: Arc<Window>) -> Result<Surface> {
-        let handle = self.graphics().create_raw_surface(&window)?;
+    pub fn create_surface(&self, window: Arc<Window>) -> Result<Surface, CreateSurfaceError> {
+        let surface = Surface::new(self.graphics().instance(), window, self)?;
 
-        tracing::debug!(surface = ?handle, "created surface");
-
-        Surface::new(handle, window, self)
+        tracing::debug!(surface = ?surface.handle(), "created surface");
+        Ok(surface)
     }
 
-    pub fn create_buffer(&self, info: BufferInfo) -> Result<Buffer> {
+    pub fn create_buffer(&self, info: BufferInfo) -> Result<Buffer, OutOfDeviceMemory> {
         self.create_buffer_impl(info, None)
             .map(MappableBuffer::freeze)
     }
@@ -334,7 +345,7 @@ impl Device {
         &self,
         info: BufferInfo,
         memory_usage: MemoryUsage,
-    ) -> Result<MappableBuffer> {
+    ) -> Result<MappableBuffer, OutOfDeviceMemory> {
         self.create_buffer_impl(info, Some(memory_usage))
     }
 
@@ -342,7 +353,7 @@ impl Device {
         &self,
         info: BufferInfo,
         memory_usage: Option<MemoryUsage>,
-    ) -> Result<MappableBuffer> {
+    ) -> Result<MappableBuffer, OutOfDeviceMemory> {
         let logical = &self.inner.logical;
 
         let mut alloc_flags = gpu_alloc::UsageFlags::empty();
@@ -365,7 +376,7 @@ impl Device {
 
         let has_device_address = info.usage.contains(BufferUsage::SHADER_DEVICE_ADDRESS);
         if has_device_address {
-            anyhow::ensure!(
+            assert!(
                 self.inner.features.v1_2.buffer_device_address != 0,
                 "`SHADER_DEVICE_ADDRESS` buffer usage requires `BufferDeviceAddress`
                 feature"
@@ -378,7 +389,7 @@ impl Device {
                 .size(info.size)
                 .usage(info.usage.to_vk())
                 .sharing_mode(vk::SharingMode::EXCLUSIVE);
-            unsafe { logical.create_buffer(&info, None)? }
+            unsafe { logical.create_buffer(&info, None) }.map_err(OutOfDeviceMemory::on_creation)?
         }
         .with_defer(|handle| unsafe { logical.destroy_buffer(handle, None) });
 
@@ -417,9 +428,15 @@ impl Device {
                     Some(dedicated) => allocator.alloc_with_dedicated(logical, request, dedicated),
                 }
             }
-        }?;
+            .map_err(|e| match e {
+                gpu_alloc::AllocationError::OutOfDeviceMemory => OutOfDeviceMemory,
+                gpu_alloc::AllocationError::OutOfHostMemory => crate::out_of_host_memory(),
+                _ => panic!("unexpected allocation error: {e:?}"),
+            })?
+        };
 
-        unsafe { logical.bind_buffer_memory(*handle, *block.memory(), block.offset())? };
+        unsafe { logical.bind_buffer_memory(*handle, *block.memory(), block.offset()) }
+            .map_err(OutOfDeviceMemory::on_creation)?;
 
         let address = if has_device_address {
             let info = vk::BufferDeviceAddressInfo::builder().buffer(*handle);
@@ -455,8 +472,11 @@ impl Device {
         self.logical().destroy_buffer(handle, None);
     }
 
-    pub fn create_buffer_view(&self, info: BufferViewInfo) -> Result<BufferView> {
-        anyhow::ensure!(
+    pub fn create_buffer_view(
+        &self,
+        info: BufferViewInfo,
+    ) -> Result<BufferView, OutOfDeviceMemory> {
+        assert!(
             info.buffer
                 .info()
                 .usage
@@ -474,7 +494,8 @@ impl Device {
                 .offset(info.offset)
                 .range(info.size);
 
-            unsafe { logical.create_buffer_view(&info, None) }?
+            unsafe { logical.create_buffer_view(&info, None) }
+                .map_err(OutOfDeviceMemory::on_creation)?
         };
 
         tracing::debug!(buffer_view = ?handle, "created buffer view");
@@ -486,7 +507,7 @@ impl Device {
         self.logical().destroy_buffer_view(handle, None);
     }
 
-    pub fn create_image(&self, info: ImageInfo) -> Result<Image> {
+    pub fn create_image(&self, info: ImageInfo) -> Result<Image, OutOfDeviceMemory> {
         let logical = &self.inner.logical;
 
         let handle = {
@@ -502,7 +523,9 @@ impl Device {
                 .sharing_mode(vk::SharingMode::EXCLUSIVE)
                 .initial_layout(vk::ImageLayout::UNDEFINED);
 
-            unsafe { logical.create_image(&info, None) }?
+            // NOTE: `INVALID_OPAQUE_CAPTURE_ADDRESS` might be returned here, but
+            // we cannot handle it anyway.
+            unsafe { logical.create_image(&info, None) }.map_err(OutOfDeviceMemory::on_creation)?
         }
         .with_defer(|image| unsafe { logical.destroy_image(image, None) });
 
@@ -541,9 +564,15 @@ impl Device {
                     Some(dedicated) => allocator.alloc_with_dedicated(logical, request, dedicated),
                 }
             }
-        }?;
+        }
+        .map_err(|e| match e {
+            gpu_alloc::AllocationError::OutOfDeviceMemory => OutOfDeviceMemory,
+            gpu_alloc::AllocationError::OutOfHostMemory => crate::out_of_host_memory(),
+            _ => panic!("unexpected allocation error: {e:?}"),
+        })?;
 
-        unsafe { logical.bind_image_memory(*handle, *block.memory(), block.offset())? };
+        unsafe { logical.bind_image_memory(*handle, *block.memory(), block.offset()) }
+            .map_err(OutOfDeviceMemory::on_creation)?;
 
         tracing::debug!(image = ?*handle, "created image");
 
@@ -564,7 +593,7 @@ impl Device {
         self.logical().destroy_image(handle, None)
     }
 
-    pub fn create_image_view(&self, info: ImageViewInfo) -> Result<ImageView> {
+    pub fn create_image_view(&self, info: ImageViewInfo) -> Result<ImageView, OutOfDeviceMemory> {
         let logical = &self.inner.logical;
 
         let handle = {
@@ -575,7 +604,10 @@ impl Device {
                 .subresource_range(vk::ImageSubresourceRange::from_gfx(info.range))
                 .components(vk::ComponentMapping::from_gfx(info.mapping));
 
-            unsafe { logical.create_image_view(&info, None) }?
+            // NOTE: `INVALID_OPAQUE_CAPTURE_ADDRESS` might be returned here, but
+            // we cannot handle it anyway.
+            unsafe { logical.create_image_view(&info, None) }
+                .map_err(OutOfDeviceMemory::on_creation)?
         };
 
         tracing::debug!(image_view = ?handle, "created image view");
@@ -587,7 +619,7 @@ impl Device {
         self.logical().destroy_image_view(handle, None);
     }
 
-    pub fn create_sampler(&self, info: SamplerInfo) -> Result<Sampler> {
+    pub fn create_sampler(&self, info: SamplerInfo) -> Result<Sampler, OutOfDeviceMemory> {
         use dashmap::mapref::entry::Entry;
 
         let logical = &self.inner.logical;
@@ -622,7 +654,10 @@ impl Device {
                         create_info = create_info.push_next(&mut reduction_mode_info);
                     }
 
-                    unsafe { logical.create_sampler(&create_info, None) }?
+                    // NOTE: `INVALID_OPAQUE_CAPTURE_ADDRESS` might be returned here, but
+                    // we cannot handle it anyway.
+                    unsafe { logical.create_sampler(&create_info, None) }
+                        .map_err(OutOfDeviceMemory::on_creation)?
                 };
 
                 entry
@@ -640,13 +675,19 @@ impl Device {
         self.logical().destroy_sampler(handle, None)
     }
 
-    pub fn create_shader_module(&self, info: ShaderModuleInfo) -> Result<ShaderModule> {
+    pub fn create_shader_module(
+        &self,
+        info: ShaderModuleInfo,
+    ) -> Result<ShaderModule, OutOfDeviceMemory> {
         let handle = {
             let info = vk::ShaderModuleCreateInfo::builder()
                 .code_size(info.data.len() * 4)
                 .code(&info.data);
 
-            unsafe { self.logical().create_shader_module(&info, None) }?
+            // NOTE: `INVALID_SHADER_NV` is not possible as soon as `VK_NV_glsl_shader` extension
+            // is not enabled. (it won't, because we use SPIR-V)
+            unsafe { self.logical().create_shader_module(&info, None) }
+                .map_err(OutOfDeviceMemory::on_creation)?
         };
 
         tracing::debug!(shader_module = ?handle, "created shader module");
@@ -658,7 +699,10 @@ impl Device {
         self.logical().destroy_shader_module(handle, None);
     }
 
-    pub fn create_render_pass(&self, info: RenderPassInfo) -> Result<RenderPass> {
+    pub fn create_render_pass(
+        &self,
+        info: RenderPassInfo,
+    ) -> Result<RenderPass, CreateRenderPassError> {
         let mut subpass_attachments = Vec::new();
 
         let mut subpasses = SmallVec::<[_; 4]>::with_capacity(info.subpasses.len());
@@ -667,11 +711,14 @@ impl Device {
             subpass_attachments.reserve(subpass.colors.len() + subpass.depth.is_some() as usize);
 
             for (color_index, &(i, layout)) in subpass.colors.iter().enumerate() {
-                anyhow::ensure!(
-                    (i as usize) < info.attachments.len(),
-                    "attachment index {i} is out of bounds for the color input {color_index} \
-                    in the subpass {subpass_index}"
-                );
+                if i as usize >= info.attachments.len() {
+                    return Err(CreateRenderPassError::ColorAttachmentOutOfBounds {
+                        attachment_index: i,
+                        color_index,
+                        subpass_index,
+                    });
+                }
+
                 subpass_attachments.push(
                     vk::AttachmentReference::builder()
                         .attachment(i)
@@ -681,11 +728,13 @@ impl Device {
 
             let depths_offset = subpass_attachments.len();
             if let Some((i, layout)) = subpass.depth {
-                anyhow::ensure!(
-                    (i as usize) < info.attachments.len(),
-                    "attachment index {i} is out of bounds for the depths input \
-                    in the subpass {subpass_index}"
-                );
+                if i as usize >= info.attachments.len() {
+                    return Err(CreateRenderPassError::DepthAttachmentOutOfBounds {
+                        attachment_index: i,
+                        subpass_index,
+                    });
+                }
+
                 subpass_attachments.push(
                     vk::AttachmentReference::builder()
                         .attachment(i)
@@ -736,7 +785,8 @@ impl Device {
                 .subpasses(&subpasses)
                 .dependencies(&dependencies);
 
-            unsafe { self.logical().create_render_pass(&info, None) }?
+            unsafe { self.logical().create_render_pass(&info, None) }
+                .map_err(OutOfDeviceMemory::on_creation)?
         };
 
         tracing::debug!(render_pass = ?handle, "created render pass");
@@ -748,15 +798,18 @@ impl Device {
         self.logical().destroy_render_pass(handle, None);
     }
 
-    pub fn create_framebuffer(&self, info: FramebufferInfo) -> Result<Framebuffer> {
-        anyhow::ensure!(
+    pub fn create_framebuffer(
+        &self,
+        info: FramebufferInfo,
+    ) -> Result<Framebuffer, OutOfDeviceMemory> {
+        assert!(
             info.attachments
                 .iter()
                 .all(|view| view.info().ty == ImageViewType::D2),
             "all image views must be 2d images"
         );
 
-        anyhow::ensure!(
+        assert!(
             info.attachments.iter().all(|view| {
                 let extent: vk::Extent2D = view.info().image.info().extent.to_vk();
                 extent.width >= info.extent.x && extent.height >= info.extent.y
@@ -779,7 +832,8 @@ impl Device {
                 .height(info.extent.y)
                 .layers(1);
 
-            unsafe { self.logical().create_framebuffer(&info, None) }?
+            unsafe { self.logical().create_framebuffer(&info, None) }
+                .map_err(OutOfDeviceMemory::on_creation)?
         };
 
         tracing::debug!(framebuffer = ?handle, "created framebuffer");
@@ -794,7 +848,8 @@ impl Device {
     pub fn create_descriptor_set_layout(
         &self,
         info: DescriptorSetLayoutInfo,
-    ) -> Result<DescriptorSetLayout> {
+    ) -> Result<DescriptorSetLayout, OutOfDeviceMemory> {
+        let graphics = self.graphics();
         let logical = &self.inner.logical;
 
         let handle = {
@@ -804,17 +859,17 @@ impl Device {
             let mut create_info =
                 vk::DescriptorSetLayoutCreateInfo::builder().flags(info.flags.to_vk());
 
-            if self.graphics().vk1_2() {
+            if graphics.vk1_2() || self.features().v1_2.descriptor_indexing != 0 {
                 if info
                     .bindings
                     .iter()
                     .any(|b| b.flags.contains(DescriptorBindingFlags::UPDATE_AFTER_BIND))
                 {
-                    anyhow::ensure!(
+                    assert!(
                         info.flags
                             .contains(DescriptorSetLayoutFlags::UPDATE_AFTER_BIND_POOL),
                         "`UPDATE_AFTER_BIND_POOL` flag must be set in descriptor set layout \
-                        create info flags"
+                        create info flags to use `UPDATE_AFTER_BIND` binding flags"
                     );
                 }
 
@@ -828,9 +883,10 @@ impl Device {
                     vk::DescriptorSetLayoutBindingFlagsCreateInfo::builder().binding_flags(&flags);
                 create_info = create_info.push_next(&mut flags_info);
             } else {
-                anyhow::ensure!(
+                assert!(
                     info.bindings.iter().all(|b| b.flags.is_empty()),
-                    "Vulkan 1.2 is required for non-empty `DescriptorBindingFlags`"
+                    "Vulkan 1.2 or descriptor indexing extension are required \
+                    for non-empty `DescriptorBindingFlags`"
                 );
             }
 
@@ -848,13 +904,34 @@ impl Device {
 
             create_info = create_info.bindings(&bindings);
 
-            unsafe { logical.create_descriptor_set_layout(&create_info, None) }?
+            unsafe { logical.create_descriptor_set_layout(&create_info, None) }
+                .map_err(OutOfDeviceMemory::on_creation)?
         };
 
         tracing::debug!(descriptor_set_layout = ?handle, "created descriptor set layout");
 
-        // TODO: compute
-        let size = Default::default();
+        let mut size = DescriptorSetSize::default();
+        for binding in info.bindings.iter() {
+            match binding.ty {
+                DescriptorType::Sampler => size.samplers += binding.count,
+                DescriptorType::CombinedImageSampler => {
+                    size.combined_image_samplers += binding.count
+                }
+                DescriptorType::SampledImage => size.sampled_images += binding.count,
+                DescriptorType::StorageImage => size.storage_images += binding.count,
+                DescriptorType::UniformTexelBuffer => size.uniform_texel_buffers += binding.count,
+                DescriptorType::StorageTexelBuffer => size.storage_texel_buffers += binding.count,
+                DescriptorType::UniformBuffer => size.uniform_buffers += binding.count,
+                DescriptorType::StorageBuffer => size.storage_buffers += binding.count,
+                DescriptorType::UniformBufferDynamic => {
+                    size.uniform_buffers_dynamic += binding.count
+                }
+                DescriptorType::StorageBufferDynamic => {
+                    size.storage_buffers_dynamic += binding.count
+                }
+                DescriptorType::InputAttachment => size.input_attachments += binding.count,
+            }
+        }
 
         Ok(DescriptorSetLayout::new(
             handle,
@@ -868,8 +945,11 @@ impl Device {
         self.logical().destroy_descriptor_set_layout(handle, None)
     }
 
-    pub fn create_descriptor_set(&self, info: DescriptorSetInfo) -> Result<WritableDescriptorSet> {
-        anyhow::ensure!(
+    pub fn create_descriptor_set(
+        &self,
+        info: DescriptorSetInfo,
+    ) -> Result<WritableDescriptorSet, DescriptorAllocError> {
+        assert!(
             info.layout
                 .info()
                 .flags
@@ -1076,7 +1156,10 @@ impl Device {
         };
     }
 
-    pub fn create_pipeline_layout(&self, info: PipelineLayoutInfo) -> Result<PipelineLayout> {
+    pub fn create_pipeline_layout(
+        &self,
+        info: PipelineLayoutInfo,
+    ) -> Result<PipelineLayout, OutOfDeviceMemory> {
         let logical = &self.inner.logical;
 
         let handle = {
@@ -1095,7 +1178,8 @@ impl Device {
                 .set_layouts(&sets)
                 .push_constant_ranges(&push_constants);
 
-            unsafe { logical.create_pipeline_layout(&info, None) }?
+            unsafe { logical.create_pipeline_layout(&info, None) }
+                .map_err(OutOfDeviceMemory::on_creation)?
         };
 
         tracing::debug!(pipeline_layout = ?handle, "created pipeline layout");
@@ -1107,7 +1191,10 @@ impl Device {
         self.logical().destroy_pipeline_layout(handle, None)
     }
 
-    pub fn create_graphics_pipeline(&self, info: GraphicsPipelineInfo) -> Result<GraphicsPipeline> {
+    pub fn create_graphics_pipeline(
+        &self,
+        info: GraphicsPipelineInfo,
+    ) -> Result<GraphicsPipeline, OutOfDeviceMemory> {
         let logical = &self.inner.logical;
         let descr = &info.descr;
 
@@ -1116,9 +1203,12 @@ impl Device {
         let color_count = {
             let r = &info.rendering;
 
-            let Some(subpass) = r.render_pass.info().subpasses.get(r.subpass as usize) else {
-                anyhow::bail!("subpass index {} is out of bounds", r.subpass);
-            };
+            let subpass = r
+                .render_pass
+                .info()
+                .subpasses
+                .get(r.subpass as usize)
+                .expect("subpass index is out of bounds");
 
             create_info = create_info
                 .render_pass(r.render_pass.handle())
@@ -1324,10 +1414,10 @@ impl Device {
                         blending,
                         constants,
                     } => {
-                        anyhow::ensure!(
-                                blending.len() == color_count,
-                                "independent blending array must have the same length as color attachments"
-                            );
+                        assert!(
+                            blending.len() == color_count,
+                            "independent blending array must have the same length as color attachments"
+                        );
 
                         attachments = blending
                             .iter()
@@ -1393,7 +1483,8 @@ impl Device {
                     std::slice::from_ref(&create_info),
                     None,
                 )
-            }?;
+            }
+            .map_err(OutOfDeviceMemory::on_creation)?;
 
             pipelines.remove(0)
         };
@@ -1403,7 +1494,10 @@ impl Device {
         Ok(GraphicsPipeline::new(handle, info, self.downgrade()))
     }
 
-    pub fn create_compute_pipeline(&self, info: ComputePipelineInfo) -> Result<ComputePipeline> {
+    pub fn create_compute_pipeline(
+        &self,
+        info: ComputePipelineInfo,
+    ) -> Result<ComputePipeline, OutOfDeviceMemory> {
         let logical = &self.inner.logical;
 
         let handle = {
@@ -1424,7 +1518,8 @@ impl Device {
                     std::slice::from_ref(&info),
                     None,
                 )
-            }?;
+            }
+            .map_err(OutOfDeviceMemory::on_creation)?;
 
             pipelines.remove(0)
         };
@@ -1482,15 +1577,23 @@ struct Inner {
 }
 
 impl Inner {
-    fn wait_idle(&self) -> Result<()> {
+    fn wait_idle(&self) -> Result<(), DeviceLost> {
         let old_epochs = self.epochs.next_epoch_all_queues();
 
-        unsafe { self.logical.device_wait_idle()? };
+        let res = unsafe { self.logical.device_wait_idle() };
+        if let Some(vk::ErrorCode::OUT_OF_HOST_MEMORY) = res.err() {
+            crate::out_of_host_memory();
+        }
 
         for (queue, epoch) in old_epochs {
             self.epochs.close_epoch(queue, epoch);
         }
-        Ok(())
+
+        match res {
+            Ok(()) => Ok(()),
+            Err(vk::ErrorCode::DEVICE_LOST) => Err(DeviceLost),
+            Err(e) => crate::unexpected_vulkan_error(e),
+        }
     }
 }
 
@@ -1551,4 +1654,53 @@ fn map_memory_device_properties(
         non_coherent_atom_size: limits.non_coherent_atom_size,
         buffer_device_address: features.v1_2.buffer_device_address != 0,
     }
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum MapError {
+    #[error(transparent)]
+    OutOfDeviceMemory(#[from] OutOfDeviceMemory),
+    #[error("attempt to map memory block with non-host-visible memory type")]
+    NonHostVisible,
+    #[error("memory map failed for implementation specific reason")]
+    MapFailed,
+    #[error("memory mapping failed due to block being already mapped")]
+    AlreadyMapped,
+}
+
+impl From<gpu_alloc::MapError> for MapError {
+    fn from(value: gpu_alloc::MapError) -> Self {
+        match value {
+            gpu_alloc::MapError::OutOfDeviceMemory => Self::OutOfDeviceMemory(OutOfDeviceMemory),
+            gpu_alloc::MapError::OutOfHostMemory => crate::out_of_host_memory(),
+            gpu_alloc::MapError::NonHostVisible => Self::NonHostVisible,
+            gpu_alloc::MapError::MapFailed => Self::MapFailed,
+            gpu_alloc::MapError::AlreadyMapped => Self::AlreadyMapped,
+        }
+    }
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum CreateRenderPassError {
+    #[error(transparent)]
+    OutOfDeviceMemory(#[from] OutOfDeviceMemory),
+
+    #[error(
+        "attachment index {attachment_index} is out of bounds for the color input {color_index} \
+        in the subpass {subpass_index}"
+    )]
+    ColorAttachmentOutOfBounds {
+        attachment_index: u32,
+        color_index: usize,
+        subpass_index: usize,
+    },
+
+    #[error(
+        "attachment index {attachment_index} is out of bounds for the depth input \
+        in the subpass {subpass_index}"
+    )]
+    DepthAttachmentOutOfBounds {
+        attachment_index: u32,
+        subpass_index: usize,
+    },
 }

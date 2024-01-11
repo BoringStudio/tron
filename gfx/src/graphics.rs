@@ -3,17 +3,13 @@ use std::collections::HashSet;
 use std::ffi::{c_void, CStr, CString};
 use std::sync::Mutex;
 
-use anyhow::Result;
 use once_cell::sync::OnceCell;
 use vulkanalia::loader::{LibloadingLoader, LIBRARY};
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::ExtDebugUtilsExtension as _;
 use vulkanalia::Instance;
-use winit::raw_window_handle::{
-    HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
-};
 
-use crate::PhysicalDevice;
+use crate::{OutOfDeviceMemory, PhysicalDevice};
 
 /// Graphics instance configuration.
 #[derive(Debug, Clone)]
@@ -47,7 +43,7 @@ impl Graphics {
     /// See [`set_init_config`].
     ///
     /// [`set_init_config`]: [`Graphics::set_init_config`]
-    pub fn get_or_init() -> Result<&'static Self> {
+    pub fn get_or_init() -> Result<&'static Self, InitGraphicsError> {
         GRAPHICS.get_or_try_init(|| unsafe { Self::new() })
     }
 
@@ -61,16 +57,23 @@ impl Graphics {
         GRAPHICS.get_unchecked()
     }
 
-    unsafe fn new() -> Result<Self> {
+    unsafe fn new() -> Result<Self, InitGraphicsError> {
         let config = INIT_CONFIG.lock().unwrap().clone();
 
         // Init API entry
-        let loader = LibloadingLoader::new(LIBRARY)?;
-        let entry = Entry::new(loader).map_err(anyhow::Error::msg)?;
+        let loader = LibloadingLoader::new(LIBRARY)
+            .map_err(|e| InitGraphicsError::EntryLoadFailed(Box::new(e)))?;
+        let entry = Entry::new(loader).map_err(|e| {
+            InitGraphicsError::EntryLoadFailed(Box::new(std::io::Error::other(e.to_string())))
+        })?;
 
         // Prepare basic app info
-        let api_version = entry.version()?.into();
-        let app_name = CString::new(config.app_name.as_ref())?;
+        let api_version = match entry.version() {
+            Ok(version) => version.into(),
+            Err(e) => crate::unexpected_vulkan_error(e),
+        };
+        let app_name =
+            CString::new(config.app_name.as_ref()).expect("app name must not contain null");
         let app_version = vk::make_version(
             config.app_version.0,
             config.app_version.1,
@@ -84,13 +87,26 @@ impl Graphics {
             .api_version(api_version);
 
         // Get available layers and extensions
+        fn map_enumerate_err(e: vk::ErrorCode) -> InitGraphicsError {
+            match e {
+                vk::ErrorCode::OUT_OF_HOST_MEMORY => crate::out_of_host_memory(),
+                vk::ErrorCode::OUT_OF_DEVICE_MEMORY => {
+                    InitGraphicsError::OutOfDeviceMemory(OutOfDeviceMemory)
+                }
+                vk::ErrorCode::LAYER_NOT_PRESENT => InitGraphicsError::LayerNotLoaded,
+                _ => crate::unexpected_vulkan_error(e),
+            }
+        }
+
         let available_layers = entry
-            .enumerate_instance_layer_properties()?
+            .enumerate_instance_layer_properties()
+            .map_err(map_enumerate_err)?
             .into_iter()
             .map(|l| l.layer_name)
             .collect::<HashSet<_>>();
         let available_extensions = entry
-            .enumerate_instance_extension_properties(None)?
+            .enumerate_instance_extension_properties(None)
+            .map_err(map_enumerate_err)?
             .into_iter()
             .map(|item| item.extension_name)
             .collect::<HashSet<_>>();
@@ -130,10 +146,12 @@ impl Graphics {
 
         // Add required extensions for creating windows
         push_ext(&vk::KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_EXTENSION);
-        anyhow::ensure!(
-            push_ext(&vk::KHR_SURFACE_EXTENSION),
-            "Vulkan surface extension support is mandatory"
-        );
+
+        let supports_surface = push_ext(&vk::KHR_SURFACE_EXTENSION);
+        if !supports_surface {
+            // Running on calculator?
+            panic!("Vulkan surface extension support is mandatory");
+        }
 
         #[cfg(any(
             target_os = "dragonfly",
@@ -165,11 +183,32 @@ impl Graphics {
             instance_info = instance_info.push_next(&mut debug_info);
         }
 
-        let instance = entry.create_instance(&instance_info, None)?;
+        let instance = entry
+            .create_instance(&instance_info, None)
+            .map_err(|e| match e {
+                vk::ErrorCode::OUT_OF_HOST_MEMORY => crate::out_of_host_memory(),
+                vk::ErrorCode::OUT_OF_DEVICE_MEMORY => {
+                    InitGraphicsError::OutOfDeviceMemory(OutOfDeviceMemory)
+                }
+                vk::ErrorCode::INITIALIZATION_FAILED => InitGraphicsError::InitializationFailed,
+                // NOTE: no unsupported layers are requested, but this error can still occur
+                // if it fails to load the validation layer
+                vk::ErrorCode::LAYER_NOT_PRESENT => InitGraphicsError::LayerNotLoaded,
+                vk::ErrorCode::INCOMPATIBLE_DRIVER => InitGraphicsError::IncompatibleDriver,
+                // NOTE: `EXTENSION_NOT_PRESENT` is also unexpected because we check for
+                // extension support before creating the instance
+                _ => crate::unexpected_vulkan_error(e),
+            })?;
 
         let debug_utils_messenger = if validation_enabled {
             let debug_info = make_debug_callback_info();
-            instance.create_debug_utils_messenger_ext(&debug_info, None)?
+            match instance.create_debug_utils_messenger_ext(&debug_info, None) {
+                Ok(handle) => handle,
+                Err(e) => match e {
+                    vk::ErrorCode::OUT_OF_HOST_MEMORY => crate::out_of_host_memory(),
+                    _ => crate::unexpected_vulkan_error(e),
+                },
+            }
         } else {
             vk::DebugUtilsMessengerEXT::null()
         };
@@ -189,119 +228,18 @@ impl Graphics {
     }
 
     /// Returns the [`PhysicalDevice`]s available on the system.
-    pub fn get_physical_devices(&self) -> Result<Vec<PhysicalDevice>> {
-        let devices = unsafe { self.instance.enumerate_physical_devices() }?;
+    pub fn get_physical_devices(&self) -> Result<Vec<PhysicalDevice>, OutOfDeviceMemory> {
+        let devices =
+            unsafe { self.instance.enumerate_physical_devices() }.map_err(|e| match e {
+                vk::ErrorCode::OUT_OF_HOST_MEMORY => crate::out_of_host_memory(),
+                vk::ErrorCode::OUT_OF_DEVICE_MEMORY => OutOfDeviceMemory,
+                _ => crate::unexpected_vulkan_error(e),
+            })?;
 
         Ok(devices
             .into_iter()
             .map(|handle| unsafe { PhysicalDevice::new(handle) })
             .collect())
-    }
-
-    pub(crate) fn create_raw_surface<W>(&self, window: &W) -> Result<vk::SurfaceKHR>
-    where
-        W: HasDisplayHandle + HasWindowHandle,
-    {
-        let require_extension = |ext: &vk::Extension| -> Result<()> {
-            anyhow::ensure!(
-                self.instance.extensions().contains(&ext.name),
-                "`{}` is not supported",
-                ext.name
-            );
-            Ok(())
-        };
-
-        match (
-            window.display_handle().map(|handle| handle.as_raw())?,
-            window.window_handle().map(|handle| handle.as_raw())?,
-        ) {
-            #[cfg(target_os = "windows")]
-            (RawDisplayHandle::Windows(_), RawWindowHandle::Win32(window)) => {
-                use vk::KhrWin32SurfaceExtension;
-
-                require_extension(&vk::KHR_WIN32_SURFACE_EXTENSION)?;
-
-                let hinstance_ptr = window
-                    .hinstance
-                    .map(|hinstance| hinstance.get() as vk::HINSTANCE)
-                    .unwrap_or(std::ptr::null_mut());
-                let hwnd_ptr = window.hwnd.get() as vk::HWND;
-
-                let info = vk::Win32SurfaceCreateInfoKHR::builder()
-                    .hinstance(hinstance_ptr)
-                    .hwnd(hwnd_ptr);
-
-                unsafe { self.instance.create_win32_surface_khr(&info, None) }
-            }
-            #[cfg(any(
-                target_os = "dragonfly",
-                target_os = "freebsd",
-                target_os = "linux",
-                target_os = "netbsd",
-                target_os = "openbsd"
-            ))]
-            (RawDisplayHandle::Xcb(display), RawWindowHandle::Xcb(window)) => {
-                use vk::KhrXcbSurfaceExtension;
-
-                require_extension(&vk::KHR_XCB_SURFACE_EXTENSION)?;
-
-                let connection_ptr = display
-                    .connection
-                    .map(|connection| connection.as_ptr())
-                    .unwrap_or(std::ptr::null_mut());
-
-                let info = vk::XcbSurfaceCreateInfoKHR::builder()
-                    .window(window.window.get())
-                    .connection(connection_ptr);
-
-                unsafe { self.instance.create_xcb_surface_khr(&info, None) }
-            }
-            #[cfg(any(
-                target_os = "dragonfly",
-                target_os = "freebsd",
-                target_os = "linux",
-                target_os = "netbsd",
-                target_os = "openbsd"
-            ))]
-            (RawDisplayHandle::Xlib(display), RawWindowHandle::Xlib(window)) => {
-                use vk::KhrXlibSurfaceExtension;
-
-                require_extension(&vk::KHR_XLIB_SURFACE_EXTENSION)?;
-
-                let display_ptr = display
-                    .display
-                    .map(|display| display.as_ptr())
-                    .unwrap_or(std::ptr::null_mut());
-
-                let info = vk::XlibSurfaceCreateInfoKHR {
-                    dpy: display_ptr.cast(),
-                    window: window.window,
-                    ..Default::default()
-                };
-
-                unsafe { self.instance.create_xlib_surface_khr(&info, None) }
-            }
-            #[cfg(any(
-                target_os = "dragonfly",
-                target_os = "freebsd",
-                target_os = "linux",
-                target_os = "netbsd",
-                target_os = "openbsd"
-            ))]
-            (RawDisplayHandle::Wayland(display), RawWindowHandle::Wayland(window)) => {
-                use vk::KhrWaylandSurfaceExtension;
-
-                require_extension(&vk::KHR_WAYLAND_SURFACE_EXTENSION)?;
-
-                let info = vk::WaylandSurfaceCreateInfoKHR::builder()
-                    .display(display.display.as_ptr())
-                    .surface(window.surface.as_ptr());
-
-                unsafe { self.instance.create_wayland_surface_khr(&info, None) }
-            }
-            _ => anyhow::bail!("unsupported window and display kind combination"),
-        }
-        .map_err(Into::into)
     }
 
     /// Returns the underlying Vulkan instance.
@@ -378,3 +316,20 @@ static INIT_CONFIG: Mutex<InstanceConfig> = Mutex::new(InstanceConfig {
     app_version: (0, 0, 1),
     validation_layer_enabled: true,
 });
+
+#[derive(Debug, thiserror::Error)]
+pub enum InitGraphicsError {
+    #[error(transparent)]
+    OutOfDeviceMemory(#[from] OutOfDeviceMemory),
+    #[error("failed to load Vulkan entry point")]
+    EntryLoadFailed(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
+    #[error("instance initialization could not be completed for implementation-specific reasons")]
+    InitializationFailed,
+    #[error("some requested layers could not be loaded")]
+    LayerNotLoaded,
+    #[error(
+        "the requested version of Vulkan is not supported by the driver or \
+        is otherwise incompatible for implementation-specific reasons"
+    )]
+    IncompatibleDriver,
+}
