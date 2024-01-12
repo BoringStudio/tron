@@ -4,9 +4,11 @@ use std::sync::{Arc, Condvar, Mutex};
 use anyhow::Result;
 use argh::FromArgs;
 use winit::event::*;
-use winit::event_loop::EventLoop;
+use winit::event_loop::EventLoopBuilder;
+#[cfg(wayland_platform)]
+use winit::platform::wayland::EventLoopBuilderExtWayland;
 #[cfg(x11_platform)]
-use winit::platform::x11::{WindowBuilderExtX11, XWindowType};
+use winit::platform::x11::{EventLoopBuilderExtX11, WindowBuilderExtX11, XWindowType};
 use winit::window::WindowBuilder;
 
 use renderer::Renderer;
@@ -23,21 +25,37 @@ fn main() -> Result<()> {
 /// Vulkan rendering experiments
 #[derive(FromArgs)]
 struct App {
-    /// don't set up vulkan validation layer
-    #[argh(switch)]
-    validation_layer: bool,
     /// enable profiling server
     #[argh(switch)]
     profiling: bool,
+
+    /// use Vulkan validation layer
+    #[argh(switch)]
+    vk_validation_layer: bool,
 
     /// enable X11-specific popup mode
     #[cfg(x11_platform)]
     #[argh(switch)]
     x11_as_popup: bool,
+
+    /// force use X11 window backend
+    #[cfg(x11_platform)]
+    #[argh(switch)]
+    x11_backend: bool,
+
+    /// force use Wayland window backend
+    #[cfg(wayland_platform)]
+    #[argh(switch)]
+    wayland_backend: bool,
 }
 
 impl App {
     pub fn run(self) -> Result<()> {
+        #[cfg(all(x11_platform, wayland_platform))]
+        if self.x11_backend && self.wayland_backend {
+            panic!("can't use both X11 and Wayland backends");
+        }
+
         tracing_subscriber::fmt()
             .with_env_filter(
                 tracing_subscriber::EnvFilter::builder()
@@ -57,7 +75,22 @@ impl App {
         profiling::puffin::set_scopes_on(self.profiling);
 
         let app_name = env!("CARGO_BIN_NAME").to_owned();
-        let event_loop = EventLoop::new()?;
+
+        let event_loop = {
+            let mut builder = EventLoopBuilder::new();
+
+            #[cfg(x11_platform)]
+            if self.x11_backend {
+                builder.with_x11();
+            }
+            #[cfg(wayland_platform)]
+            if self.wayland_backend {
+                builder.with_wayland();
+            }
+
+            builder.build()?
+        };
+
         let window = {
             let mut builder = WindowBuilder::new();
             builder = builder.with_title(app_name);
@@ -73,7 +106,7 @@ impl App {
 
         let mut renderer = Renderer::builder(window.clone())
             .app_version((0, 0, 1))
-            .validation_layer(self.validation_layer)
+            .validation_layer(self.vk_validation_layer)
             .build()?;
 
         // TEMP
