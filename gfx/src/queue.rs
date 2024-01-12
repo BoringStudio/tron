@@ -202,6 +202,11 @@ impl Queue {
         let owned_command_buffers = alloc.alloc_with(ArrayVec::<_, 64>::new);
         let command_buffers =
             alloc.alloc_slice_fill_iter(command_buffers.into_iter().map(|command_buffer| {
+                debug_assert!(
+                    command_buffer.level() == CommandBufferLevel::Primary,
+                    "only primary command buffers can be submitted directly to a queue"
+                );
+
                 let handle = command_buffer.handle();
                 owned_command_buffers.push(command_buffer);
                 handle
@@ -256,6 +261,11 @@ impl Queue {
         command_buffer: CommandBuffer,
         fence: Option<&Fence>,
     ) -> Result<(), QueueError> {
+        debug_assert!(
+            command_buffer.level() == CommandBufferLevel::Primary,
+            "only primary command buffers can be submitted directly to a queue"
+        );
+
         let info = vk::SubmitInfo::builder()
             .command_buffers(&[command_buffer.handle()])
             .build();
