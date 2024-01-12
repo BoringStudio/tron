@@ -9,8 +9,9 @@ use winit::window::Window;
 pub use self::render_passes::{EncoderExt, MainPass, MainPassInput, Pass};
 pub use self::shader_preprocessor::{ShaderPreprocessor, ShaderPreprocessorScope};
 pub use self::types::{
-    Color, CubeGenerator, Mesh, MeshBuilder, MeshGenerator, MeshHandle, Normal, Position, Tangent,
-    VertexAttribute, VertexAttributeData, VertexAttributeKind, UV0,
+    BoundingSphere, Camera, CameraProjection, Color, CubeGenerator, Frustum, Mesh, MeshBuilder,
+    MeshGenerator, MeshHandle, Normal, Plane, Position, Tangent, VertexAttribute,
+    VertexAttributeData, VertexAttributeKind, UV0,
 };
 
 use self::managers::MeshManager;

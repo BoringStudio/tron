@@ -2,7 +2,7 @@ use anyhow::Result;
 use glam::{Vec2, Vec3};
 
 use crate::resource_handle::ResourceHandle;
-use crate::types::{Color, Normal, Position, Tangent, VertexAttributeData, UV0};
+use crate::types::{BoundingSphere, Color, Normal, Position, Tangent, VertexAttributeData, UV0};
 
 pub type MeshHandle = ResourceHandle<Mesh>;
 
@@ -10,6 +10,7 @@ pub struct Mesh {
     vertex_count: u32,
     attribute_data: Vec<VertexAttributeData>,
     indices: Vec<u32>,
+    bounding_sphere: BoundingSphere,
 }
 
 impl Mesh {
@@ -31,6 +32,10 @@ impl Mesh {
 
     pub fn indices(&self) -> &[u32] {
         &self.indices
+    }
+
+    pub fn bounding_sphere(&self) -> &BoundingSphere {
+        &self.bounding_sphere
     }
 }
 
@@ -280,6 +285,8 @@ impl MeshBuilder {
             _ => unreachable!(),
         };
 
+        let bounding_sphere = BoundingSphere::compute_from_positions(&self.positions);
+
         let mut attribute_data = Vec::with_capacity(
             1 + normals.is_some() as usize
                 + tangents.is_some() as usize
@@ -305,6 +312,7 @@ impl MeshBuilder {
             vertex_count: len as u32,
             attribute_data,
             indices,
+            bounding_sphere,
         })
     }
 }
