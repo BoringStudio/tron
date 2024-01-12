@@ -43,6 +43,64 @@ pub trait MeshGenerator {
     fn generate(&self) -> MeshBuilder;
 }
 
+pub struct PlaneGenerator {
+    pub width: f32,
+    pub height: f32,
+}
+
+impl PlaneGenerator {
+    pub fn from_size(side_size: f32) -> Self {
+        Self::from_extent(Vec2::splat(side_size))
+    }
+
+    pub fn from_extent(extent: Vec2) -> Self {
+        Self {
+            width: extent.x,
+            height: extent.y,
+        }
+    }
+}
+
+impl Default for PlaneGenerator {
+    #[inline]
+    fn default() -> Self {
+        Self::from_size(1.0)
+    }
+}
+
+impl MeshGenerator for PlaneGenerator {
+    fn generate(&self) -> MeshBuilder {
+        //  ^y
+        //  |/z
+        //  -> x
+        //     width
+        //   2-----3
+        //  /  *  / height
+        // 0-----1
+
+        let half_x = self.width * 0.5;
+        let half_z = self.height * 0.5;
+
+        let positions = vec![
+            Position(Vec3::new(-half_x, 0.0, -half_z)),
+            Position(Vec3::new(half_x, 0.0, -half_z)),
+            Position(Vec3::new(-half_x, 0.0, half_z)),
+            Position(Vec3::new(half_x, 0.0, half_z)),
+        ];
+        let uv0 = vec![
+            UV0(Vec2::new(0.0, 0.0)),
+            UV0(Vec2::new(1.0, 0.0)),
+            UV0(Vec2::new(0.0, 1.0)),
+            UV0(Vec2::new(1.0, 1.0)),
+        ];
+        let indices = vec![0, 2, 3, 0, 3, 1];
+
+        MeshBuilder::new(positions)
+            .with_uv0(uv0)
+            .with_indices(indices)
+    }
+}
+
 pub struct CubeGenerator {
     pub a: Vec3,
     pub b: Vec3,
