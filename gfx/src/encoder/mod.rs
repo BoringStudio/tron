@@ -12,6 +12,62 @@ use crate::types::OutOfDeviceMemory;
 
 mod command_buffer;
 
+/// A primary command buffer encoder.
+pub struct PrimaryEncoder {
+    inner: Encoder,
+}
+
+impl PrimaryEncoder {
+    pub(crate) fn new(command_buffer: CommandBuffer, capabilities: QueueFlags) -> Self {
+        debug_assert_eq!(command_buffer.level(), CommandBufferLevel::Primary);
+        Self {
+            inner: Encoder::new(command_buffer, capabilities),
+        }
+    }
+
+    /// Finish recording the command buffer.
+    pub fn finish(self) -> Result<CommandBuffer, OutOfDeviceMemory> {
+        self.inner.finish()
+    }
+
+    /// Discard the command buffer.
+    pub fn discard(self) {
+        self.inner.discard()
+    }
+
+    pub fn execute_commands<I>(&mut self, buffers: I)
+    where
+        I: IntoIterator<Item = CommandBuffer>,
+    {
+        self.inner.command_buffer.execute_commands(buffers);
+    }
+}
+
+impl std::fmt::Debug for PrimaryEncoder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PrimaryEncoder")
+            .field("command_buffer", &self.command_buffer)
+            .field("capabilities", &self.capabilities)
+            .finish()
+    }
+}
+
+impl std::ops::Deref for PrimaryEncoder {
+    type Target = Encoder;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl std::ops::DerefMut for PrimaryEncoder {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
 /// A command buffer encoder.
 pub struct Encoder {
     inner: EncoderCommon,

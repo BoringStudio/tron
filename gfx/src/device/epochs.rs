@@ -35,9 +35,15 @@ impl Epochs {
         self.queues[&queue].lock().unwrap().close_epoch(epoch);
     }
 
-    pub fn drain_free_command_buffers(&self, queue: QueueId, target: &mut Vec<CommandBuffer>) {
+    pub fn drain_free_command_buffers(
+        &self,
+        queue: QueueId,
+        primary: &mut Vec<CommandBuffer>,
+        secondaty: &mut Vec<CommandBuffer>,
+    ) {
         let mut queue = self.queues[&queue].lock().unwrap();
-        target.append(&mut queue.free_command_buffers);
+        primary.append(&mut queue.free_primary_buffers);
+        secondaty.append(&mut queue.free_secondary_buffers);
     }
 
     pub fn submit(&self, queue: QueueId, command_buffers: impl Iterator<Item = CommandBuffer>) {
@@ -52,7 +58,8 @@ struct QueueEpochs {
     next: u64,
     epochs: VecDeque<Epoch>,
     epochs_cache: VecDeque<Epoch>,
-    free_command_buffers: Vec<CommandBuffer>,
+    free_primary_buffers: Vec<CommandBuffer>,
+    free_secondary_buffers: Vec<CommandBuffer>,
 }
 
 impl QueueEpochs {
@@ -73,7 +80,9 @@ impl QueueEpochs {
             for mut epoch in self.epochs.drain(n..) {
                 for mut command_buffer in epoch.command_buffers.drain(..) {
                     command_buffer.clear_references();
-                    self.free_command_buffers.push(command_buffer);
+                    self.free_secondary_buffers
+                        .extend(command_buffer.drain_secondary_buffers());
+                    self.free_primary_buffers.push(command_buffer);
                 }
                 self.epochs_cache.push_back(epoch);
             }
@@ -85,10 +94,16 @@ impl Drop for QueueEpochs {
     fn drop(&mut self) {
         if !std::thread::panicking() {
             assert!(
-                self.free_command_buffers
+                self.free_primary_buffers
                     .iter()
                     .all(|cb| cb.references().is_empty()),
-                "all free command buffers must be cleared"
+                "all free primary command buffers must be cleared"
+            );
+            assert!(
+                self.free_secondary_buffers
+                    .iter()
+                    .all(|cb| cb.references().is_empty()),
+                "all free secondary command buffers must be cleared"
             );
             assert!(
                 self.epochs

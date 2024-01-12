@@ -159,10 +159,11 @@ impl Renderer {
             self.surface.aquire_image()?
         };
 
-        let mut encoder = match self.encoder.take() {
-            Some(encoder) => encoder,
-            None => self.queue.create_encoder()?,
-        };
+        let mut encoder = self.queue.create_primary_encoder()?;
+
+        if let Some(secondary) = self.encoder.take() {
+            encoder.execute_commands(std::iter::once(secondary.finish()?));
+        }
 
         self.mesh_manager.buffers().bind_index_buffer(&mut encoder);
 
@@ -228,7 +229,7 @@ impl Renderer {
         let encoder = match &mut self.encoder {
             Some(encoder) => encoder,
             None => {
-                let encoder = self.queue.create_encoder()?;
+                let encoder = self.queue.create_secondary_encoder()?;
                 self.encoder.get_or_insert(encoder)
             }
         };

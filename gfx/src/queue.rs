@@ -3,11 +3,11 @@ use bumpalo::Bump;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::KhrSwapchainExtension;
 
-use crate::encoder::{CommandBuffer, CommandBufferLevel, Encoder};
+use crate::encoder::{CommandBuffer, CommandBufferLevel, Encoder, PrimaryEncoder};
 use crate::resources::{Fence, PipelineStageFlags, Semaphore};
 use crate::surface::SurfaceImage;
 use crate::types::{DeviceLost, OutOfDeviceMemory, SurfaceLost};
-use crate::util::{DeallocOnDrop, FromGfx, FromVk, ToGfx};
+use crate::util::{DeallocOnDrop, FromGfx, FromVk, ToGfx, ToVk};
 
 /// A query for a set of queues.
 pub trait QueuesQuery {
@@ -129,7 +129,8 @@ pub struct Queue {
     pool: vk::CommandPool,
     id: QueueId,
     capabilities: QueueFlags,
-    command_buffers: Vec<CommandBuffer>,
+    primary_command_buffers: Vec<CommandBuffer>,
+    secondary_command_buffers: Vec<CommandBuffer>,
     device: crate::device::Device,
     alloc: Bump,
 }
@@ -150,7 +151,8 @@ impl Queue {
                 index: queue_idx,
             },
             capabilities,
-            command_buffers: Vec::new(),
+            primary_command_buffers: Vec::new(),
+            secondary_command_buffers: Vec::new(),
             device,
             alloc: Bump::new(),
         }
@@ -171,53 +173,16 @@ impl Queue {
         })
     }
 
-    /// Begin recording a command buffer.
-    pub fn create_encoder(&mut self) -> Result<Encoder, OutOfDeviceMemory> {
-        let logical = self.device.logical();
+    /// Begin recording a primary command buffer.
+    pub fn create_primary_encoder(&mut self) -> Result<PrimaryEncoder, OutOfDeviceMemory> {
+        self.begin_command_buffer(CommandBufferLevel::Primary)
+            .map(|cb| PrimaryEncoder::new(cb, self.capabilities))
+    }
 
-        let mut command_buffer = match self.command_buffers.pop() {
-            Some(command_buffer) => command_buffer,
-            None => {
-                if self.pool.is_null() {
-                    let info = vk::CommandPoolCreateInfo::builder()
-                        .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-                        .queue_family_index(self.id.family);
-
-                    self.pool = unsafe { logical.create_command_pool(&info, None) }
-                        .map_err(OutOfDeviceMemory::on_creation)?;
-                }
-
-                let handle = {
-                    let info = vk::CommandBufferAllocateInfo::builder()
-                        .command_pool(self.pool)
-                        .level(vk::CommandBufferLevel::PRIMARY)
-                        .command_buffer_count(1);
-
-                    let mut buffers = unsafe { logical.allocate_command_buffers(&info) }
-                        .map_err(OutOfDeviceMemory::on_creation)?;
-                    buffers.remove(0)
-                };
-
-                tracing::debug!(command_buffer = ?handle, "created command buffer");
-
-                CommandBuffer::new(
-                    handle,
-                    self.id,
-                    CommandBufferLevel::Primary,
-                    self.device.clone(),
-                )
-            }
-        };
-
-        debug_assert!(command_buffer.references().is_empty());
-
-        match command_buffer.begin() {
-            Ok(()) => Ok(Encoder::new(command_buffer, self.capabilities)),
-            Err(e) => {
-                self.command_buffers.push(command_buffer);
-                Err(e)
-            }
-        }
+    /// Begin recording a secondary command buffer.
+    pub fn create_secondary_encoder(&mut self) -> Result<Encoder, OutOfDeviceMemory> {
+        self.begin_command_buffer(CommandBufferLevel::Secondary)
+            .map(|cb| Encoder::new(cb, self.capabilities))
     }
 
     /// Submit a set of command buffers to the queue.
@@ -364,15 +329,73 @@ impl Queue {
         }
     }
 
+    fn begin_command_buffer(
+        &mut self,
+        level: CommandBufferLevel,
+    ) -> Result<CommandBuffer, OutOfDeviceMemory> {
+        let logical = self.device.logical();
+
+        let command_buffers = match level {
+            CommandBufferLevel::Primary => &mut self.primary_command_buffers,
+            CommandBufferLevel::Secondary => &mut self.secondary_command_buffers,
+        };
+
+        let mut command_buffer = match command_buffers.pop() {
+            Some(command_buffer) => command_buffer,
+            None => {
+                if self.pool.is_null() {
+                    let info = vk::CommandPoolCreateInfo::builder()
+                        .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+                        .queue_family_index(self.id.family);
+
+                    self.pool = unsafe { logical.create_command_pool(&info, None) }
+                        .map_err(OutOfDeviceMemory::on_creation)?;
+                }
+
+                let handle = {
+                    let info = vk::CommandBufferAllocateInfo::builder()
+                        .command_pool(self.pool)
+                        .level(level.to_vk())
+                        .command_buffer_count(1);
+
+                    let mut buffers = unsafe { logical.allocate_command_buffers(&info) }
+                        .map_err(OutOfDeviceMemory::on_creation)?;
+                    buffers.remove(0)
+                };
+
+                tracing::debug!(command_buffer = ?handle, ?level, "created command buffer");
+
+                CommandBuffer::new(handle, self.id, level, self.device.clone())
+            }
+        };
+
+        debug_assert!(command_buffer.references().is_empty());
+        debug_assert!(command_buffer.secondary_buffers().is_empty());
+
+        match command_buffer.begin() {
+            Ok(()) => Ok(command_buffer),
+            Err(e) => {
+                command_buffers.push(command_buffer);
+                Err(e)
+            }
+        }
+    }
+
     fn restore_command_buffers(&mut self) -> Result<(), OutOfDeviceMemory> {
         let logical = self.device.logical();
 
-        let offset = self.command_buffers.len();
-        self.device
-            .epochs()
-            .drain_free_command_buffers(self.id, &mut self.command_buffers);
+        let primary_offset = self.primary_command_buffers.len();
+        let secondaty_offset = self.secondary_command_buffers.len();
+        self.device.epochs().drain_free_command_buffers(
+            self.id,
+            &mut self.primary_command_buffers,
+            &mut self.secondary_command_buffers,
+        );
 
-        for cb in &self.command_buffers[offset..] {
+        let primary = &self.primary_command_buffers[primary_offset..];
+        let secondary = &self.secondary_command_buffers[secondaty_offset..];
+
+        for cb in primary.iter().chain(secondary) {
             unsafe {
                 logical.reset_command_buffer(
                     cb.handle(),

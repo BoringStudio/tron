@@ -15,8 +15,9 @@ use crate::resources::{
 use crate::types::OutOfDeviceMemory;
 use crate::util::{compute_supported_access, DeallocOnDrop, FromGfx, ToVk};
 
+/// Command buffer level.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub(crate) enum CommandBufferLevel {
+pub enum CommandBufferLevel {
     Primary,
     Secondary,
 }
@@ -41,6 +42,7 @@ impl std::fmt::Debug for CommandBuffer {
         f.debug_struct("CommandBuffer")
             .field("handle", &inner.handle)
             .field("queue_id", &inner.queue_id)
+            .field("level", &inner.level)
             .field("state", &inner.state)
             .finish()
     }
@@ -59,6 +61,7 @@ impl CommandBuffer {
                 queue_id,
                 level,
                 references: Default::default(),
+                secondary_buffers: Default::default(),
                 state: CommandBufferState::Full { owner },
                 alloc: Bump::new(),
             }),
@@ -73,12 +76,24 @@ impl CommandBuffer {
         self.inner.queue_id
     }
 
+    pub fn level(&self) -> CommandBufferLevel {
+        self.inner.level
+    }
+
     pub(crate) fn references(&self) -> &References {
         &self.inner.references
     }
 
+    pub(crate) fn secondary_buffers(&self) -> &[CommandBuffer] {
+        &self.inner.secondary_buffers
+    }
+
     pub(crate) fn clear_references(&mut self) {
         self.inner.references.clear();
+    }
+
+    pub(crate) fn drain_secondary_buffers(&mut self) -> std::vec::Drain<'_, CommandBuffer> {
+        self.inner.secondary_buffers.drain(..)
     }
 
     pub fn begin(&mut self) -> Result<(), OutOfDeviceMemory> {
@@ -99,8 +114,18 @@ impl CommandBuffer {
             }
         };
 
-        let info = vk::CommandBufferBeginInfo::builder()
-            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+        let mut info = vk::CommandBufferBeginInfo::builder();
+
+        let inheritance;
+        match inner.level {
+            CommandBufferLevel::Primary => {
+                info = info.flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+            }
+            CommandBufferLevel::Secondary => {
+                inheritance = vk::CommandBufferInheritanceInfo::builder();
+                info = info.inheritance_info(&inheritance)
+            }
+        }
 
         unsafe { device.logical().begin_command_buffer(inner.handle, &info) }
             .map_err(OutOfDeviceMemory::on_creation)
@@ -120,6 +145,42 @@ impl CommandBuffer {
             owner: device.downgrade(),
         };
         Ok(())
+    }
+
+    pub(crate) fn execute_commands<I>(&mut self, buffers: I)
+    where
+        I: IntoIterator<Item = CommandBuffer>,
+    {
+        assert!(
+            self.level() == CommandBufferLevel::Primary,
+            "only primary command buffers can execute secondary command buffers"
+        );
+
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
+            let secondaty_buffers_offset = inner.secondary_buffers.len();
+            inner.secondary_buffers.extend(buffers);
+            if inner.secondary_buffers.len() == secondaty_buffers_offset {
+                return;
+            }
+
+            let alloc = DeallocOnDrop(&mut inner.alloc);
+
+            let handles = alloc.alloc_slice_fill_iter(
+                inner.secondary_buffers[secondaty_buffers_offset..]
+                    .iter()
+                    .map(|b| {
+                        assert!(
+                            b.level() == CommandBufferLevel::Secondary,
+                            "only secondary command buffers can be executed as commands"
+                        );
+
+                        b.handle()
+                    }),
+            );
+
+            unsafe { device.logical().cmd_execute_commands(inner.handle, handles) }
+        }
     }
 
     pub(crate) fn begin_render_pass(&mut self, framebuffer: &Framebuffer, clear: &[ClearValue]) {
@@ -583,6 +644,7 @@ struct Inner {
     queue_id: QueueId,
     level: CommandBufferLevel,
     references: References,
+    secondary_buffers: Vec<CommandBuffer>,
     state: CommandBufferState,
     alloc: Bump,
 }

@@ -2,9 +2,9 @@ use vulkanalia::vk;
 
 pub use self::device::{CreateRenderPassError, DescriptorAllocError, Device, MapError, WeakDevice};
 pub use self::encoder::{
-    AccessFlags, BufferCopy, BufferImageCopy, BufferMemoryBarrier, CommandBuffer, Encoder,
-    EncoderCommon, ImageBlit, ImageCopy, ImageLayoutTransition, ImageMemoryBarrier, MemoryBarrier,
-    RenderPassEncoder,
+    AccessFlags, BufferCopy, BufferImageCopy, BufferMemoryBarrier, CommandBuffer,
+    CommandBufferLevel, Encoder, EncoderCommon, ImageBlit, ImageCopy, ImageLayoutTransition,
+    ImageMemoryBarrier, MemoryBarrier, PrimaryEncoder, RenderPassEncoder,
 };
 pub use self::graphics::{Graphics, InitGraphicsError, InstanceConfig};
 pub use self::physical_device::{
