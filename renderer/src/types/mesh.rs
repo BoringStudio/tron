@@ -14,12 +14,8 @@ pub struct Mesh {
 }
 
 impl Mesh {
-    pub fn builder(positions: Vec<Position>) -> MeshBuilder {
-        MeshBuilder::new(positions)
-    }
-
-    pub fn from_generator<T: MeshGenerator>(generator: T) -> MeshBuilder {
-        generator.generate()
+    pub fn new<T: MeshGenerator>(generator: T) -> MeshBuilder {
+        generator.generate_mesh()
     }
 
     pub fn vertex_count(&self) -> u32 {
@@ -39,16 +35,23 @@ impl Mesh {
     }
 }
 
-pub trait MeshGenerator {
-    fn generate(&self) -> MeshBuilder;
+pub trait MeshGenerator: Sized {
+    fn generate_mesh(self) -> MeshBuilder;
 }
 
-pub struct PlaneGenerator {
+impl MeshGenerator for Vec<Position> {
+    fn generate_mesh(self) -> MeshBuilder {
+        MeshBuilder::new(self)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PlaneMeshGenerator {
     pub width: f32,
     pub height: f32,
 }
 
-impl PlaneGenerator {
+impl PlaneMeshGenerator {
     pub fn from_size(side_size: f32) -> Self {
         Self::from_extent(Vec2::splat(side_size))
     }
@@ -61,15 +64,15 @@ impl PlaneGenerator {
     }
 }
 
-impl Default for PlaneGenerator {
+impl Default for PlaneMeshGenerator {
     #[inline]
     fn default() -> Self {
         Self::from_size(1.0)
     }
 }
 
-impl MeshGenerator for PlaneGenerator {
-    fn generate(&self) -> MeshBuilder {
+impl MeshGenerator for PlaneMeshGenerator {
+    fn generate_mesh(self) -> MeshBuilder {
         //  ^y
         //  |/z
         //  -> x
@@ -101,12 +104,13 @@ impl MeshGenerator for PlaneGenerator {
     }
 }
 
-pub struct CubeGenerator {
+#[derive(Debug, Clone, Copy)]
+pub struct CubeMeshGenerator {
     pub a: Vec3,
     pub b: Vec3,
 }
 
-impl CubeGenerator {
+impl CubeMeshGenerator {
     pub fn from_size(side_size: f32) -> Self {
         Self::from_extent(Vec3::splat(side_size))
     }
@@ -123,15 +127,15 @@ impl CubeGenerator {
     }
 }
 
-impl Default for CubeGenerator {
+impl Default for CubeMeshGenerator {
     #[inline]
     fn default() -> Self {
         Self::from_size(1.0)
     }
 }
 
-impl MeshGenerator for CubeGenerator {
-    fn generate(&self) -> MeshBuilder {
+impl MeshGenerator for CubeMeshGenerator {
+    fn generate_mesh(self) -> MeshBuilder {
         //  ^y
         //  |/z
         //  -> x

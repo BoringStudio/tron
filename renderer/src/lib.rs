@@ -9,9 +9,9 @@ use winit::window::Window;
 pub use self::render_passes::{EncoderExt, MainPass, MainPassInput, Pass};
 pub use self::shader_preprocessor::{ShaderPreprocessor, ShaderPreprocessorScope};
 pub use self::types::{
-    BoundingSphere, Camera, CameraProjection, Color, CubeGenerator, Frustum, Mesh, MeshBuilder,
-    MeshGenerator, MeshHandle, Normal, Plane, Position, Tangent, VertexAttribute,
-    VertexAttributeData, VertexAttributeKind, UV0,
+    BoundingSphere, Camera, CameraProjection, Color, CubeMeshGenerator, Frustum, Mesh, MeshBuilder,
+    MeshGenerator, MeshHandle, Normal, Plane, PlaneMeshGenerator, Position, Tangent,
+    VertexAttribute, VertexAttributeData, VertexAttributeKind, UV0,
 };
 
 use self::managers::MeshManager;
@@ -82,6 +82,8 @@ impl RendererBuilder {
             fences,
             non_optimal_count: 0,
 
+            encoder: None,
+
             queue,
             surface,
             device,
@@ -121,6 +123,8 @@ pub struct Renderer {
     fences: Fences,
     non_optimal_count: usize,
 
+    encoder: Option<gfx::Encoder>,
+
     queue: gfx::Queue,
     surface: gfx::Surface,
 
@@ -155,7 +159,10 @@ impl Renderer {
             self.surface.aquire_image()?
         };
 
-        let mut encoder = self.queue.create_encoder()?;
+        let mut encoder = match self.encoder.take() {
+            Some(encoder) => encoder,
+            None => self.queue.create_encoder()?,
+        };
 
         self.mesh_manager.buffers().bind_index_buffer(&mut encoder);
 
@@ -217,7 +224,15 @@ impl Renderer {
         Ok(())
     }
 
-    pub fn add_mesh(&mut self, encoder: &mut gfx::Encoder, mesh: &Mesh) -> Result<MeshHandle> {
+    pub fn add_mesh(&mut self, mesh: &Mesh) -> Result<MeshHandle> {
+        let encoder = match &mut self.encoder {
+            Some(encoder) => encoder,
+            None => {
+                let encoder = self.queue.create_encoder()?;
+                self.encoder.get_or_insert(encoder)
+            }
+        };
+
         let mesh = self.mesh_manager.upload_mesh(&self.device, encoder, mesh)?;
 
         let handle = self.mesh_handle_allocator.alloc();

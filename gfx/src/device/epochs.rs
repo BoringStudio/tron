@@ -72,7 +72,7 @@ impl QueueEpochs {
         if n < self.epochs.len() {
             for mut epoch in self.epochs.drain(n..) {
                 for mut command_buffer in epoch.command_buffers.drain(..) {
-                    command_buffer.references_mut().clear();
+                    command_buffer.clear_references();
                     self.free_command_buffers.push(command_buffer);
                 }
                 self.epochs_cache.push_back(epoch);

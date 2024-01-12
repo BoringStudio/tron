@@ -3,7 +3,7 @@ use bumpalo::Bump;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::KhrSwapchainExtension;
 
-use crate::encoder::{CommandBuffer, Encoder};
+use crate::encoder::{CommandBuffer, CommandBufferLevel, Encoder};
 use crate::resources::{Fence, PipelineStageFlags, Semaphore};
 use crate::surface::SurfaceImage;
 use crate::types::{DeviceLost, OutOfDeviceMemory, SurfaceLost};
@@ -200,7 +200,12 @@ impl Queue {
 
                 tracing::debug!(command_buffer = ?handle, "created command buffer");
 
-                CommandBuffer::new(handle, self.id, self.device.clone())
+                CommandBuffer::new(
+                    handle,
+                    self.id,
+                    CommandBufferLevel::Primary,
+                    self.device.clone(),
+                )
             }
         };
 

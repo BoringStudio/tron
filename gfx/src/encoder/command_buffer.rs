@@ -15,61 +15,83 @@ use crate::resources::{
 use crate::types::OutOfDeviceMemory;
 use crate::util::{compute_supported_access, DeallocOnDrop, FromGfx, ToVk};
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub(crate) enum CommandBufferLevel {
+    Primary,
+    Secondary,
+}
+
+impl FromGfx<CommandBufferLevel> for vk::CommandBufferLevel {
+    fn from_gfx(value: CommandBufferLevel) -> Self {
+        match value {
+            CommandBufferLevel::Primary => Self::PRIMARY,
+            CommandBufferLevel::Secondary => Self::SECONDARY,
+        }
+    }
+}
+
 /// A recorded sequence of commands that can be submitted to a queue.
 pub struct CommandBuffer {
-    handle: vk::CommandBuffer,
-    queue_id: QueueId,
-    references: References,
-    state: CommandBufferState,
-    alloc: Bump,
+    inner: Box<Inner>,
 }
 
 impl std::fmt::Debug for CommandBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let inner = self.inner.as_ref();
         f.debug_struct("CommandBuffer")
-            .field("handle", &self.handle)
-            .field("queue_id", &self.queue_id)
-            .field("state", &self.state)
+            .field("handle", &inner.handle)
+            .field("queue_id", &inner.queue_id)
+            .field("state", &inner.state)
             .finish()
     }
 }
 
 impl CommandBuffer {
-    pub(crate) fn new(handle: vk::CommandBuffer, queue_id: QueueId, owner: Device) -> Self {
+    pub(crate) fn new(
+        handle: vk::CommandBuffer,
+        queue_id: QueueId,
+        level: CommandBufferLevel,
+        owner: Device,
+    ) -> Self {
         Self {
-            handle,
-            queue_id,
-            references: Default::default(),
-            state: CommandBufferState::Full { owner },
-            alloc: Bump::new(),
+            inner: Box::new(Inner {
+                handle,
+                queue_id,
+                level,
+                references: Default::default(),
+                state: CommandBufferState::Full { owner },
+                alloc: Bump::new(),
+            }),
         }
     }
 
     pub fn handle(&self) -> vk::CommandBuffer {
-        self.handle
+        self.inner.handle
     }
 
     pub fn queue_id(&self) -> QueueId {
-        self.queue_id
+        self.inner.queue_id
     }
 
     pub(crate) fn references(&self) -> &References {
-        &self.references
+        &self.inner.references
     }
 
-    pub(crate) fn references_mut(&mut self) -> &mut References {
-        &mut self.references
+    pub(crate) fn clear_references(&mut self) {
+        self.inner.references.clear();
     }
 
     pub fn begin(&mut self) -> Result<(), OutOfDeviceMemory> {
+        let inner = self.inner.as_mut();
+
         let device;
-        let device = match &self.state {
+        let device = match &inner.state {
             CommandBufferState::Full { owner } => owner,
             CommandBufferState::Finished { owner } => {
                 let Some(owner) = owner.upgrade() else {
                     return Ok(());
                 };
-                self.state = CommandBufferState::Full {
+                inner.state = CommandBufferState::Full {
                     owner: owner.clone(),
                 };
                 device = owner;
@@ -80,33 +102,36 @@ impl CommandBuffer {
         let info = vk::CommandBufferBeginInfo::builder()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
 
-        unsafe { device.logical().begin_command_buffer(self.handle, &info) }
+        unsafe { device.logical().begin_command_buffer(inner.handle, &info) }
             .map_err(OutOfDeviceMemory::on_creation)
     }
 
     pub fn end(&mut self) -> Result<(), OutOfDeviceMemory> {
-        let device = match &self.state {
+        let inner = self.inner.as_mut();
+
+        let device = match &inner.state {
             CommandBufferState::Full { owner } => owner,
             CommandBufferState::Finished { .. } => return Ok(()),
         };
 
-        unsafe { device.logical().end_command_buffer(self.handle) }
+        unsafe { device.logical().end_command_buffer(inner.handle) }
             .map_err(OutOfDeviceMemory::on_creation)?;
-        self.state = CommandBufferState::Finished {
+        inner.state = CommandBufferState::Finished {
             owner: device.downgrade(),
         };
         Ok(())
     }
 
     pub(crate) fn begin_render_pass(&mut self, framebuffer: &Framebuffer, clear: &[ClearValue]) {
-        let Some(device) = self.state.device_from_full() else {
+        let inner = self.inner.as_mut();
+        let Some(device) = inner.state.device_from_full() else {
             return;
         };
         let logical = device.logical();
 
-        let alloc = DeallocOnDrop(&mut self.alloc);
+        let alloc = DeallocOnDrop(&mut inner.alloc);
 
-        self.references.framebuffers.push(framebuffer.clone());
+        inner.references.framebuffers.push(framebuffer.clone());
 
         let pass = &framebuffer.info().render_pass;
 
@@ -135,22 +160,24 @@ impl CommandBuffer {
                 extent: framebuffer.info().extent.to_vk(),
             });
 
-        unsafe { logical.cmd_begin_render_pass(self.handle, &info, vk::SubpassContents::INLINE) };
+        unsafe { logical.cmd_begin_render_pass(inner.handle, &info, vk::SubpassContents::INLINE) };
     }
 
     pub(crate) fn end_render_pass(&mut self) {
-        if let Some(device) = self.state.device_from_full() {
-            unsafe { device.logical().cmd_end_render_pass(self.handle) }
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
+            unsafe { device.logical().cmd_end_render_pass(inner.handle) }
         }
     }
 
     pub(crate) fn bind_graphics_pipeline(&mut self, pipeline: &GraphicsPipeline) {
-        if let Some(device) = self.state.device_from_full() {
-            self.references.graphics_pipelines.push(pipeline.clone());
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
+            inner.references.graphics_pipelines.push(pipeline.clone());
 
             unsafe {
                 device.logical().cmd_bind_pipeline(
-                    self.handle,
+                    inner.handle,
                     vk::PipelineBindPoint::GRAPHICS,
                     pipeline.handle(),
                 )
@@ -159,12 +186,13 @@ impl CommandBuffer {
     }
 
     pub(crate) fn bind_compute_pipeline(&mut self, pipeline: &ComputePipeline) {
-        if let Some(device) = self.state.device_from_full() {
-            self.references.compute_pipelines.push(pipeline.clone());
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
+            inner.references.compute_pipelines.push(pipeline.clone());
 
             unsafe {
                 device.logical().cmd_bind_pipeline(
-                    self.handle,
+                    inner.handle,
                     vk::PipelineBindPoint::COMPUTE,
                     pipeline.handle(),
                 )
@@ -180,19 +208,20 @@ impl CommandBuffer {
         descriptor_sets: &[&DescriptorSet],
         dynamic_offsets: &[u32],
     ) {
-        if let Some(device) = self.state.device_from_full() {
-            self.references.pipeline_layouts.insert(layout.clone());
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
+            inner.references.pipeline_layouts.insert(layout.clone());
             for &set in descriptor_sets {
-                self.references.descriptor_sets.push(set.clone());
+                inner.references.descriptor_sets.push(set.clone());
             }
 
-            let alloc = DeallocOnDrop(&mut self.alloc);
+            let alloc = DeallocOnDrop(&mut inner.alloc);
             let descriptor_sets =
                 alloc.alloc_slice_fill_iter(descriptor_sets.iter().map(|set| set.handle()));
 
             unsafe {
                 device.logical().cmd_bind_descriptor_sets(
-                    self.handle,
+                    inner.handle,
                     bind_point.to_vk(),
                     layout.handle(),
                     first_set,
@@ -204,26 +233,29 @@ impl CommandBuffer {
     }
 
     pub(crate) fn set_viewport(&mut self, viewport: &Viewport) {
-        if let Some(device) = self.state.device_from_full() {
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
             let logical = device.logical();
             let viewport = vk::Viewport::from_gfx(*viewport);
-            unsafe { logical.cmd_set_viewport(self.handle, 0, std::slice::from_ref(&viewport)) }
+            unsafe { logical.cmd_set_viewport(inner.handle, 0, std::slice::from_ref(&viewport)) }
         }
     }
 
     pub(crate) fn set_scissor(&mut self, scissor: &Rect) {
-        if let Some(device) = self.state.device_from_full() {
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
             let logical = device.logical();
             let scissor = vk::Rect2D::from_gfx(*scissor);
-            unsafe { logical.cmd_set_scissor(self.handle, 0, std::slice::from_ref(&scissor)) }
+            unsafe { logical.cmd_set_scissor(inner.handle, 0, std::slice::from_ref(&scissor)) }
         }
     }
 
     pub(crate) fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>) {
-        if let Some(device) = self.state.device_from_full() {
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
             unsafe {
                 device.logical().cmd_draw(
-                    self.handle,
+                    inner.handle,
                     vertices.end - vertices.start,
                     instances.end - instances.start,
                     vertices.start,
@@ -239,10 +271,11 @@ impl CommandBuffer {
         vertex_offset: i32,
         instances: Range<u32>,
     ) {
-        if let Some(device) = self.state.device_from_full() {
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
             unsafe {
                 device.logical().cmd_draw_indexed(
-                    self.handle,
+                    inner.handle,
                     indices.end - indices.start,
                     instances.end - instances.start,
                     indices.start,
@@ -254,25 +287,27 @@ impl CommandBuffer {
     }
 
     pub(crate) fn update_buffer(&mut self, buffer: &Buffer, offset: u64, data: &[u8]) {
-        if let Some(device) = self.state.device_from_full() {
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
             assert!(offset % 4 == 0, "unaligned buffer offset");
             assert!(data.len() % 4 == 0, "unaligned buffer data length");
             assert!(data.len() <= 65536, "too much data to update");
 
-            self.references.buffers.insert(buffer.clone());
+            inner.references.buffers.insert(buffer.clone());
 
             let logical = device.logical();
-            unsafe { logical.cmd_update_buffer(self.handle, buffer.handle(), offset, data) };
+            unsafe { logical.cmd_update_buffer(inner.handle, buffer.handle(), offset, data) };
         }
     }
 
     pub(crate) fn bind_vertex_buffers(&mut self, first_binding: u32, buffers: &[(&Buffer, u64)]) {
-        if let Some(device) = self.state.device_from_full() {
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
             for &(buffer, _) in buffers {
-                self.references.buffers.insert(buffer.clone());
+                inner.references.buffers.insert(buffer.clone());
             }
 
-            let alloc = DeallocOnDrop(&mut self.alloc);
+            let alloc = DeallocOnDrop(&mut inner.alloc);
 
             let offsets = alloc.alloc_slice_fill_iter(buffers.iter().map(|&(_, offset)| offset));
             let buffers =
@@ -280,7 +315,7 @@ impl CommandBuffer {
 
             let logical = device.logical();
             unsafe {
-                logical.cmd_bind_vertex_buffers(self.handle, first_binding, buffers, offsets)
+                logical.cmd_bind_vertex_buffers(inner.handle, first_binding, buffers, offsets)
             };
         }
     }
@@ -291,12 +326,13 @@ impl CommandBuffer {
         offset: u64,
         index_type: IndexType,
     ) {
-        if let Some(device) = self.state.device_from_full() {
-            self.references.buffers.insert(buffer.clone());
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
+            inner.references.buffers.insert(buffer.clone());
 
             unsafe {
                 device.logical().cmd_bind_index_buffer(
-                    self.handle,
+                    inner.handle,
                     buffer.handle(),
                     offset,
                     index_type.to_vk(),
@@ -311,11 +347,12 @@ impl CommandBuffer {
         dst_buffer: &Buffer,
         regions: &[BufferCopy],
     ) {
-        if let Some(device) = self.state.device_from_full() {
-            self.references.buffers.insert(src_buffer.clone());
-            self.references.buffers.insert(dst_buffer.clone());
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
+            inner.references.buffers.insert(src_buffer.clone());
+            inner.references.buffers.insert(dst_buffer.clone());
 
-            let alloc = DeallocOnDrop(&mut self.alloc);
+            let alloc = DeallocOnDrop(&mut inner.alloc);
 
             let regions = alloc.alloc_slice_fill_iter(regions.iter().map(|r| {
                 vk::BufferCopy::builder()
@@ -326,7 +363,7 @@ impl CommandBuffer {
 
             unsafe {
                 device.logical().cmd_copy_buffer(
-                    self.handle,
+                    inner.handle,
                     src_buffer.handle(),
                     dst_buffer.handle(),
                     regions,
@@ -343,18 +380,19 @@ impl CommandBuffer {
         dst_layout: ImageLayout,
         regions: &[ImageCopy],
     ) {
-        if let Some(device) = self.state.device_from_full() {
-            self.references.images.push(src_image.clone());
-            self.references.images.push(dst_image.clone());
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
+            inner.references.images.push(src_image.clone());
+            inner.references.images.push(dst_image.clone());
 
-            let alloc = DeallocOnDrop(&mut self.alloc);
+            let alloc = DeallocOnDrop(&mut inner.alloc);
 
             let regions =
                 alloc.alloc_slice_fill_iter(regions.iter().map(|r| vk::ImageCopy::from_gfx(*r)));
 
             unsafe {
                 device.logical().cmd_copy_image(
-                    self.handle,
+                    inner.handle,
                     src_image.handle(),
                     src_layout.to_vk(),
                     dst_image.handle(),
@@ -372,18 +410,19 @@ impl CommandBuffer {
         dst_layout: ImageLayout,
         regions: &[BufferImageCopy],
     ) {
-        if let Some(device) = self.state.device_from_full() {
-            self.references.buffers.insert(src_buffer.clone());
-            self.references.images.push(dst_image.clone());
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
+            inner.references.buffers.insert(src_buffer.clone());
+            inner.references.images.push(dst_image.clone());
 
-            let alloc = DeallocOnDrop(&mut self.alloc);
+            let alloc = DeallocOnDrop(&mut inner.alloc);
 
             let regions = alloc
                 .alloc_slice_fill_iter(regions.iter().map(|r| vk::BufferImageCopy::from_gfx(*r)));
 
             unsafe {
                 device.logical().cmd_copy_buffer_to_image(
-                    self.handle,
+                    inner.handle,
                     src_buffer.handle(),
                     dst_image.handle(),
                     dst_layout.to_vk(),
@@ -402,18 +441,19 @@ impl CommandBuffer {
         regions: &[ImageBlit],
         filter: Filter,
     ) {
-        if let Some(device) = self.state.device_from_full() {
-            self.references.images.push(src_image.clone());
-            self.references.images.push(dst_image.clone());
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
+            inner.references.images.push(src_image.clone());
+            inner.references.images.push(dst_image.clone());
 
-            let alloc = DeallocOnDrop(&mut self.alloc);
+            let alloc = DeallocOnDrop(&mut inner.alloc);
 
             let regions =
                 alloc.alloc_slice_fill_iter(regions.iter().map(|r| vk::ImageBlit::from_gfx(*r)));
 
             unsafe {
                 device.logical().cmd_blit_image(
-                    self.handle,
+                    inner.handle,
                     src_image.handle(),
                     src_layout.to_vk(),
                     dst_image.handle(),
@@ -433,15 +473,16 @@ impl CommandBuffer {
         buffer_memory_barriers: &[BufferMemoryBarrier],
         image_memory_barriers: &[ImageMemoryBarrier],
     ) {
-        if let Some(device) = self.state.device_from_full() {
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
             for item in image_memory_barriers {
-                self.references.images.push(item.image.clone());
+                inner.references.images.push(item.image.clone());
             }
             for item in buffer_memory_barriers {
-                self.references.buffers.insert(item.buffer.clone());
+                inner.references.buffers.insert(item.buffer.clone());
             }
 
-            let alloc = DeallocOnDrop(&mut self.alloc);
+            let alloc = DeallocOnDrop(&mut inner.alloc);
 
             let memory_barrier = vk::MemoryBarrier::builder()
                 .src_access_mask(
@@ -494,7 +535,7 @@ impl CommandBuffer {
 
             unsafe {
                 device.logical().cmd_pipeline_barrier(
-                    self.handle,
+                    inner.handle,
                     src.to_vk(),
                     dst.to_vk(),
                     vk::DependencyFlags::empty(),
@@ -513,12 +554,13 @@ impl CommandBuffer {
         offset: u32,
         data: &[u8],
     ) {
-        if let Some(device) = self.state.device_from_full() {
-            self.references.pipeline_layouts.insert(layout.clone());
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
+            inner.references.pipeline_layouts.insert(layout.clone());
 
             unsafe {
                 device.logical().cmd_push_constants(
-                    self.handle,
+                    inner.handle,
                     layout.handle(),
                     stages.to_vk(),
                     offset,
@@ -529,10 +571,20 @@ impl CommandBuffer {
     }
 
     pub(crate) fn dispatch(&mut self, x: u32, y: u32, z: u32) {
-        if let Some(device) = self.state.device_from_full() {
-            unsafe { device.logical().cmd_dispatch(self.handle, x, y, z) }
+        let inner = self.inner.as_mut();
+        if let Some(device) = inner.state.device_from_full() {
+            unsafe { device.logical().cmd_dispatch(inner.handle, x, y, z) }
         }
     }
+}
+
+struct Inner {
+    handle: vk::CommandBuffer,
+    queue_id: QueueId,
+    level: CommandBufferLevel,
+    references: References,
+    state: CommandBufferState,
+    alloc: Bump,
 }
 
 #[derive(Debug)]

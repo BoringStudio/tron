@@ -76,6 +76,16 @@ impl App {
             .validation_layer(self.validation_layer)
             .build()?;
 
+        // TEMP
+        let mesh_handle = {
+            let mesh = renderer::Mesh::new(renderer::CubeMeshGenerator::from_size(1.0))
+                .with_computed_normals()
+                .with_computed_tangents()
+                .build()?;
+
+            renderer.add_mesh(&mesh)?
+        };
+
         let is_running = Arc::new(AtomicBool::new(true));
 
         let rendering_barrier = Arc::new(LoopBarrier::default());
@@ -132,6 +142,7 @@ impl App {
         event_loop.run(handle_event)?;
         tracing::debug!("event loop stopped");
 
+        drop(mesh_handle);
         renderer_thread.join().unwrap().wait_idle()?;
 
         Ok(())
