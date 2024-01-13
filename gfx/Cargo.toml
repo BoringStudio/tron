@@ -7,7 +7,12 @@ edition = "2021"
 arrayvec = "0.7"
 bitflags = "2.4"
 bumpalo = "3"
-bytemuck = { version = "1.10", features = ["derive"] }
+bytemuck = { version = "1.10", features = [
+    "derive",
+    "align_offset",
+    "min_const_generics",
+    "aarch64_simd",
+] }
 dashmap = "5.5"
 glam = { version = "0.25", features = ["bytemuck"] }
 gpu-alloc = { version = "0.6", features = ["tracing"] }
@@ -17,6 +22,6 @@ smallvec = { version = "1", features = ["union", "const_generics", "const_new"] 
 thiserror = "1.0"
 tracing = "0.1"
 vulkanalia = { version = "0.22", features = ["window", "libloading"] }
-winit = { version = "0.29", default-features = false, features = ["rwh_06"] }
+winit = { version = "0.29", default-features = false, features = ["x11", "rwh_06"] }
 
 shared = { path = "../shared" }

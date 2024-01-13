@@ -7,6 +7,7 @@ pub use self::encoder::{
     ImageMemoryBarrier, MemoryBarrier, PrimaryEncoder, RenderPassEncoder,
 };
 pub use self::graphics::{Graphics, InitGraphicsError, InstanceConfig};
+pub use self::layout::{AsStd140, AsStd430, Padded, Padding, Std140, Std430};
 pub use self::physical_device::{
     CreateDeviceError, DeviceFeature, DeviceFeatures, DeviceProperties, PhysicalDevice,
 };
@@ -43,6 +44,7 @@ pub use self::types::{DeviceAddress, DeviceLost, OutOfDeviceMemory, State};
 mod device;
 mod encoder;
 mod graphics;
+mod layout;
 mod physical_device;
 mod queue;
 mod resources;
