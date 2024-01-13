@@ -74,10 +74,10 @@ pub mod inner_proc_stuff {
     /// Gives the number of bytes needed to make `offset` be aligned to `align_mask`.
     pub const fn align_offset(align_mask: u64, offset: usize) -> u64 {
         let offset = offset as u64;
-        if align_mask == 0 || offset & align_mask == 0 {
+        if offset & align_mask == 0 {
             0
         } else {
-            (offset + align_mask) & !align_mask
+            align_mask + 1 - (offset & align_mask)
         }
     }
 }

@@ -136,7 +136,8 @@ mod tests {
     struct TestShaderStruct {
         field1: f32,
         field2: f32,
-        field3: glam::Vec3,
+        field3: f32,
+        field4: glam::Vec2,
     }
 
     #[test]
@@ -218,21 +219,30 @@ mod tests {
         assert_eq!(std::mem::size_of::<Repr<glam::Affine3A>>(), 64); // Vec3 -> pad to 16 bytes
 
         // derived struct
-        assert_eq!(<Repr<TestShaderStruct> as Std140>::ALIGN_MASK, 0b1111);
 
+        // \ field  | size | align | offset
+        // 0 field1 | 4    | 4     | 0
+        // 1 pad0   | 0    | 4     | 4
+        // 2 field2 | 4    | 4     | 4
+        // 3 pad1   | 0    | 4     | 8
+        // 4 field3 | 4    | 4     | 8
+        // 5 pad2   | 4    | 4     | 12
+        // 6 field4 | 8    | 8     | 16
+        // 7 pad3   | 8    | 16    | 24
+        // total: 32
+        assert_eq!(<Repr<TestShaderStruct> as Std140>::ALIGN_MASK, 0b1111);
         let test = TestShaderStruct {
             field1: 0.0,
             field2: 0.0,
-            field3: glam::Vec3::ZERO,
+            field3: 0.0,
+            field4: glam::Vec2::ZERO,
         }
         .as_std140();
-        println!("{}", std::mem::size_of_val(&test._pad0));
-        println!("{}", std::mem::size_of_val(&test._pad1));
-
-        // field1: f32 -> pad to 16 bytes
-        // field2: f32 -> pad to 16 bytes
-        // field3: Vec3 -> pad to 16 bytes
-        assert_eq!(std::mem::size_of::<Repr<TestShaderStruct>>(), 64);
+        assert_eq!(std::mem::size_of_val(&test._pad0), 0);
+        assert_eq!(std::mem::size_of_val(&test._pad1), 0);
+        assert_eq!(std::mem::size_of_val(&test._pad2), 4);
+        assert_eq!(std::mem::size_of_val(&test._pad3), 8);
+        assert_eq!(std::mem::size_of::<Repr<TestShaderStruct>>(), 32);
     }
 
     #[test]
@@ -312,5 +322,31 @@ mod tests {
 
         assert_eq!(<Repr<glam::Affine3A> as Std430>::ALIGN_MASK, 0b1111);
         assert_eq!(std::mem::size_of::<Repr<glam::Affine3A>>(), 64); // Vec3 -> pad to 16 bytes
+
+        // derived struct
+
+        // \ field  | size | align | offset
+        // 0 field1 | 4    | 4     | 0
+        // 1 pad0   | 0    | 4     | 4
+        // 2 field2 | 4    | 4     | 4
+        // 3 pad1   | 0    | 4     | 8
+        // 4 field3 | 4    | 4     | 8
+        // 5 pad2   | 4    | 4     | 12
+        // 6 field4 | 8    | 8     | 16
+        // 7 pad3   | 0    | 8     | 24
+        // total: 32
+        assert_eq!(<Repr<TestShaderStruct> as Std430>::ALIGN_MASK, 0b111);
+        let test = TestShaderStruct {
+            field1: 0.0,
+            field2: 0.0,
+            field3: 0.0,
+            field4: glam::Vec2::ZERO,
+        }
+        .as_std430();
+        assert_eq!(std::mem::size_of_val(&test._pad0), 0);
+        assert_eq!(std::mem::size_of_val(&test._pad1), 0);
+        assert_eq!(std::mem::size_of_val(&test._pad2), 4);
+        assert_eq!(std::mem::size_of_val(&test._pad3), 0);
+        assert_eq!(std::mem::size_of::<Repr<TestShaderStruct>>(), 24);
     }
 }
