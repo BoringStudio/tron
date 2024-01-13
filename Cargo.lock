@@ -545,6 +545,7 @@ dependencies = [
  "bumpalo",
  "bytemuck",
  "dashmap",
+ "gfx-proc",
  "glam",
  "gpu-alloc",
  "gpu-alloc-vulkanalia",
@@ -555,6 +556,15 @@ dependencies = [
  "tracing",
  "vulkanalia",
  "winit",
+]
+
+[[package]]
+name = "gfx-proc"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

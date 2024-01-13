@@ -1,3 +1,5 @@
+extern crate self as gfx;
+
 use vulkanalia::vk;
 
 pub use self::device::{CreateRenderPassError, DescriptorAllocError, Device, MapError, WeakDevice};
@@ -41,6 +43,8 @@ pub use self::surface::{
 };
 pub use self::types::{DeviceAddress, DeviceLost, OutOfDeviceMemory, State};
 
+pub use gfx_proc::{AsStd140, AsStd430};
+
 mod device;
 mod encoder;
 mod graphics;
@@ -61,4 +65,19 @@ pub(crate) fn out_of_host_memory() -> ! {
 #[cold]
 pub(crate) fn unexpected_vulkan_error(e: vk::ErrorCode) -> ! {
     panic!("unexpected Vulkan error: {e}")
+}
+
+#[doc(hidden)]
+pub mod inner_proc_stuff {
+    pub use bytemuck;
+
+    /// Gives the number of bytes needed to make `offset` be aligned to `align_mask`.
+    pub const fn align_offset(align_mask: u64, offset: usize) -> u64 {
+        let offset = offset as u64;
+        if align_mask == 0 || offset & align_mask == 0 {
+            0
+        } else {
+            (offset + align_mask) & !align_mask
+        }
+    }
 }

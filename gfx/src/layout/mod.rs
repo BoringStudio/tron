@@ -132,6 +132,13 @@ impl<T: std::hash::Hash, P> std::hash::Hash for Padded<T, P> {
 mod tests {
     use super::*;
 
+    #[derive(gfx::AsStd140, gfx::AsStd430)]
+    struct TestShaderStruct {
+        field1: f32,
+        field2: f32,
+        field3: glam::Vec3,
+    }
+
     #[test]
     fn correct_std140_repr() {
         type Repr<T> = <T as AsStd140>::Output;
@@ -209,6 +216,23 @@ mod tests {
 
         assert_eq!(<Repr<glam::Affine3A> as Std140>::ALIGN_MASK, 0b1111);
         assert_eq!(std::mem::size_of::<Repr<glam::Affine3A>>(), 64); // Vec3 -> pad to 16 bytes
+
+        // derived struct
+        assert_eq!(<Repr<TestShaderStruct> as Std140>::ALIGN_MASK, 0b1111);
+
+        let test = TestShaderStruct {
+            field1: 0.0,
+            field2: 0.0,
+            field3: glam::Vec3::ZERO,
+        }
+        .as_std140();
+        println!("{}", std::mem::size_of_val(&test._pad0));
+        println!("{}", std::mem::size_of_val(&test._pad1));
+
+        // field1: f32 -> pad to 16 bytes
+        // field2: f32 -> pad to 16 bytes
+        // field3: Vec3 -> pad to 16 bytes
+        assert_eq!(std::mem::size_of::<Repr<TestShaderStruct>>(), 64);
     }
 
     #[test]
