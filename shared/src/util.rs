@@ -1,5 +1,7 @@
 use std::mem::ManuallyDrop;
 
+use bumpalo::Bump;
+
 pub struct Defer<T, F: FnOnce(T)> {
     data: ManuallyDrop<T>,
     deleter: Option<F>,
@@ -55,5 +57,29 @@ impl<T, F: FnOnce(Self)> WithDefer<F> for T {
     #[inline(always)]
     fn with_defer(self, deleter: F) -> Defer<Self, F> {
         Defer::new(self, deleter)
+    }
+}
+
+pub struct DeallocOnDrop<'a>(pub &'a mut Bump);
+
+impl Drop for DeallocOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.reset();
+    }
+}
+
+impl std::ops::Deref for DeallocOnDrop<'_> {
+    type Target = Bump;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl std::ops::DerefMut for DeallocOnDrop<'_> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0
     }
 }

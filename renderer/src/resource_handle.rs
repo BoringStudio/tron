@@ -9,7 +9,10 @@ pub struct ResourceHandleAllocator<T> {
 }
 
 impl<T> ResourceHandleAllocator<T> {
-    pub fn alloc(&self) -> ResourceHandle<T> {
+    pub fn alloc(
+        &self,
+        deleter: Arc<dyn Fn(RawResourceHandle<T>) + Send + Sync>,
+    ) -> ResourceHandle<T> {
         let id = self
             .free_list
             .lock()
@@ -17,10 +20,14 @@ impl<T> ResourceHandleAllocator<T> {
             .pop()
             .unwrap_or_else(|| self.next.fetch_add(1, Ordering::Relaxed));
 
-        ResourceHandle::new(id)
+        ResourceHandle {
+            index: id,
+            refcount: deleter,
+            _phantom: Default::default(),
+        }
     }
 
-    pub fn dealloc(&self, handle: &ResourceHandle<T>) {
+    pub fn dealloc(&self, handle: RawResourceHandle<T>) {
         self.free_list.lock().unwrap().push(handle.index);
     }
 }
@@ -37,19 +44,11 @@ impl<T> Default for ResourceHandleAllocator<T> {
 
 pub struct ResourceHandle<T> {
     index: usize,
-    refcount: Arc<()>,
+    refcount: Arc<dyn Fn(RawResourceHandle<T>) + Send + Sync>,
     _phantom: std::marker::PhantomData<T>,
 }
 
 impl<T> ResourceHandle<T> {
-    fn new(id: usize) -> Self {
-        Self {
-            index: id,
-            refcount: Default::default(),
-            _phantom: Default::default(),
-        }
-    }
-
     pub fn index(&self) -> usize {
         self.index
     }
@@ -59,10 +58,6 @@ impl<T> ResourceHandle<T> {
             index: self.index,
             _phantom: Default::default(),
         }
-    }
-
-    fn downgrade(&self) -> Weak<()> {
-        Arc::downgrade(&self.refcount)
     }
 }
 

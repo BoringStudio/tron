@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use arrayvec::ArrayVec;
 use bumpalo::Bump;
 use vulkanalia::prelude::v1_0::*;
@@ -7,7 +9,7 @@ use crate::encoder::{CommandBuffer, CommandBufferLevel, Encoder, PrimaryEncoder}
 use crate::resources::{Fence, PipelineStageFlags, Semaphore};
 use crate::surface::SurfaceImage;
 use crate::types::{DeviceLost, OutOfDeviceMemory, SurfaceLost};
-use crate::util::{DeallocOnDrop, FromGfx, FromVk, ToGfx, ToVk};
+use crate::util::{FromGfx, FromVk, ToGfx, ToVk};
 
 /// A query for a set of queues.
 pub trait QueuesQuery {
@@ -124,15 +126,9 @@ pub struct QueueId {
 }
 
 /// A wrapper around a Vulkan queue.
+#[derive(Clone)]
 pub struct Queue {
-    handle: vk::Queue,
-    pool: vk::CommandPool,
-    id: QueueId,
-    capabilities: QueueFlags,
-    primary_command_buffers: Vec<CommandBuffer>,
-    secondary_command_buffers: Vec<CommandBuffer>,
-    device: crate::device::Device,
-    alloc: Bump,
+    inner: Arc<Inner>,
 }
 
 impl Queue {
@@ -144,28 +140,33 @@ impl Queue {
         device: crate::device::Device,
     ) -> Self {
         Self {
-            handle,
-            pool: vk::CommandPool::null(),
-            id: QueueId {
-                family: family_idx,
-                index: queue_idx,
-            },
-            capabilities,
-            primary_command_buffers: Vec::new(),
-            secondary_command_buffers: Vec::new(),
-            device,
-            alloc: Bump::new(),
+            inner: Arc::new(Inner {
+                handle,
+                submission_mutex: Mutex::default(),
+                id: QueueId {
+                    family: family_idx,
+                    index: queue_idx,
+                },
+                capabilities,
+                cached_buffers: Mutex::new(CachedBuffers::default()),
+                device,
+            }),
         }
     }
 
     /// Returns the global queue id.
     pub fn id(&self) -> &QueueId {
-        &self.id
+        &self.inner.id
+    }
+
+    pub fn device(&self) -> &crate::device::Device {
+        &self.inner.device
     }
 
     /// Wait for a queue to become idle.
     pub fn wait_idle(&self) -> Result<(), QueueError> {
-        unsafe { self.device.logical().queue_wait_idle(self.handle) }.map_err(|e| match e {
+        let logical = self.inner.device.logical();
+        unsafe { logical.queue_wait_idle(self.inner.handle) }.map_err(|e| match e {
             vk::ErrorCode::OUT_OF_HOST_MEMORY => crate::out_of_host_memory(),
             vk::ErrorCode::OUT_OF_DEVICE_MEMORY => QueueError::OutOfDeviceMemory(OutOfDeviceMemory),
             vk::ErrorCode::DEVICE_LOST => QueueError::DeviceLost(DeviceLost),
@@ -174,31 +175,32 @@ impl Queue {
     }
 
     /// Begin recording a primary command buffer.
-    pub fn create_primary_encoder(&mut self) -> Result<PrimaryEncoder, OutOfDeviceMemory> {
+    pub fn create_primary_encoder(&self) -> Result<PrimaryEncoder, OutOfDeviceMemory> {
+        let capabilities = self.inner.capabilities;
         self.begin_command_buffer(CommandBufferLevel::Primary)
-            .map(|cb| PrimaryEncoder::new(cb, self.capabilities))
+            .map(|cb| PrimaryEncoder::new(cb, capabilities))
     }
 
     /// Begin recording a secondary command buffer.
-    pub fn create_secondary_encoder(&mut self) -> Result<Encoder, OutOfDeviceMemory> {
+    pub fn create_secondary_encoder(&self) -> Result<Encoder, OutOfDeviceMemory> {
+        let capabilities = self.inner.capabilities;
         self.begin_command_buffer(CommandBufferLevel::Secondary)
-            .map(|cb| Encoder::new(cb, self.capabilities))
+            .map(|cb| Encoder::new(cb, capabilities))
     }
 
     /// Submit a set of command buffers to the queue.
     pub fn submit<I>(
-        &mut self,
+        &self,
         wait: &mut [(PipelineStageFlags, &mut Semaphore)],
         command_buffers: I,
         signal: &mut [&mut Semaphore],
         mut fence: Option<&mut Fence>,
+        alloc: &mut Bump,
     ) -> Result<(), QueueError>
     where
         I: IntoIterator<Item = CommandBuffer>,
         I::IntoIter: ExactSizeIterator,
     {
-        let alloc = DeallocOnDrop(&mut self.alloc);
-
         let owned_command_buffers = alloc.alloc_with(ArrayVec::<_, 64>::new);
         let command_buffers =
             alloc.alloc_slice_fill_iter(command_buffers.into_iter().map(|command_buffer| {
@@ -212,9 +214,11 @@ impl Queue {
                 handle
             }));
 
+        let this = self.inner.as_ref();
+
         if let Some(fence) = fence.as_mut() {
-            let epoch = self.device.epochs().next_epoch(self.id);
-            fence.set_armed(self.id, epoch, &self.device)?;
+            let epoch = this.device.epochs().next_epoch(this.id);
+            fence.set_armed(this.id, epoch, &this.device)?;
         }
 
         let wait_stages = alloc.alloc_slice_fill_iter(
@@ -235,18 +239,21 @@ impl Queue {
 
         let fence = fence.map(|f| f.handle()).unwrap_or_else(vk::Fence::null);
 
-        let res = unsafe {
-            self.device
-                .logical()
-                .queue_submit(self.handle, std::slice::from_ref(&info), fence)
+        let res = {
+            let _guard = this.submission_mutex.lock().unwrap();
+            unsafe {
+                this.device
+                    .logical()
+                    .queue_submit(this.handle, std::slice::from_ref(&info), fence)
+            }
         };
         if let Some(vk::ErrorCode::OUT_OF_HOST_MEMORY) = res.err() {
             crate::out_of_host_memory();
         }
 
-        self.device
+        this.device
             .epochs()
-            .submit(self.id, owned_command_buffers.drain(..));
+            .submit(this.id, owned_command_buffers.drain(..));
 
         res.map_err(|e| match e {
             vk::ErrorCode::OUT_OF_DEVICE_MEMORY => QueueError::OutOfDeviceMemory(OutOfDeviceMemory),
@@ -257,7 +264,7 @@ impl Queue {
 
     /// Submit a single command buffer to the queue.
     pub fn submit_simple(
-        &mut self,
+        &self,
         command_buffer: CommandBuffer,
         fence: Option<&Fence>,
     ) -> Result<(), QueueError> {
@@ -266,24 +273,29 @@ impl Queue {
             "only primary command buffers can be submitted directly to a queue"
         );
 
+        let this = self.inner.as_ref();
+
         let info = vk::SubmitInfo::builder()
             .command_buffers(&[command_buffer.handle()])
             .build();
 
         let fence = fence.map(|f| f.handle()).unwrap_or_else(vk::Fence::null);
 
-        let res = unsafe {
-            self.device
-                .logical()
-                .queue_submit(self.handle, std::slice::from_ref(&info), fence)
+        let res = {
+            let _guard = this.submission_mutex.lock().unwrap();
+            unsafe {
+                this.device
+                    .logical()
+                    .queue_submit(this.handle, std::slice::from_ref(&info), fence)
+            }
         };
         if let Some(vk::ErrorCode::OUT_OF_HOST_MEMORY) = res.err() {
             crate::out_of_host_memory();
         }
 
-        self.device
+        this.device
             .epochs()
-            .submit(self.id, std::iter::once(command_buffer));
+            .submit(this.id, std::iter::once(command_buffer));
 
         res.map_err(|e| match e {
             vk::ErrorCode::OUT_OF_DEVICE_MEMORY => QueueError::OutOfDeviceMemory(OutOfDeviceMemory),
@@ -293,24 +305,28 @@ impl Queue {
     }
 
     /// Present an image to the surface.
-    pub fn present(&mut self, mut image: SurfaceImage<'_>) -> Result<PresentStatus, PresentError> {
+    pub fn present(&self, mut image: SurfaceImage<'_>) -> Result<PresentStatus, PresentError> {
+        let this = self.inner.as_ref();
+
         assert!(
             image
                 .supported_families()
-                .get(self.id.family as usize)
+                .get(this.id.family as usize)
                 .copied()
                 .unwrap_or_default(),
             "queue family {} does not support presentation to surface",
-            self.id.family
+            this.id.family
         );
 
         let [_, signal] = image.wait_signal();
 
         let res = {
-            let logical = self.device.logical();
+            let logical = this.device.logical();
+
+            let _guard = this.submission_mutex.lock().unwrap();
             unsafe {
                 logical.queue_present_khr(
-                    self.handle,
+                    this.handle,
                     &vk::PresentInfoKHR::builder()
                         .wait_semaphores(&[signal.handle()])
                         .swapchains(&[image.swapchain_handle()])
@@ -340,31 +356,35 @@ impl Queue {
     }
 
     fn begin_command_buffer(
-        &mut self,
+        &self,
         level: CommandBufferLevel,
     ) -> Result<CommandBuffer, OutOfDeviceMemory> {
-        let logical = self.device.logical();
+        let this = self.inner.as_ref();
+        let logical = this.device.logical();
+
+        let mut cached = this.cached_buffers.lock().unwrap();
+        let cached = &mut *cached;
 
         let command_buffers = match level {
-            CommandBufferLevel::Primary => &mut self.primary_command_buffers,
-            CommandBufferLevel::Secondary => &mut self.secondary_command_buffers,
+            CommandBufferLevel::Primary => &mut cached.primary_command_buffers,
+            CommandBufferLevel::Secondary => &mut cached.secondary_command_buffers,
         };
 
         let mut command_buffer = match command_buffers.pop() {
             Some(command_buffer) => command_buffer,
             None => {
-                if self.pool.is_null() {
+                if cached.pool.is_null() {
                     let info = vk::CommandPoolCreateInfo::builder()
                         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-                        .queue_family_index(self.id.family);
+                        .queue_family_index(this.id.family);
 
-                    self.pool = unsafe { logical.create_command_pool(&info, None) }
+                    cached.pool = unsafe { logical.create_command_pool(&info, None) }
                         .map_err(OutOfDeviceMemory::on_creation)?;
                 }
 
                 let handle = {
                     let info = vk::CommandBufferAllocateInfo::builder()
-                        .command_pool(self.pool)
+                        .command_pool(cached.pool)
                         .level(level.to_vk())
                         .command_buffer_count(1);
 
@@ -375,7 +395,7 @@ impl Queue {
 
                 tracing::debug!(command_buffer = ?handle, ?level, "created command buffer");
 
-                CommandBuffer::new(handle, self.id, level, self.device.clone())
+                CommandBuffer::new(handle, this.id, level, this.device.clone())
             }
         };
 
@@ -391,19 +411,24 @@ impl Queue {
         }
     }
 
-    fn restore_command_buffers(&mut self) -> Result<(), OutOfDeviceMemory> {
-        let logical = self.device.logical();
+    fn restore_command_buffers(&self) -> Result<(), OutOfDeviceMemory> {
+        let this = self.inner.as_ref();
+        let logical = this.device.logical();
 
-        let primary_offset = self.primary_command_buffers.len();
-        let secondaty_offset = self.secondary_command_buffers.len();
-        self.device.epochs().drain_free_command_buffers(
-            self.id,
-            &mut self.primary_command_buffers,
-            &mut self.secondary_command_buffers,
+        let mut cached = this.cached_buffers.lock().unwrap();
+        let cached = &mut *cached;
+
+        let primary_offset = cached.primary_command_buffers.len();
+        let secondaty_offset = cached.secondary_command_buffers.len();
+
+        this.device.epochs().drain_free_command_buffers(
+            this.id,
+            &mut cached.primary_command_buffers,
+            &mut cached.secondary_command_buffers,
         );
 
-        let primary = &self.primary_command_buffers[primary_offset..];
-        let secondary = &self.secondary_command_buffers[secondaty_offset..];
+        let primary = &cached.primary_command_buffers[primary_offset..];
+        let secondary = &cached.secondary_command_buffers[secondaty_offset..];
 
         for cb in primary.iter().chain(secondary) {
             unsafe {
@@ -420,6 +445,50 @@ impl Queue {
 
         Ok(())
     }
+}
+
+impl std::fmt::Debug for Queue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if f.alternate() {
+            f.debug_struct("Queue")
+                .field("id", &self.inner.id)
+                .field("capabilities", &self.inner.capabilities)
+                .finish()
+        } else {
+            std::fmt::Debug::fmt(&self.inner.handle, f)
+        }
+    }
+}
+
+impl Eq for Queue {}
+impl PartialEq for Queue {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
+impl std::hash::Hash for Queue {
+    #[inline]
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::ptr::hash(&*self.inner, state)
+    }
+}
+
+struct Inner {
+    handle: vk::Queue,
+    submission_mutex: Mutex<()>,
+    id: QueueId,
+    cached_buffers: Mutex<CachedBuffers>,
+    capabilities: QueueFlags,
+    device: crate::device::Device,
+}
+
+#[derive(Default)]
+struct CachedBuffers {
+    pool: vk::CommandPool,
+    primary_command_buffers: Vec<CommandBuffer>,
+    secondary_command_buffers: Vec<CommandBuffer>,
 }
 
 /// The result of a present operation.

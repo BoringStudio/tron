@@ -1,13 +1,11 @@
 use std::num::NonZeroUsize;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 
 use anyhow::{Context, Result};
-use shared::Embed;
 use vulkanalia::vk;
 use winit::window::Window;
 
-pub use self::render_passes::{EncoderExt, MainPass, MainPassInput, Pass};
-pub use self::shader_preprocessor::{ShaderPreprocessor, ShaderPreprocessorScope};
 pub use self::types::{
     BoundingSphere, Camera, CameraProjection, Color, CubeMeshGenerator, Frustum, Mesh, MeshBuilder,
     MeshGenerator, MeshHandle, Normal, Plane, PlaneMeshGenerator, Position, Tangent,
@@ -15,8 +13,8 @@ pub use self::types::{
 };
 
 use self::managers::MeshManager;
-use self::pipelines::{CachedGraphicsPipeline, OpaqueMeshPipeline, RenderPassEncoderExt};
-use self::resource_handle::ResourceHandleAllocator;
+use self::resource_handle::{RawResourceHandle, ResourceHandleAllocator};
+use self::worker::{RendererWorker, RendererWorkerCallbacks, RendererWorkerConfig};
 
 mod managers;
 mod pipelines;
@@ -24,6 +22,7 @@ mod render_passes;
 mod resource_handle;
 mod shader_preprocessor;
 mod types;
+mod worker;
 
 pub struct RendererBuilder {
     window: Arc<Window>,
@@ -42,7 +41,6 @@ impl RendererBuilder {
             app_version,
             validation_layer_enabled: self.validation_layer,
         });
-        let pass = MainPass::default();
 
         let graphics = gfx::Graphics::get_or_init()?;
         let physical = graphics.get_physical_devices()?.find_best()?;
@@ -51,42 +49,53 @@ impl RendererBuilder {
             gfx::SingleQueueQuery::GRAPHICS,
         )?;
 
+        let mesh_manager = MeshManager::new(queue.clone())?;
+        let mesh_handle_allocator = ResourceHandleAllocator::default();
+
         let mut surface = device.create_surface(self.window.clone())?;
         surface.configure()?;
 
-        let fences = Fences::new(&device, self.frames_in_flight)?;
-
-        let mut shader_preprocessor = ShaderPreprocessor::new();
-        shader_preprocessor.set_optimizations_enabled(self.optimize_shaders);
-        for (path, contents) in Shaders::iter() {
-            let contents = std::str::from_utf8(contents)
-                .with_context(|| anyhow::anyhow!("invalid shader {path}"))?;
-            shader_preprocessor.add_file(path, contents)?;
-        }
-
-        let opaque_mesh_pipeline =
-            OpaqueMeshPipeline::make_descr(&device, &mut shader_preprocessor)
-                .map(CachedGraphicsPipeline::new)?;
-
-        let mesh_manager = MeshManager::new(&device)?;
-        let mesh_handle_allocator = ResourceHandleAllocator::default();
-
-        Ok(Renderer {
+        let state = Arc::new(RendererState {
+            is_running: AtomicBool::new(true),
+            worker_barrier: LoopBarrier::default(),
+            instructions: InstructionQueue::default(),
             mesh_manager,
             mesh_handle_allocator,
-
-            opaque_mesh_pipeline,
-            pass,
-
-            window: self.window,
-            fences,
-            non_optimal_count: 0,
-
-            encoder: None,
-
             queue,
-            surface,
             device,
+        });
+
+        let mut worker = RendererWorker::new(
+            state.clone(),
+            RendererWorkerConfig {
+                frames_in_flight: self.frames_in_flight,
+                optimize_shaders: self.optimize_shaders,
+            },
+            Box::new(WorkerCallbacks {
+                window: self.window.clone(),
+            }),
+            surface,
+        )?;
+
+        let worker_thread = std::thread::spawn({
+            let state = state.clone();
+
+            move || {
+                tracing::debug!("rendering thread started");
+
+                let state = state.as_ref();
+                while state.is_running.load(Ordering::Acquire) {
+                    state.worker_barrier.wait();
+                    worker.draw().unwrap();
+                }
+
+                tracing::debug!("rendering thread stopped");
+            }
+        });
+
+        Ok(Renderer {
+            state,
+            worker_thread: Some(worker_thread),
         })
     }
 
@@ -112,24 +121,8 @@ impl RendererBuilder {
 }
 
 pub struct Renderer {
-    mesh_manager: MeshManager,
-    mesh_handle_allocator: ResourceHandleAllocator<Mesh>,
-
-    // TODO: replace with render graph
-    opaque_mesh_pipeline: CachedGraphicsPipeline,
-    pass: MainPass,
-
-    window: Arc<Window>,
-    fences: Fences,
-    non_optimal_count: usize,
-
-    encoder: Option<gfx::Encoder>,
-
-    queue: gfx::Queue,
-    surface: gfx::Surface,
-
-    // NOTE: device must be dropped last
-    device: gfx::Device,
+    state: Arc<RendererState>,
+    worker_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Renderer {
@@ -143,134 +136,131 @@ impl Renderer {
         }
     }
 
-    pub fn wait_idle(&self) -> Result<(), gfx::DeviceLost> {
-        self.device.wait_idle()
+    pub fn state(&self) -> &Arc<RendererState> {
+        &self.state
     }
 
-    pub fn draw(&mut self) -> Result<()> {
-        let fence = {
-            profiling::scope!("idle");
-            self.fences.wait_next(&self.device)?
-        };
-        profiling::scope!("frame");
-
-        let mut surface_image = {
-            profiling::scope!("aquire_image");
-            self.surface.aquire_image()?
-        };
-
-        let mut encoder = self.queue.create_primary_encoder()?;
-
-        if let Some(secondary) = self.encoder.take() {
-            encoder.execute_commands(std::iter::once(secondary.finish()?));
+    pub fn cleanup(&mut self) -> Result<()> {
+        if let Some(worker_thread) = self.worker_thread.take() {
+            self.state.set_running(false);
+            worker_thread.join().unwrap();
+            self.state.device.wait_idle()?;
         }
+        Ok(())
+    }
+}
 
-        self.mesh_manager.buffers().bind_index_buffer(&mut encoder);
-
-        {
-            let mut render_pass = encoder.with_render_pass(
-                &mut self.pass,
-                &MainPassInput {
-                    max_image_count: surface_image.total_image_count(),
-                    target: surface_image.image().clone(),
-                },
-                &self.device,
-            )?;
-
-            render_pass
-                .bind_cached_graphics_pipeline(&mut self.opaque_mesh_pipeline, &self.device)?;
-            render_pass.draw(0..3, 0..1);
+impl Drop for Renderer {
+    fn drop(&mut self) {
+        if let Err(e) = self.cleanup() {
+            tracing::error!("failed to cleanup renderer: {e:?}");
         }
+    }
+}
 
-        let [wait, signal] = surface_image.wait_signal();
+pub struct RendererState {
+    is_running: AtomicBool,
+    worker_barrier: LoopBarrier,
+    instructions: InstructionQueue,
 
-        {
-            profiling::scope!("queue_submit");
-            self.queue.submit(
-                &mut [(gfx::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT, wait)],
-                Some(encoder.finish()?),
-                &mut [signal],
-                Some(fence),
-            )?;
-        }
+    mesh_manager: MeshManager,
+    mesh_handle_allocator: ResourceHandleAllocator<Mesh>,
 
-        let mut is_optimal = surface_image.is_optimal();
-        {
-            profiling::scope!("queue_present");
+    queue: gfx::Queue,
 
-            self.window.pre_present_notify();
-            match self.queue.present(surface_image)? {
-                gfx::PresentStatus::Ok => {}
-                gfx::PresentStatus::Suboptimal => is_optimal = false,
-                gfx::PresentStatus::OutOfDate => {
-                    is_optimal = false;
-                    self.non_optimal_count += NON_OPTIMAL_LIMIT;
+    // NOTE: device must be dropped last
+    device: gfx::Device,
+}
+
+impl RendererState {
+    pub fn set_running(&self, is_running: bool) {
+        self.is_running.store(is_running, Ordering::Release);
+        self.worker_barrier.notify();
+    }
+
+    pub fn notify_draw(&self) {
+        self.worker_barrier.notify();
+    }
+
+    pub fn add_mesh(self: &Arc<Self>, mesh: &Mesh) -> Result<MeshHandle> {
+        let mesh = self.mesh_manager.upload_mesh(mesh)?;
+
+        let state = Arc::downgrade(self);
+        let handle = self.mesh_handle_allocator.alloc(Arc::new(move |handle| {
+            if let Some(state) = state.upgrade() {
+                state.instructions.send(Instruction::DeleteMesh(handle));
+            }
+        }));
+
+        self.mesh_manager.insert(&handle, mesh);
+        Ok(handle)
+    }
+
+    fn eval_instructions(&self) {
+        self.instructions.swap();
+
+        let mut instructions = self.instructions.consumer.lock().unwrap();
+        for instruction in instructions.drain(..) {
+            match instruction {
+                Instruction::DeleteMesh(handle) => {
+                    self.mesh_handle_allocator.dealloc(handle);
+                    self.mesh_manager.remove(handle);
                 }
             }
         }
-
-        self.non_optimal_count += !is_optimal as usize;
-        if self.non_optimal_count >= NON_OPTIMAL_LIMIT {
-            profiling::scope!("recreate_swapchain");
-
-            // Wait for the device to be idle before recreating the swapchain.
-            self.device.wait_idle()?;
-
-            self.surface.update()?;
-
-            self.non_optimal_count = 0;
-        }
-
-        profiling::finish_frame!();
-        Ok(())
-    }
-
-    pub fn add_mesh(&mut self, mesh: &Mesh) -> Result<MeshHandle> {
-        let encoder = match &mut self.encoder {
-            Some(encoder) => encoder,
-            None => {
-                let encoder = self.queue.create_secondary_encoder()?;
-                self.encoder.get_or_insert(encoder)
-            }
-        };
-
-        let mesh = self.mesh_manager.upload_mesh(&self.device, encoder, mesh)?;
-
-        let handle = self.mesh_handle_allocator.alloc();
-        self.mesh_manager.insert(&handle, mesh);
-
-        Ok(handle)
     }
 }
 
-struct Fences {
-    fences: Box<[gfx::Fence]>,
-    fence_index: usize,
+#[derive(Default)]
+struct InstructionQueue {
+    consumer: Mutex<Vec<Instruction>>,
+    producer: Mutex<Vec<Instruction>>,
 }
 
-impl Fences {
-    fn new(device: &gfx::Device, count: NonZeroUsize) -> Result<Self> {
-        let fences = (0..count.get())
-            .map(|_| device.create_fence())
-            .collect::<Result<Box<[_]>, _>>()?;
-
-        Ok(Self {
-            fences,
-            fence_index: 0,
-        })
+impl InstructionQueue {
+    fn swap(&self) {
+        let mut consumer = self.consumer.lock().unwrap();
+        let mut producer = self.producer.lock().unwrap();
+        std::mem::swap(&mut *consumer, &mut *producer);
     }
 
-    fn wait_next(&mut self, device: &gfx::Device) -> Result<&mut gfx::Fence> {
-        let fence_count = self.fences.len();
-        let fence = &mut self.fences[self.fence_index];
-        self.fence_index = (self.fence_index + 1) % fence_count;
+    fn send(&self, instruction: Instruction) {
+        self.producer.lock().unwrap().push(instruction);
+    }
+}
 
-        if !fence.state().is_unsignalled() {
-            device.wait_fences(&mut [fence], true)?;
-            device.reset_fences(&mut [fence])?;
+enum Instruction {
+    DeleteMesh(RawResourceHandle<Mesh>),
+}
+
+#[derive(Default)]
+struct LoopBarrier {
+    state: Mutex<bool>,
+    condvar: Condvar,
+}
+
+impl LoopBarrier {
+    fn wait(&self) {
+        let mut state = self.state.lock().unwrap();
+        while !*state {
+            state = self.condvar.wait(state).unwrap();
         }
+        *state = false;
+    }
 
-        Ok(fence)
+    fn notify(&self) {
+        *self.state.lock().unwrap() = true;
+        self.condvar.notify_one();
+    }
+}
+
+struct WorkerCallbacks {
+    window: Arc<Window>,
+}
+
+impl RendererWorkerCallbacks for WorkerCallbacks {
+    fn before_present(&self) {
+        self.window.pre_present_notify();
     }
 }
 
@@ -310,14 +300,3 @@ impl PhysicalDevicesExt for Vec<gfx::PhysicalDevice> {
         Ok(self.swap_remove(index))
     }
 }
-
-const NON_OPTIMAL_LIMIT: usize = 100;
-
-shared::embed!(
-    Shaders("../../assets/shaders") = [
-        "math/color.glsl",
-        "math/const.glsl",
-        "triangle.vert",
-        "triangle.frag"
-    ]
-);

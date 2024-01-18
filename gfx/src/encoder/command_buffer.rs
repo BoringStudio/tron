@@ -2,6 +2,7 @@ use std::ops::Range;
 
 use bumpalo::Bump;
 use glam::{IVec3, UVec3};
+use shared::util::DeallocOnDrop;
 use shared::FastHashSet;
 use vulkanalia::prelude::v1_0::*;
 
@@ -13,7 +14,7 @@ use crate::resources::{
     PipelineBindPoint, PipelineLayout, PipelineStageFlags, Rect, ShaderStageFlags, Viewport,
 };
 use crate::types::OutOfDeviceMemory;
-use crate::util::{compute_supported_access, DeallocOnDrop, FromGfx, ToVk};
+use crate::util::{compute_supported_access, FromGfx, ToVk};
 
 /// Command buffer level.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

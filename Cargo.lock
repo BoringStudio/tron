@@ -1434,6 +1434,7 @@ version = "0.1.0"
 dependencies = [
  "ahash",
  "anyhow",
+ "bumpalo",
  "bytemuck",
  "gfx",
  "glam",
@@ -1565,6 +1566,7 @@ name = "shared"
 version = "0.1.0"
 dependencies = [
  "ahash",
+ "bumpalo",
  "dashmap",
 ]
 

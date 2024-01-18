@@ -1,5 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 
 use anyhow::Result;
 use argh::FromArgs;
@@ -116,37 +115,12 @@ impl App {
                 .with_computed_tangents()
                 .build()?;
 
-            renderer.add_mesh(&mesh)?
+            renderer.state().add_mesh(&mesh)?
         };
-
-        let is_running = Arc::new(AtomicBool::new(true));
-
-        let rendering_barrier = Arc::new(LoopBarrier::default());
-        let renderer_thread = std::thread::Builder::new()
-            .name("rendering".to_owned())
-            .spawn({
-                let is_running = is_running.clone();
-                let rendering_barrier = rendering_barrier.clone();
-                move || {
-                    tracing::debug!("rendering thread started");
-
-                    while is_running.load(Ordering::Acquire) {
-                        rendering_barrier.wait();
-
-                        renderer.draw().unwrap();
-                    }
-
-                    tracing::debug!("rendering thread stopped");
-
-                    renderer
-                }
-            })
-            .expect("failed to spawn rendering thread");
 
         let mut minimized = false;
         let handle_event = {
-            let rendering_barrier = rendering_barrier.clone();
-
+            let renderer_state = renderer.state().clone();
             move |event, elwt: &winit::event_loop::EventLoopWindowTarget<_>| {
                 // elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
@@ -154,14 +128,13 @@ impl App {
                     Event::AboutToWait => window.request_redraw(),
                     Event::WindowEvent { event, .. } => match event {
                         WindowEvent::RedrawRequested if !elwt.exiting() && !minimized => {
-                            rendering_barrier.notify();
+                            renderer_state.notify_draw();
                         }
                         WindowEvent::Resized(size) => {
                             minimized = size.width == 0 || size.height == 0;
                         }
                         WindowEvent::CloseRequested => {
-                            is_running.store(false, Ordering::Release);
-                            rendering_barrier.notify();
+                            renderer_state.set_running(false);
                             elwt.exit();
                         }
                         _ => {}
@@ -176,29 +149,9 @@ impl App {
         tracing::debug!("event loop stopped");
 
         drop(mesh_handle);
-        renderer_thread.join().unwrap().wait_idle()?;
+
+        renderer.cleanup()?;
 
         Ok(())
-    }
-}
-
-#[derive(Default)]
-struct LoopBarrier {
-    state: Mutex<bool>,
-    condvar: Condvar,
-}
-
-impl LoopBarrier {
-    fn wait(&self) {
-        let mut state = self.state.lock().unwrap();
-        while !*state {
-            state = self.condvar.wait(state).unwrap();
-        }
-        *state = false;
-    }
-
-    fn notify(&self) {
-        *self.state.lock().unwrap() = true;
-        self.condvar.notify_one();
     }
 }
