@@ -14,7 +14,7 @@ pub struct Mesh {
 }
 
 impl Mesh {
-    pub fn new<T: MeshGenerator>(generator: T) -> MeshBuilder {
+    pub fn builder<T: MeshGenerator>(generator: T) -> MeshBuilder {
         generator.generate_mesh()
     }
 

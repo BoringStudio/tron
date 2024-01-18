@@ -5,7 +5,7 @@ use anyhow::Result;
 use range_alloc::RangeAllocator;
 
 use crate::resource_handle::RawResourceHandle;
-use crate::types::{Mesh, MeshHandle, VertexAttributeKind};
+use crate::types::{Mesh, VertexAttributeKind};
 
 pub struct MeshManager {
     state: Mutex<MeshManagerState>,
@@ -159,9 +159,9 @@ impl MeshManager {
         })
     }
 
-    pub fn insert(&self, handle: &MeshHandle, mesh: GpuMesh) {
+    pub fn insert(&self, handle: RawResourceHandle<Mesh>, mesh: GpuMesh) {
         let mut registry = self.registry.lock().unwrap();
-        let index = handle.index();
+        let index = handle.index;
         if index >= registry.len() {
             registry.resize_with(index + 1, || None);
         }

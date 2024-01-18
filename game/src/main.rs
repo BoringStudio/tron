@@ -110,7 +110,7 @@ impl App {
 
         // TEMP
         let mesh_handle = {
-            let mesh = renderer::Mesh::new(renderer::CubeMeshGenerator::from_size(1.0))
+            let mesh = renderer::Mesh::builder(renderer::CubeMeshGenerator::from_size(1.0))
                 .with_computed_normals()
                 .with_computed_tangents()
                 .build()?;

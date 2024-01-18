@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex};
 
 pub struct ResourceHandleAllocator<T> {
     next: AtomicUsize,

@@ -192,11 +192,11 @@ impl RendererState {
             }
         }));
 
-        self.mesh_manager.insert(&handle, mesh);
+        self.mesh_manager.insert(handle.raw(), mesh);
         Ok(handle)
     }
 
-    fn eval_instructions(&self) {
+    pub(crate) fn eval_instructions(&self) {
         self.instructions.swap();
 
         let mut instructions = self.instructions.consumer.lock().unwrap();

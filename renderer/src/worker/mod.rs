@@ -114,7 +114,7 @@ impl RendererWorker {
                 Some(encoder.finish()?),
                 &mut [signal],
                 Some(fence),
-                &mut *DeallocOnDrop(&mut self.alloc),
+                &mut DeallocOnDrop(&mut self.alloc),
             )?;
         }
 
