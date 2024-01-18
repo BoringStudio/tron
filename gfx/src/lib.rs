@@ -43,7 +43,7 @@ pub use self::surface::{
 };
 pub use self::types::{DeviceAddress, DeviceLost, OutOfDeviceMemory, State};
 
-pub use gfx_proc::{AsStd140, AsStd430};
+pub use gfx_macros::{AsStd140, AsStd430};
 
 mod device;
 mod encoder;

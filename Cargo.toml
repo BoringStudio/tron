@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["game", "gfx", "gfx-proc", "renderer", "shared"]
+members = ["ecs-common", "game", "gfx", "renderer", "shared"]
 
 [patch.crates-io]
 vulkanalia = { git = "https://github.com/rexagon/vulkanalia.git", branch = "winit-0-29" }

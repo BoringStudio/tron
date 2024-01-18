@@ -334,7 +334,7 @@ mod tests {
         // 5 pad2   | 4    | 4     | 12
         // 6 field4 | 8    | 8     | 16
         // 7 pad3   | 0    | 8     | 24
-        // total: 32
+        // total: 24
         assert_eq!(<Repr<TestShaderStruct> as Std430>::ALIGN_MASK, 0b111);
         let test = TestShaderStruct {
             field1: 0.0,

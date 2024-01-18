@@ -1,0 +1,8 @@
+[package]
+name = "ecs-common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy_ecs = { version = "0.12", default-features = false }
+glam = "0.25"
