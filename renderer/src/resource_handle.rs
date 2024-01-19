@@ -2,13 +2,13 @@ use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-pub struct ResourceHandleAllocator<T> {
+pub struct ResourceHandleAllocator<T: ?Sized> {
     next: AtomicUsize,
     free_list: Mutex<Vec<usize>>,
     _phantom: PhantomData<T>,
 }
 
-impl<T> ResourceHandleAllocator<T> {
+impl<T: ?Sized> ResourceHandleAllocator<T> {
     pub fn alloc(
         &self,
         deleter: Arc<dyn Fn(RawResourceHandle<T>) + Send + Sync>,
@@ -31,7 +31,7 @@ impl<T> ResourceHandleAllocator<T> {
     }
 }
 
-impl<T> Default for ResourceHandleAllocator<T> {
+impl<T: ?Sized> Default for ResourceHandleAllocator<T> {
     fn default() -> Self {
         Self {
             next: AtomicUsize::new(0),
@@ -41,12 +41,12 @@ impl<T> Default for ResourceHandleAllocator<T> {
     }
 }
 
-pub struct ResourceHandle<T> {
+pub struct ResourceHandle<T: ?Sized> {
     index: usize,
     refcount: Arc<dyn Fn(RawResourceHandle<T>) + Send + Sync>,
 }
 
-impl<T> ResourceHandle<T> {
+impl<T: ?Sized> ResourceHandle<T> {
     pub fn index(&self) -> usize {
         self.index
     }
@@ -59,7 +59,7 @@ impl<T> ResourceHandle<T> {
     }
 }
 
-impl<T> Drop for ResourceHandle<T> {
+impl<T: ?Sized> Drop for ResourceHandle<T> {
     fn drop(&mut self) {
         if Arc::strong_count(&self.refcount) == 1 {
             (self.refcount)(self.raw());
@@ -67,7 +67,7 @@ impl<T> Drop for ResourceHandle<T> {
     }
 }
 
-impl<T> Clone for ResourceHandle<T> {
+impl<T: ?Sized> Clone for ResourceHandle<T> {
     fn clone(&self) -> Self {
         Self {
             index: self.index,
@@ -76,20 +76,20 @@ impl<T> Clone for ResourceHandle<T> {
     }
 }
 
-impl<T> Eq for ResourceHandle<T> {}
-impl<T> PartialEq for ResourceHandle<T> {
+impl<T: ?Sized> Eq for ResourceHandle<T> {}
+impl<T: ?Sized> PartialEq for ResourceHandle<T> {
     fn eq(&self, other: &Self) -> bool {
         self.index == other.index
     }
 }
 
-impl<T> std::hash::Hash for ResourceHandle<T> {
+impl<T: ?Sized> std::hash::Hash for ResourceHandle<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.index.hash(state)
     }
 }
 
-impl<T> std::fmt::Debug for ResourceHandle<T> {
+impl<T: ?Sized> std::fmt::Debug for ResourceHandle<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ResourceHandle")
             .field("id", &self.index)
@@ -98,20 +98,20 @@ impl<T> std::fmt::Debug for ResourceHandle<T> {
     }
 }
 
-pub struct RawResourceHandle<T> {
+pub struct RawResourceHandle<T: ?Sized> {
     pub index: usize,
     _phantom: PhantomData<T>,
 }
 
-impl<T> Copy for RawResourceHandle<T> {}
-impl<T> Clone for RawResourceHandle<T> {
+impl<T: ?Sized> Copy for RawResourceHandle<T> {}
+impl<T: ?Sized> Clone for RawResourceHandle<T> {
     #[inline(always)]
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<T> std::fmt::Debug for RawResourceHandle<T> {
+impl<T: ?Sized> std::fmt::Debug for RawResourceHandle<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RawResourceHandle")
             .field("id", &self.index)
@@ -119,8 +119,8 @@ impl<T> std::fmt::Debug for RawResourceHandle<T> {
     }
 }
 
-impl<T> Eq for RawResourceHandle<T> {}
-impl<T> PartialEq for RawResourceHandle<T> {
+impl<T: ?Sized> Eq for RawResourceHandle<T> {}
+impl<T: ?Sized> PartialEq for RawResourceHandle<T> {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         self.index == other.index

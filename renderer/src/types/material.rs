@@ -3,7 +3,9 @@ use bytemuck::Pod;
 use crate::resource_handle::ResourceHandle;
 use crate::types::VertexAttributeKind;
 
-pub type MaterialHandle = ResourceHandle<dyn Material>;
+pub type MaterialHandle = ResourceHandle<MaterialTag>;
+
+pub struct MaterialTag;
 
 pub trait Material {
     fn required_attributes() -> impl MaterialArray<VertexAttributeKind>;

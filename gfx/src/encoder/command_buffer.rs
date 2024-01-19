@@ -7,7 +7,6 @@ use shared::FastHashSet;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::device::{Device, WeakDevice};
-use crate::queue::QueueId;
 use crate::resources::{
     Buffer, ClearValue, ComputePipeline, DescriptorSet, Filter, Framebuffer, GraphicsPipeline,
     Image, ImageLayout, ImageSubresourceLayers, ImageSubresourceRange, IndexType, LoadOp,
@@ -42,7 +41,7 @@ impl std::fmt::Debug for CommandBuffer {
         let inner = self.inner.as_ref();
         f.debug_struct("CommandBuffer")
             .field("handle", &inner.handle)
-            .field("queue_id", &inner.queue_id)
+            .field("queue_family", &inner.queue_family)
             .field("level", &inner.level)
             .field("state", &inner.state)
             .finish()
@@ -52,14 +51,14 @@ impl std::fmt::Debug for CommandBuffer {
 impl CommandBuffer {
     pub(crate) fn new(
         handle: vk::CommandBuffer,
-        queue_id: QueueId,
+        queue_family: u32,
         level: CommandBufferLevel,
         owner: Device,
     ) -> Self {
         Self {
             inner: Box::new(Inner {
                 handle,
-                queue_id,
+                queue_family,
                 level,
                 references: Default::default(),
                 secondary_buffers: Default::default(),
@@ -73,8 +72,8 @@ impl CommandBuffer {
         self.inner.handle
     }
 
-    pub fn queue_id(&self) -> QueueId {
-        self.inner.queue_id
+    pub fn queue_family(&self) -> u32 {
+        self.inner.queue_family
     }
 
     pub fn level(&self) -> CommandBufferLevel {
@@ -642,7 +641,7 @@ impl CommandBuffer {
 
 struct Inner {
     handle: vk::CommandBuffer,
-    queue_id: QueueId,
+    queue_family: u32,
     level: CommandBufferLevel,
     references: References,
     secondary_buffers: Vec<CommandBuffer>,

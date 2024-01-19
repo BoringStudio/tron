@@ -24,7 +24,10 @@ fn record_object<M: Material>(_material: &M, args: AddObjectArgs<'_>) {
         .attributes()
         .fold(0u8, |mask, attribute| mask | attribute as u8);
 
-    assert!(mesh_attributes_mask & required_attributes_mask == required_attributes_mask);
+    assert_eq!(
+        mesh_attributes_mask & required_attributes_mask,
+        required_attributes_mask
+    );
 
     let vertex_attribute_offsets = M::supported_attributes().map_to_u32(|attribute| {
         match args.mesh.get_attribute_range(attribute) {
@@ -33,8 +36,9 @@ fn record_object<M: Material>(_material: &M, args: AddObjectArgs<'_>) {
         }
     });
 
-    let first_index = args.mesh.indices_range.start as u32;
-    let index_count = (args.mesh.indices_range.end - args.mesh.indices_range.start) as u32;
+    let indices = args.mesh.indices();
+    let first_index = indices.start;
+    let index_count = indices.end - indices.start;
 
     // TODO: add object
 }

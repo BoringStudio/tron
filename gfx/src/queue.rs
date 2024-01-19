@@ -373,10 +373,12 @@ impl Queue {
         let mut command_buffer = match command_buffers.pop() {
             Some(command_buffer) => command_buffer,
             None => {
+                let queue_family = this.id.family;
+
                 if cached.pool.is_null() {
                     let info = vk::CommandPoolCreateInfo::builder()
                         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-                        .queue_family_index(this.id.family);
+                        .queue_family_index(queue_family);
 
                     cached.pool = unsafe { logical.create_command_pool(&info, None) }
                         .map_err(OutOfDeviceMemory::on_creation)?;
@@ -395,7 +397,7 @@ impl Queue {
 
                 tracing::debug!(command_buffer = ?handle, ?level, "created command buffer");
 
-                CommandBuffer::new(handle, this.id, level, this.device.clone())
+                CommandBuffer::new(handle, queue_family, level, this.device.clone())
             }
         };
 

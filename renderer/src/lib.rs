@@ -8,9 +8,9 @@ use winit::window::Window;
 
 pub use self::types::{
     BoundingSphere, Camera, CameraProjection, Color, CubeMeshGenerator, Frustum, Material,
-    MaterialArray, MaterialHandle, Mesh, MeshBuilder, MeshGenerator, MeshHandle, Normal, Plane,
-    PlaneMeshGenerator, Position, Sorting, SortingOrder, SortingReason, Tangent, VertexAttribute,
-    VertexAttributeData, VertexAttributeKind, UV0,
+    MaterialArray, MaterialHandle, MaterialTag, Mesh, MeshBuilder, MeshGenerator, MeshHandle,
+    Normal, Plane, PlaneMeshGenerator, Position, Sorting, SortingOrder, SortingReason, Tangent,
+    VertexAttribute, VertexAttributeData, VertexAttributeKind, UV0,
 };
 
 use self::managers::MeshManager;
@@ -50,8 +50,7 @@ impl RendererBuilder {
             gfx::SingleQueueQuery::GRAPHICS,
         )?;
 
-        let mesh_manager = MeshManager::new(queue.clone())?;
-        let mesh_handle_allocator = ResourceHandleAllocator::default();
+        let mesh_manager = MeshManager::new(&device)?;
 
         let mut surface = device.create_surface(self.window.clone())?;
         surface.configure()?;
@@ -61,7 +60,8 @@ impl RendererBuilder {
             worker_barrier: LoopBarrier::default(),
             instructions: InstructionQueue::default(),
             mesh_manager,
-            mesh_handle_allocator,
+            mesh_handle_allocator: Default::default(),
+            material_handle_allocator: Default::default(),
             queue,
             device,
         });
@@ -166,6 +166,7 @@ pub struct RendererState {
 
     mesh_manager: MeshManager,
     mesh_handle_allocator: ResourceHandleAllocator<Mesh>,
+    material_handle_allocator: ResourceHandleAllocator<MaterialTag>,
 
     queue: gfx::Queue,
 
@@ -184,7 +185,7 @@ impl RendererState {
     }
 
     pub fn add_mesh(self: &Arc<Self>, mesh: &Mesh) -> Result<MeshHandle> {
-        let mesh = self.mesh_manager.upload_mesh(mesh)?;
+        let mesh = self.mesh_manager.upload_mesh(&self.queue, mesh)?;
 
         let state = Arc::downgrade(self);
         let handle = self.mesh_handle_allocator.alloc(Arc::new(move |handle| {
