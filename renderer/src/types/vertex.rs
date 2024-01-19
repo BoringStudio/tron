@@ -9,12 +9,16 @@ pub trait VertexAttribute: std::fmt::Debug + Default + PartialEq + Pod + Send + 
 macro_rules! define_vertex_attributes {
     (
         $(#[$kind_meta:meta])* kind: $kind:ident;
-        $($(#[$ident_meta:meta])* $ident:ident($inner:ty) => $format:ident;)*
+        $($(#[$ident_meta:meta])* $ident:ident($inner:ty) {
+            format: $format:ident,
+            tag: $tag:literal$(,)?
+        })*
     ) => {
         $(#[$kind_meta])*
+        #[repr(u8)]
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub enum $kind {
-            $($ident,)*
+            $($ident = $tag,)*
         }
 
         $(
@@ -84,15 +88,30 @@ define_vertex_attributes! {
     kind: VertexAttributeKind;
 
     /// A 3D position.
-    Position(Vec3) => Float32x3;
+    Position(Vec3) {
+        format: Float32x3,
+        tag: 0,
+    }
     /// A normal vector.
-    Normal(Vec3) => Float32x3;
+    Normal(Vec3) {
+        format: Float32x3,
+        tag: 1,
+    }
     /// A tangent vector.
-    Tangent(Vec3) => Float32x3;
+    Tangent(Vec3) {
+        format: Float32x3,
+        tag: 2,
+    }
     /// A local UV coordinate.
-    UV0(Vec2) => Float32x2;
+    UV0(Vec2) {
+        format: Float32x2,
+        tag: 3,
+    }
     /// RGBA color.
-    Color(Vec4) => Float32x4;
+    Color(Vec4) {
+        format: Float32x4,
+        tag: 4,
+    }
 }
 
 pub struct VertexAttributeData {

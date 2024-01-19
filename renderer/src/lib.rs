@@ -7,9 +7,10 @@ use vulkanalia::vk;
 use winit::window::Window;
 
 pub use self::types::{
-    BoundingSphere, Camera, CameraProjection, Color, CubeMeshGenerator, Frustum, Mesh, MeshBuilder,
-    MeshGenerator, MeshHandle, Normal, Plane, PlaneMeshGenerator, Position, Tangent,
-    VertexAttribute, VertexAttributeData, VertexAttributeKind, UV0,
+    BoundingSphere, Camera, CameraProjection, Color, CubeMeshGenerator, Frustum, Material,
+    MaterialArray, MaterialHandle, Mesh, MeshBuilder, MeshGenerator, MeshHandle, Normal, Plane,
+    PlaneMeshGenerator, Position, Sorting, SortingOrder, SortingReason, Tangent, VertexAttribute,
+    VertexAttributeData, VertexAttributeKind, UV0,
 };
 
 use self::managers::MeshManager;

@@ -347,10 +347,10 @@ impl GpuMesh {
             .map(|(component, _)| *component)
     }
 
-    pub fn get_attribute_range(&self, component: VertexAttributeKind) -> Option<Range<u64>> {
+    pub fn get_attribute_range(&self, attribute: VertexAttributeKind) -> Option<Range<u64>> {
         self.vertex_attribute_ranges
             .iter()
-            .find_map(|(c, range)| (*c == component).then_some(range.clone()))
+            .find_map(|(c, range)| (*c == attribute).then_some(range.clone()))
     }
 
     pub fn indices(&self) -> Range<u64> {
