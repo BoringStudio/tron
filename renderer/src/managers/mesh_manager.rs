@@ -46,6 +46,7 @@ impl MeshManager {
         state.buffers.bind_index_buffer(encoder);
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn upload_mesh(&self, mesh: &Mesh) -> Result<GpuMesh> {
         let vertex_count = mesh.vertex_count();
         let index_count = mesh.indices().len();
@@ -104,6 +105,8 @@ impl MeshManager {
                 }
 
                 let range = state.alloc_range_for_vertices(len as _)?;
+                tracing::debug!(?range, "allocated vertex attribute range");
+
                 vertex_attribute_copies.push(gfx::BufferCopy {
                     src_offset: staging_buffer_offset as u64,
                     dst_offset: range.start,
@@ -127,6 +130,8 @@ impl MeshManager {
             }
 
             indices_range = state.alloc_range_for_indices(index_count)?;
+            tracing::debug!(range = ?indices_range, "allocated indices range");
+
             indices_copy = gfx::BufferCopy {
                 src_offset: staging_buffer_offset as u64,
                 dst_offset: indices_range.start,
@@ -168,6 +173,7 @@ impl MeshManager {
         registry[index] = Some(mesh);
     }
 
+    #[tracing::instrument(level = "debug", skip_all, fields(index = %handle.index))]
     pub fn remove(&self, handle: RawResourceHandle<Mesh>) {
         let index = handle.index;
         let mesh = {
@@ -179,12 +185,14 @@ impl MeshManager {
 
         for (_, range) in mesh.vertex_attribute_ranges {
             if !range.is_empty() {
-                state.vertex_alloc.free_range(range);
+                state.vertex_alloc.free_range(range.clone());
+                tracing::debug!(?range, "freed vertex attribute range");
             }
         }
 
         if !mesh.indices_range.is_empty() {
-            state.index_alloc.free_range(mesh.indices_range);
+            state.index_alloc.free_range(mesh.indices_range.clone());
+            tracing::debug!(range = ?mesh.indices_range, "freed indices range");
         }
     }
 }

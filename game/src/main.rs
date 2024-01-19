@@ -4,6 +4,7 @@ use anyhow::Result;
 use argh::FromArgs;
 use winit::event::*;
 use winit::event_loop::EventLoopBuilder;
+use winit::keyboard::{KeyCode, PhysicalKey};
 #[cfg(wayland_platform)]
 use winit::platform::wayland::EventLoopBuilderExtWayland;
 #[cfg(x11_platform)]
@@ -109,13 +110,13 @@ impl App {
             .build()?;
 
         // TEMP
-        let mesh_handle = {
+        let mut mesh_handle = {
             let mesh = renderer::Mesh::builder(renderer::CubeMeshGenerator::from_size(1.0))
                 .with_computed_normals()
                 .with_computed_tangents()
                 .build()?;
 
-            renderer.state().add_mesh(&mesh)?
+            Some(renderer.state().add_mesh(&mesh)?)
         };
 
         let mut minimized = false;
@@ -137,6 +138,13 @@ impl App {
                             renderer_state.set_running(false);
                             elwt.exit();
                         }
+                        WindowEvent::KeyboardInput { event, .. } => {
+                            if matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyD)) {
+                                if mesh_handle.take().is_some() {
+                                    tracing::info!("dropped mesh handle");
+                                }
+                            }
+                        }
                         _ => {}
                     },
                     _ => {}
@@ -147,8 +155,6 @@ impl App {
         tracing::debug!("event loop started");
         event_loop.run(handle_event)?;
         tracing::debug!("event loop stopped");
-
-        drop(mesh_handle);
 
         renderer.cleanup()?;
 

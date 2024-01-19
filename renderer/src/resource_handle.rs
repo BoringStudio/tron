@@ -13,7 +13,7 @@ impl<T> ResourceHandleAllocator<T> {
         &self,
         deleter: Arc<dyn Fn(RawResourceHandle<T>) + Send + Sync>,
     ) -> ResourceHandle<T> {
-        let id = self
+        let index = self
             .free_list
             .lock()
             .unwrap()
@@ -21,9 +21,8 @@ impl<T> ResourceHandleAllocator<T> {
             .unwrap_or_else(|| self.next.fetch_add(1, Ordering::Relaxed));
 
         ResourceHandle {
-            index: id,
+            index,
             refcount: deleter,
-            _phantom: Default::default(),
         }
     }
 
@@ -45,7 +44,6 @@ impl<T> Default for ResourceHandleAllocator<T> {
 pub struct ResourceHandle<T> {
     index: usize,
     refcount: Arc<dyn Fn(RawResourceHandle<T>) + Send + Sync>,
-    _phantom: std::marker::PhantomData<T>,
 }
 
 impl<T> ResourceHandle<T> {
@@ -61,12 +59,19 @@ impl<T> ResourceHandle<T> {
     }
 }
 
+impl<T> Drop for ResourceHandle<T> {
+    fn drop(&mut self) {
+        if Arc::strong_count(&self.refcount) == 1 {
+            (self.refcount)(self.raw());
+        }
+    }
+}
+
 impl<T> Clone for ResourceHandle<T> {
     fn clone(&self) -> Self {
         Self {
             index: self.index,
             refcount: self.refcount.clone(),
-            _phantom: self._phantom,
         }
     }
 }
