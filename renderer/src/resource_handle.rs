@@ -126,3 +126,10 @@ impl<T: ?Sized> PartialEq for RawResourceHandle<T> {
         self.index == other.index
     }
 }
+
+impl<T: ?Sized> std::hash::Hash for RawResourceHandle<T> {
+    #[inline(always)]
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(&self.index, state)
+    }
+}

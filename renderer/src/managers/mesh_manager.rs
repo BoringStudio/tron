@@ -4,8 +4,7 @@ use std::sync::Mutex;
 use anyhow::Result;
 use range_alloc::RangeAllocator;
 
-use crate::resource_handle::RawResourceHandle;
-use crate::types::{Mesh, VertexAttributeKind};
+use crate::types::{Mesh, RawMeshHandle, VertexAttributeKind};
 
 pub struct MeshManager {
     state: Mutex<MeshManagerState>,
@@ -159,7 +158,7 @@ impl MeshManager {
         })
     }
 
-    pub fn insert(&self, handle: RawResourceHandle<Mesh>, mesh: GpuMesh) {
+    pub fn insert(&self, handle: RawMeshHandle, mesh: GpuMesh) {
         let mut registry = self.registry.lock().unwrap();
         let index = handle.index;
         if index >= registry.len() {
@@ -169,7 +168,7 @@ impl MeshManager {
     }
 
     #[tracing::instrument(level = "debug", skip_all, fields(index = %handle.index))]
-    pub fn remove(&self, handle: RawResourceHandle<Mesh>) {
+    pub fn remove(&self, handle: RawMeshHandle) {
         let index = handle.index;
         let mesh = {
             let mut registry = self.registry.lock().unwrap();

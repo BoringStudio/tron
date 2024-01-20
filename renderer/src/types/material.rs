@@ -1,13 +1,14 @@
-use bytemuck::Pod;
-
-use crate::resource_handle::ResourceHandle;
+use crate::resource_handle::{RawResourceHandle, ResourceHandle};
 use crate::types::VertexAttributeKind;
 
 pub type MaterialHandle = ResourceHandle<MaterialTag>;
+pub type RawMaterialHandle = RawResourceHandle<MaterialTag>;
 
 pub struct MaterialTag;
 
-pub trait Material {
+pub trait Material: Send + Sync + 'static {
+    type DataType: gfx::Std430 + Send + Sync;
+
     fn required_attributes() -> impl MaterialArray<VertexAttributeKind>;
     fn supported_attributes() -> impl MaterialArray<VertexAttributeKind>;
 
@@ -18,7 +19,7 @@ pub trait Material {
 pub trait MaterialArray<T>: AsRef<[T]> {
     const LEN: usize;
 
-    type U32Array: gfx::Std430 + std::fmt::Debug + Pod + Send + Sync;
+    type U32Array: gfx::Std430 + std::fmt::Debug + Send + Sync;
 
     fn map_to_u32<F>(self, f: F) -> Self::U32Array
     where
