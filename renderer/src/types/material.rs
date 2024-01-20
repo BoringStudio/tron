@@ -2,7 +2,7 @@ use crate::resource_handle::{RawResourceHandle, ResourceHandle};
 use crate::types::VertexAttributeKind;
 
 pub type MaterialHandle = ResourceHandle<MaterialTag>;
-pub type RawMaterialHandle = RawResourceHandle<MaterialTag>;
+pub(crate) type RawMaterialHandle = RawResourceHandle<MaterialTag>;
 
 pub struct MaterialTag;
 

@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use argh::FromArgs;
+use rand::Rng;
 use winit::event::*;
 use winit::event_loop::EventLoopBuilder;
 use winit::keyboard::{KeyCode, PhysicalKey};
@@ -110,13 +111,23 @@ impl App {
             .build()?;
 
         // TEMP
-        let mut mesh_handle = {
+        let mut test_object = {
+            let renderer = renderer.state();
+
             let mesh = renderer::Mesh::builder(renderer::CubeMeshGenerator::from_size(1.0))
                 .with_computed_normals()
                 .with_computed_tangents()
                 .build()?;
+            let mesh = renderer.add_mesh(&mesh)?;
 
-            Some(renderer.state().add_mesh(&mesh)?)
+            let material = renderer.add_material(renderer::DebugMaterial {
+                color: glam::vec3(1.0, 0.0, 1.0),
+            });
+
+            Some(TestObject {
+                _mesh: mesh,
+                material,
+            })
         };
 
         let mut minimized = false;
@@ -139,10 +150,36 @@ impl App {
                             elwt.exit();
                         }
                         WindowEvent::KeyboardInput { event, .. } => {
-                            if matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyD)) {
-                                if mesh_handle.take().is_some() {
-                                    tracing::info!("dropped mesh handle");
+                            let code = match event.physical_key {
+                                PhysicalKey::Code(code) if event.state.is_pressed() => code,
+                                _ => return,
+                            };
+
+                            match code {
+                                KeyCode::KeyD => {
+                                    if test_object.take().is_some() {
+                                        tracing::info!("dropped test object");
+                                    }
                                 }
+                                KeyCode::KeyC => {
+                                    if let Some(test_object) = &mut test_object {
+                                        let mut rng = rand::thread_rng();
+
+                                        renderer_state.update_material(
+                                            &test_object.material,
+                                            renderer::DebugMaterial {
+                                                color: glam::vec3(
+                                                    rng.gen_range(0.0..1.0),
+                                                    rng.gen_range(0.0..1.0),
+                                                    rng.gen_range(0.0..1.0),
+                                                ),
+                                            },
+                                        );
+
+                                        tracing::info!("updated test object material");
+                                    }
+                                }
+                                _ => {}
                             }
                         }
                         _ => {}
@@ -160,4 +197,9 @@ impl App {
 
         Ok(())
     }
+}
+
+struct TestObject {
+    _mesh: renderer::MeshHandle,
+    material: renderer::MaterialHandle,
 }

@@ -68,7 +68,7 @@ impl MaterialManager {
             .get_mut(archetype)
             .expect("invalid handle archetype");
 
-        (archetype.remove_data)(&mut archetype.data, handle, *index);
+        (archetype.remove_data)(&mut archetype.data, *index);
         archetype.free_indices.push(*index);
     }
 
@@ -94,7 +94,7 @@ struct MaterialArchetype {
     data: MaterialData,
     next_index: usize,
     free_indices: Vec<usize>,
-    remove_data: fn(&mut MaterialData, RawMaterialHandle, usize),
+    remove_data: fn(&mut MaterialData, usize),
 }
 
 type FnAddObject = fn(&[u8], AddObjectArgs<'_>);
@@ -121,7 +121,7 @@ fn record_object<M: Material>(_material: &M, args: AddObjectArgs<'_>) {
 
     let vertex_attribute_offsets = M::supported_attributes().map_to_u32(|attribute| {
         match args.mesh.get_attribute_range(attribute) {
-            Some(range) => range.start as u32,
+            Some(range) => range.start,
             None => u32::MAX,
         }
     });
@@ -133,7 +133,7 @@ fn record_object<M: Material>(_material: &M, args: AddObjectArgs<'_>) {
     // TODO: add object
 }
 
-fn remove_data<M: Material>(data: &mut MaterialData, handle: RawMaterialHandle, index: usize) {
+fn remove_data<M: Material>(data: &mut MaterialData, index: usize) {
     // SAFETY: `downcast_mut` template parameter is the same as the one used to
     // construct `data`.
     let mut data = unsafe { data.downcast_mut::<Option<M>>() };
@@ -164,7 +164,6 @@ impl MaterialData {
 
     /// # Safety
     /// The following must be true:
-    /// - `T` must not be a ZST.
     /// - `T` must be an original type of `Vec<T>`.
     unsafe fn typed_data<T>(&self) -> &[T] {
         std::slice::from_raw_parts(self.ptr.cast(), self.len)
@@ -172,7 +171,6 @@ impl MaterialData {
 
     /// # Safety
     /// The following must be true:
-    /// - `T` must not be a ZST.
     /// - `T` must be an original type of `Vec<T>`.
     unsafe fn downcast_mut<T>(&mut self) -> MaterialDataGuard<T> {
         let vec = self.swap_vec(Vec::new());
@@ -181,7 +179,6 @@ impl MaterialData {
 
     /// # Safety
     /// The following must be true:
-    /// - `T` must not be a ZST.
     /// - `T` must be an original type of `Vec<T>`.
     unsafe fn swap_vec<T>(&mut self, new: Vec<T>) -> Vec<T> {
         let mut new = std::mem::ManuallyDrop::new(new);
@@ -200,7 +197,6 @@ impl MaterialData {
 impl Drop for MaterialData {
     fn drop(&mut self) {
         // SAFETY:
-        // - `T` is not a ZST.
         // - `self.ptr` was aquired from a `Vec<T>`.
         // - `self.byte_len` is equal to `vec.len() * std::mem::size_of::<T>()`.
         // - `self.capacity` is equal to an original capacity of `Vec<T>`.
@@ -237,7 +233,7 @@ struct MaterialDataGuard<'a, T> {
 
 impl<'a, T> Drop for MaterialDataGuard<'a, T> {
     fn drop(&mut self) {
-        // SAFETY: `T` is not a ZST and is the same type as used to construct `self.data`.
+        // SAFETY: `T` is the same type as used to construct `self.data`.
         unsafe { self.data.swap_vec(std::mem::take(&mut self.vec)) };
     }
 }
@@ -276,7 +272,6 @@ struct VecMetadata {
 
 /// # Safety
 /// The following must be true:
-/// - `T` must not be a ZST.
 /// - `ptr` must be aquired from a `Vec<T>`.
 /// - `bytes` must be equal to `vec.len() * std::mem::size_of::<T>()`.
 /// - `capacity` must be equal to an original capacity of `Vec<T>`.

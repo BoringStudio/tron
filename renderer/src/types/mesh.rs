@@ -5,7 +5,7 @@ use crate::resource_handle::{RawResourceHandle, ResourceHandle};
 use crate::types::{BoundingSphere, Color, Normal, Position, Tangent, VertexAttributeData, UV0};
 
 pub type MeshHandle = ResourceHandle<Mesh>;
-pub type RawMeshHandle = RawResourceHandle<Mesh>;
+pub(crate) type RawMeshHandle = RawResourceHandle<Mesh>;
 
 pub struct Mesh {
     vertex_count: u32,

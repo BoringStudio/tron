@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-pub struct ResourceHandleAllocator<T: ?Sized> {
+pub(crate) struct ResourceHandleAllocator<T: ?Sized> {
     next: AtomicUsize,
     free_list: Mutex<Vec<usize>>,
     _phantom: PhantomData<T>,
@@ -51,7 +51,7 @@ impl<T: ?Sized> ResourceHandle<T> {
         self.index
     }
 
-    pub fn raw(&self) -> RawResourceHandle<T> {
+    pub(crate) fn raw(&self) -> RawResourceHandle<T> {
         RawResourceHandle {
             index: self.index,
             _phantom: Default::default(),
@@ -98,7 +98,7 @@ impl<T: ?Sized> std::fmt::Debug for ResourceHandle<T> {
     }
 }
 
-pub struct RawResourceHandle<T: ?Sized> {
+pub(crate) struct RawResourceHandle<T: ?Sized> {
     pub index: usize,
     _phantom: PhantomData<T>,
 }

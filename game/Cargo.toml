@@ -12,6 +12,7 @@ bytemuck = { version = "1.10", features = ["derive"] }
 glam = { version = "0.25", features = ["bytemuck"] }
 profiling = { version = "1.0", features = ["profile-with-puffin"] }
 puffin_http = "0.15"
+rand = "0.8"
 thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

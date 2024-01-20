@@ -12,9 +12,10 @@ pub use self::types::{
     Normal, Plane, PlaneMeshGenerator, Position, Sorting, SortingOrder, SortingReason, Tangent,
     VertexAttribute, VertexAttributeData, VertexAttributeKind, UV0,
 };
+use self::types::{RawMaterialHandle, RawMeshHandle};
 
-use self::managers::MeshManager;
-use self::resource_handle::{RawResourceHandle, ResourceHandleAllocator};
+use self::managers::{MaterialManager, MeshManager};
+use self::resource_handle::ResourceHandleAllocator;
 use self::worker::{RendererWorker, RendererWorkerCallbacks, RendererWorkerConfig};
 
 mod managers;
@@ -60,8 +61,8 @@ impl RendererBuilder {
             worker_barrier: LoopBarrier::default(),
             instructions: InstructionQueue::default(),
             mesh_manager,
-            mesh_handle_allocator: Default::default(),
-            material_handle_allocator: Default::default(),
+            synced_managers: Default::default(),
+            handles: Default::default(),
             queue,
             device,
         });
@@ -165,8 +166,8 @@ pub struct RendererState {
     instructions: InstructionQueue,
 
     mesh_manager: MeshManager,
-    mesh_handle_allocator: ResourceHandleAllocator<Mesh>,
-    material_handle_allocator: ResourceHandleAllocator<MaterialTag>,
+    synced_managers: Mutex<RendererStateSyncedManagers>,
+    handles: RendererStateHandles,
 
     queue: gfx::Queue,
 
@@ -188,29 +189,84 @@ impl RendererState {
         let mesh = self.mesh_manager.upload_mesh(&self.queue, mesh)?;
 
         let state = Arc::downgrade(self);
-        let handle = self.mesh_handle_allocator.alloc(Arc::new(move |handle| {
-            if let Some(state) = state.upgrade() {
-                state.instructions.send(Instruction::DeleteMesh(handle));
-            }
-        }));
+        let handle = self
+            .handles
+            .mesh_handle_allocator
+            .alloc(Arc::new(move |handle| {
+                if let Some(state) = state.upgrade() {
+                    state.instructions.send(Instruction::DeleteMesh { handle });
+                }
+            }));
 
         self.mesh_manager.insert(handle.raw(), mesh);
         Ok(handle)
+    }
+
+    pub fn add_material<M: Material>(self: &Arc<Self>, material: M) -> MaterialHandle {
+        let state = Arc::downgrade(self);
+        let handle = self
+            .handles
+            .material_handle_allocator
+            .alloc(Arc::new(move |handle| {
+                if let Some(state) = state.upgrade() {
+                    state
+                        .instructions
+                        .send(Instruction::DeleteMaterial { handle });
+                }
+            }));
+
+        self.instructions.send(Instruction::AddMaterial {
+            handle: handle.raw(),
+            on_add: Box::new(move |manager, handle| manager.insert(handle, material)),
+        });
+        handle
+    }
+
+    pub fn update_material<M: Material>(self: &Arc<Self>, handle: &MaterialHandle, material: M) {
+        self.instructions.send(Instruction::UpdateMaterial {
+            handle: handle.raw(),
+            on_update: Box::new(move |manager, handle| manager.update(handle, material)),
+        });
     }
 
     pub(crate) fn eval_instructions(&self) {
         self.instructions.swap();
 
         let mut instructions = self.instructions.consumer.lock().unwrap();
+
+        let mut synced_managers = self.synced_managers.lock().unwrap();
+        let synced_managers = &mut *synced_managers;
+
         for instruction in instructions.drain(..) {
             match instruction {
-                Instruction::DeleteMesh(handle) => {
-                    self.mesh_handle_allocator.dealloc(handle);
+                Instruction::DeleteMesh { handle } => {
+                    self.handles.mesh_handle_allocator.dealloc(handle);
                     self.mesh_manager.remove(handle);
+                }
+                Instruction::AddMaterial { handle, on_add } => {
+                    on_add(&mut synced_managers.material_manager, handle);
+                }
+                Instruction::UpdateMaterial { handle, on_update } => {
+                    on_update(&mut synced_managers.material_manager, handle);
+                }
+                Instruction::DeleteMaterial { handle } => {
+                    self.handles.material_handle_allocator.dealloc(handle);
+                    synced_managers.material_manager.remove(handle);
                 }
             }
         }
     }
+}
+
+#[derive(Default)]
+struct RendererStateSyncedManagers {
+    material_manager: MaterialManager,
+}
+
+#[derive(Default)]
+struct RendererStateHandles {
+    mesh_handle_allocator: ResourceHandleAllocator<Mesh>,
+    material_handle_allocator: ResourceHandleAllocator<MaterialTag>,
 }
 
 #[derive(Default)]
@@ -232,8 +288,24 @@ impl InstructionQueue {
 }
 
 enum Instruction {
-    DeleteMesh(RawResourceHandle<Mesh>),
+    DeleteMesh {
+        handle: RawMeshHandle,
+    },
+    AddMaterial {
+        handle: RawMaterialHandle,
+        on_add: Box<FnOnAddMaterial>,
+    },
+    UpdateMaterial {
+        handle: RawMaterialHandle,
+        on_update: Box<FnOnUpdateMaterial>,
+    },
+    DeleteMaterial {
+        handle: RawMaterialHandle,
+    },
 }
+
+type FnOnAddMaterial = dyn FnOnce(&mut MaterialManager, RawMaterialHandle) + Send + Sync;
+type FnOnUpdateMaterial = dyn FnOnce(&mut MaterialManager, RawMaterialHandle) + Send + Sync;
 
 #[derive(Default)]
 struct LoopBarrier {
@@ -300,5 +372,36 @@ impl PhysicalDevicesExt for Vec<gfx::PhysicalDevice> {
 
         let (index, _) = result.context("no suitable physical device found")?;
         Ok(self.swap_remove(index))
+    }
+}
+
+// TEMP!
+#[derive(Debug, Clone, Copy)]
+pub struct DebugMaterial {
+    pub color: glam::Vec3,
+}
+
+impl Material for DebugMaterial {
+    type DataType = <glam::Vec3 as gfx::AsStd430>::Output;
+
+    fn required_attributes() -> impl MaterialArray<VertexAttributeKind> {
+        [VertexAttributeKind::Position]
+    }
+    fn supported_attributes() -> impl MaterialArray<VertexAttributeKind> {
+        [
+            VertexAttributeKind::Position,
+            VertexAttributeKind::Normal,
+            VertexAttributeKind::Tangent,
+            VertexAttributeKind::UV0,
+            VertexAttributeKind::Color,
+        ]
+    }
+
+    fn key(&self) -> u64 {
+        0
+    }
+
+    fn sorting(&self) -> Sorting {
+        Sorting::OPAQUE
     }
 }
