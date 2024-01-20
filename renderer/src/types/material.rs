@@ -7,13 +7,15 @@ pub(crate) type RawMaterialHandle = RawResourceHandle<MaterialTag>;
 pub struct MaterialTag;
 
 pub trait Material: Send + Sync + 'static {
-    type DataType: gfx::Std430 + Send + Sync;
+    type ShaderDataType: gfx::Std430 + Send + Sync;
 
     fn required_attributes() -> impl MaterialArray<VertexAttributeKind>;
     fn supported_attributes() -> impl MaterialArray<VertexAttributeKind>;
 
     fn key(&self) -> u64;
     fn sorting(&self) -> Sorting;
+
+    fn shader_data(&self) -> Self::ShaderDataType;
 }
 
 pub trait MaterialArray<T>: AsRef<[T]> {

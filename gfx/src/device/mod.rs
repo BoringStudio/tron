@@ -950,7 +950,8 @@ impl Device {
         info: DescriptorSetInfo,
     ) -> Result<WritableDescriptorSet, DescriptorAllocError> {
         assert!(
-            info.layout
+            !info
+                .layout
                 .info()
                 .flags
                 .contains(DescriptorSetLayoutFlags::PUSH_DESCRIPTOR),

@@ -41,7 +41,7 @@ impl MeshManager {
         state.buffers.bind_index_buffer(encoder);
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "debug", name = "upload_mesh", skip_all)]
     pub fn upload_mesh(&self, queue: &gfx::Queue, mesh: &Mesh) -> Result<GpuMesh> {
         let vertex_count = mesh.vertex_count();
         let index_count = mesh.indices().len();
@@ -167,7 +167,7 @@ impl MeshManager {
         registry[index] = Some(mesh);
     }
 
-    #[tracing::instrument(level = "debug", skip_all, fields(index = %handle.index))]
+    #[tracing::instrument(level = "debug", name = "remove_mesh", skip_all, fields(index = %handle.index))]
     pub fn remove(&self, handle: RawMeshHandle) {
         let index = handle.index;
         let mesh = {

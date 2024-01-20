@@ -3,27 +3,29 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
 use anyhow::{Context, Result};
+use shared::Embed;
 use vulkanalia::vk;
 use winit::window::Window;
 
-pub use self::types::{
+pub use crate::types::{
     BoundingSphere, Camera, CameraProjection, Color, CubeMeshGenerator, Frustum, Material,
     MaterialArray, MaterialHandle, MaterialTag, Mesh, MeshBuilder, MeshGenerator, MeshHandle,
     Normal, Plane, PlaneMeshGenerator, Position, Sorting, SortingOrder, SortingReason, Tangent,
     VertexAttribute, VertexAttributeData, VertexAttributeKind, UV0,
 };
-use self::types::{RawMaterialHandle, RawMeshHandle};
 
-use self::managers::{MaterialManager, MeshManager};
-use self::resource_handle::ResourceHandleAllocator;
-use self::worker::{RendererWorker, RendererWorkerCallbacks, RendererWorkerConfig};
+use crate::managers::{MaterialManager, MeshManager};
+use crate::resource_handle::ResourceHandleAllocator;
+use crate::types::{RawMaterialHandle, RawMeshHandle};
+use crate::util::{ScatterCopy, ShaderPreprocessor};
+use crate::worker::{RendererWorker, RendererWorkerCallbacks, RendererWorkerConfig};
 
 mod managers;
 mod pipelines;
 mod render_passes;
 mod resource_handle;
-mod shader_preprocessor;
 mod types;
+mod util;
 mod worker;
 
 pub struct RendererBuilder {
@@ -53,6 +55,16 @@ impl RendererBuilder {
 
         let mesh_manager = MeshManager::new(&device)?;
 
+        let mut shader_preprocessor = ShaderPreprocessor::new();
+        shader_preprocessor.set_optimizations_enabled(self.optimize_shaders);
+        for (path, contents) in Shaders::iter() {
+            let contents = std::str::from_utf8(contents)
+                .with_context(|| anyhow::anyhow!("invalid shader {path}"))?;
+            shader_preprocessor.add_file(path, contents)?;
+        }
+
+        let scatter_copy = ScatterCopy::new(&device, &shader_preprocessor)?;
+
         let mut surface = device.create_surface(self.window.clone())?;
         surface.configure()?;
 
@@ -63,6 +75,8 @@ impl RendererBuilder {
             mesh_manager,
             synced_managers: Default::default(),
             handles: Default::default(),
+            scatter_copy,
+            shader_preprocessor,
             queue,
             device,
         });
@@ -71,7 +85,6 @@ impl RendererBuilder {
             state.clone(),
             RendererWorkerConfig {
                 frames_in_flight: self.frames_in_flight,
-                optimize_shaders: self.optimize_shaders,
             },
             Box::new(WorkerCallbacks {
                 window: self.window.clone(),
@@ -169,6 +182,8 @@ pub struct RendererState {
     synced_managers: Mutex<RendererStateSyncedManagers>,
     handles: RendererStateHandles,
 
+    scatter_copy: ScatterCopy,
+    shader_preprocessor: ShaderPreprocessor,
     queue: gfx::Queue,
 
     // NOTE: device must be dropped last
@@ -217,7 +232,9 @@ impl RendererState {
 
         self.instructions.send(Instruction::AddMaterial {
             handle: handle.raw(),
-            on_add: Box::new(move |manager, handle| manager.insert(handle, material)),
+            on_add: Box::new(move |manager, device, handle| {
+                manager.insert(device, handle, material)
+            }),
         });
         handle
     }
@@ -229,7 +246,7 @@ impl RendererState {
         });
     }
 
-    pub(crate) fn eval_instructions(&self) {
+    pub(crate) fn eval_instructions(&self, encoder: &mut gfx::Encoder) -> Result<()> {
         self.instructions.swap();
 
         let mut instructions = self.instructions.consumer.lock().unwrap();
@@ -244,7 +261,7 @@ impl RendererState {
                     self.mesh_manager.remove(handle);
                 }
                 Instruction::AddMaterial { handle, on_add } => {
-                    on_add(&mut synced_managers.material_manager, handle);
+                    on_add(&mut synced_managers.material_manager, &self.device, handle)?;
                 }
                 Instruction::UpdateMaterial { handle, on_update } => {
                     on_update(&mut synced_managers.material_manager, handle);
@@ -255,6 +272,15 @@ impl RendererState {
                 }
             }
         }
+
+        // TEMP
+        synced_managers.material_manager.flush::<DebugMaterial>(
+            &self.device,
+            encoder,
+            &self.scatter_copy,
+        )?;
+
+        Ok(())
     }
 }
 
@@ -304,7 +330,13 @@ enum Instruction {
     },
 }
 
-type FnOnAddMaterial = dyn FnOnce(&mut MaterialManager, RawMaterialHandle) + Send + Sync;
+type FnOnAddMaterial = dyn FnOnce(
+        &mut MaterialManager,
+        &gfx::Device,
+        RawMaterialHandle,
+    ) -> Result<(), gfx::OutOfDeviceMemory>
+    + Send
+    + Sync;
 type FnOnUpdateMaterial = dyn FnOnce(&mut MaterialManager, RawMaterialHandle) + Send + Sync;
 
 #[derive(Default)]
@@ -375,6 +407,16 @@ impl PhysicalDevicesExt for Vec<gfx::PhysicalDevice> {
     }
 }
 
+shared::embed!(
+    Shaders("../../assets/shaders") = [
+        "math/color.glsl",
+        "math/const.glsl",
+        "scatter_copy.comp",
+        "triangle.vert",
+        "triangle.frag"
+    ]
+);
+
 // TEMP!
 #[derive(Debug, Clone, Copy)]
 pub struct DebugMaterial {
@@ -382,7 +424,7 @@ pub struct DebugMaterial {
 }
 
 impl Material for DebugMaterial {
-    type DataType = <glam::Vec3 as gfx::AsStd430>::Output;
+    type ShaderDataType = <glam::Vec3 as gfx::AsStd430>::Output;
 
     fn required_attributes() -> impl MaterialArray<VertexAttributeKind> {
         [VertexAttributeKind::Position]
@@ -403,5 +445,9 @@ impl Material for DebugMaterial {
 
     fn sorting(&self) -> Sorting {
         Sorting::OPAQUE
+    }
+
+    fn shader_data(&self) -> Self::ShaderDataType {
+        gfx::AsStd430::as_std430(&self.color)
     }
 }

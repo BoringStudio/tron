@@ -683,6 +683,7 @@ impl References {
             && self.graphics_pipelines.is_empty()
             && self.compute_pipelines.is_empty()
             && self.pipeline_layouts.is_empty()
+            && self.descriptor_sets.is_empty()
     }
 
     pub fn clear(&mut self) {
@@ -692,6 +693,7 @@ impl References {
         self.graphics_pipelines.clear();
         self.compute_pipelines.clear();
         self.pipeline_layouts.clear();
+        self.descriptor_sets.clear();
     }
 }
 

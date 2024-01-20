@@ -1,14 +1,12 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use bumpalo::Bump;
 use shared::util::DeallocOnDrop;
-use shared::Embed;
 
 use crate::pipelines::{CachedGraphicsPipeline, OpaqueMeshPipeline, RenderPassEncoderExt};
 use crate::render_passes::{EncoderExt, MainPass, MainPassInput};
-use crate::shader_preprocessor::ShaderPreprocessor;
 use crate::RendererState;
 
 pub trait RendererWorkerCallbacks: Send + Sync + 'static {
@@ -17,7 +15,6 @@ pub trait RendererWorkerCallbacks: Send + Sync + 'static {
 
 pub struct RendererWorkerConfig {
     pub frames_in_flight: NonZeroUsize,
-    pub optimize_shaders: bool,
 }
 
 pub struct RendererWorker {
@@ -43,16 +40,8 @@ impl RendererWorker {
     ) -> Result<Self> {
         let fences = Fences::new(&state.device, config.frames_in_flight)?;
 
-        let mut shader_preprocessor = ShaderPreprocessor::new();
-        shader_preprocessor.set_optimizations_enabled(config.optimize_shaders);
-        for (path, contents) in Shaders::iter() {
-            let contents = std::str::from_utf8(contents)
-                .with_context(|| anyhow::anyhow!("invalid shader {path}"))?;
-            shader_preprocessor.add_file(path, contents)?;
-        }
-
         let pass = MainPass::default();
-        let pipeline = OpaqueMeshPipeline::make_descr(&state.device, &mut shader_preprocessor)
+        let pipeline = OpaqueMeshPipeline::make_descr(&state.device, &state.shader_preprocessor)
             .map(CachedGraphicsPipeline::new)?;
 
         Ok(Self {
@@ -87,7 +76,7 @@ impl RendererWorker {
         if let Some(secondary) = self.state.mesh_manager.drain() {
             encoder.execute_commands(std::iter::once(secondary.finish()?));
         }
-        self.state.eval_instructions();
+        self.state.eval_instructions(&mut encoder)?;
 
         self.state.mesh_manager.bind_index_buffer(&mut encoder);
 
@@ -181,12 +170,3 @@ impl Fences {
 }
 
 const NON_OPTIMAL_LIMIT: usize = 100;
-
-shared::embed!(
-    Shaders("../../../assets/shaders") = [
-        "math/color.glsl",
-        "math/const.glsl",
-        "triangle.vert",
-        "triangle.frag"
-    ]
-);

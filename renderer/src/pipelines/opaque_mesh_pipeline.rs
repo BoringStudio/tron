@@ -1,13 +1,13 @@
 use anyhow::Result;
 
-use crate::shader_preprocessor::ShaderPreprocessor;
+use crate::util::ShaderPreprocessor;
 
 pub struct OpaqueMeshPipeline;
 
 impl OpaqueMeshPipeline {
     pub fn make_descr(
         device: &gfx::Device,
-        shaders: &mut ShaderPreprocessor,
+        shaders: &ShaderPreprocessor,
     ) -> Result<gfx::GraphicsPipelineDescr> {
         let layout = device.create_pipeline_layout(gfx::PipelineLayoutInfo {
             sets: Default::default(),
