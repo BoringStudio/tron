@@ -4,7 +4,7 @@ use anyhow::Result;
 use shared::FastHashMap;
 
 #[derive(Default)]
-pub(crate) struct VirtualFs {
+pub struct VirtualFs {
     nodes: Nodes,
 }
 
@@ -203,7 +203,7 @@ impl VirtualPath {
         &self.inner
     }
 
-    pub fn components(&self) -> PathComponents<'_> {
+    fn components(&self) -> PathComponents<'_> {
         let path = self.inner.as_bytes();
         PathComponents {
             path,
@@ -236,7 +236,7 @@ impl std::fmt::Display for VirtualPath {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PathComponent<'a> {
+enum PathComponent<'a> {
     Normal(&'a str),
     RootDir,
     CurDir,
@@ -244,7 +244,7 @@ pub enum PathComponent<'a> {
 }
 
 #[derive(Clone)]
-pub struct PathComponents<'a> {
+struct PathComponents<'a> {
     path: &'a [u8],
     has_physical_root: bool,
     front: State,

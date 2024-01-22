@@ -5,9 +5,7 @@ use once_cell::sync::OnceCell;
 use anyhow::Result;
 use shared::FastHashMap;
 
-use self::virtual_fs::{VirtualFs, VirtualPath};
-
-mod virtual_fs;
+use crate::util::{VirtualFs, VirtualPath};
 
 #[derive(Default)]
 pub struct ShaderPreprocessor {
@@ -29,14 +27,17 @@ impl ShaderPreprocessor {
         self.fs.add_file(path.as_ref(), contents)
     }
 
+    #[allow(dead_code)]
     pub fn define_global(&mut self, name: impl Into<String>) {
         self.global_defines.insert(name.into(), None);
     }
 
+    #[allow(dead_code)]
     pub fn define_global_expr(&mut self, name: impl Into<String>, value: impl Into<String>) {
         self.global_defines.insert(name.into(), Some(value.into()));
     }
 
+    #[allow(dead_code)]
     pub fn undefine_global(&mut self, name: impl AsRef<str>) {
         self.global_defines.remove(name.as_ref());
     }
