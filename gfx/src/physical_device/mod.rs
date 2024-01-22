@@ -7,80 +7,9 @@ use crate::queue::{Queue, QueueFamily, QueueId, QueuesQuery};
 use crate::types::{DeviceLost, OutOfDeviceMemory};
 use crate::util::ToGfx;
 
-/// A feature that can be requested when creating a device.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum DeviceFeature {
-    /// Adds a buffer device address to the [`Buffer`].
-    ///
-    /// [`Buffer`]: crate::Buffer
-    BufferDeviceAddress,
+pub use self::features::DeviceFeature;
 
-    /// Adds ability to update a descriptor binding of
-    /// type [`DescriptorType::SampledImage`] after
-    /// its descriptor set has been bound.
-    ///
-    /// [`DescriptorType::SampledImage`]: crate::DescriptorType::SampledImage
-    DescriptorBindingSampledImageUpdateAfterBind,
-
-    /// Adds ability to update a descriptor binding of
-    /// type [`DescriptorType::StorageImage`] after
-    /// its descriptor set has been bound.
-    ///
-    /// [`DescriptorType::StorageImage`]: crate::DescriptorType::StorageImage
-    DescriptorBindingStorageImageUpdateAfterBind,
-
-    /// Adds ability to update a descriptor binding of
-    /// type [`DescriptorType::UniformTexelBuffer`] after
-    /// its descriptor set has been bound.
-    ///
-    /// [`DescriptorType::UniformTexelBuffer`]: crate::DescriptorType::UniformTexelBuffer
-    DescriptorBindingUniformTexelBufferUpdateAfterBind,
-
-    /// Adds ability to update a descriptor binding of
-    /// type [`DescriptorType::StorageTexelBuffer`] after
-    /// its descriptor set has been bound.
-    ///
-    /// [`DescriptorType::StorageTexelBuffer`]: crate::DescriptorType::StorageTexelBuffer
-    DescriptorBindingStorageTexelBufferUpdateAfterBind,
-
-    /// Adds ability to update a descriptor binding of
-    /// type [`DescriptorType::UniformBuffer`] after
-    /// its descriptor set has been bound.
-    ///
-    /// [`DescriptorType::UniformBuffer`]: crate::DescriptorType::UniformBuffer
-    DescriptorBindingUniformBufferUpdateAfterBind,
-
-    /// Adds ability to update a descriptor binding of
-    /// type [`DescriptorType::StorageBuffer`] after
-    /// its descriptor set has been bound.
-    ///
-    /// [`DescriptorType::StorageBuffer`]: crate::DescriptorType::StorageBuffer
-    DescriptorBindingStorageBufferUpdateAfterBind,
-
-    /// Adds ability to use [`DescriptorBindingFlags::PARTIALLY_BOUND`]
-    /// for descriptor bindings.
-    ///
-    /// [`DescriptorBindingFlags::PARTIALLY_BOUND`]: crate::DescriptorBindingFlags::PARTIALLY_BOUND
-    DescriptorBindingPartiallyBound,
-
-    /// Adds ability to query the frame presentation timing.
-    DisplayTiming,
-
-    /// Adds [`Min`] and [`Max`] reduction modes to the [`SamplerInfo`].
-    ///
-    /// [`Min`]: crate::ReductionMode::Min
-    /// [`Max`]: crate::ReductionMode::Max
-    /// [`SamplerInfo`]: crate::SamplerInfo
-    SamplerFilterMinMax,
-
-    /// Must be enabled to use the [`Surface`]
-    ///
-    /// [`Surface`]: crate::Surface
-    SurfacePresentation,
-
-    /// This extension enables C-like structure layout for SPIR-V blocks.
-    ScalarBlockLayout,
-}
+mod features;
 
 /// A wrapper around Vulkan physical device.
 #[derive(Debug)]
