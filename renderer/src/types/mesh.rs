@@ -1,8 +1,8 @@
 use anyhow::Result;
 use glam::{Vec2, Vec3};
 
-use crate::resource_handle::{RawResourceHandle, ResourceHandle};
 use crate::types::{BoundingSphere, Color, Normal, Position, Tangent, VertexAttributeData, UV0};
+use crate::util::{RawResourceHandle, ResourceHandle};
 
 pub type MeshHandle = ResourceHandle<Mesh>;
 pub(crate) type RawMeshHandle = RawResourceHandle<Mesh>;

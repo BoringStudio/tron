@@ -1,5 +1,4 @@
-use std::cell::UnsafeCell;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use vulkanalia::prelude::v1_0::*;
 
@@ -10,7 +9,7 @@ use crate::resources::{
 
 /// Structure specifying how to update the contents of a descriptor set object.
 pub struct UpdateDescriptorSet<'a> {
-    pub set: &'a mut WritableDescriptorSet,
+    pub set: &'a DescriptorSet,
     pub writes: &'a [DescriptorSetWrite<'a>],
 }
 
@@ -53,17 +52,15 @@ pub struct DescriptorSetInfo {
     pub layout: DescriptorSetLayout,
 }
 
-/// A unique and writable instance of a [`DescriptorSet`].
-#[repr(transparent)]
-pub struct WritableDescriptorSet {
-    // NOTE: the struct itself must not be clonnable.
-    inner: Arc<UnsafeCell<Inner>>,
+/// A wrapper around a Vulkan descriptor set object.
+///
+/// A pack of handles to resources that can be bound to a pipeline.
+#[derive(Clone)]
+pub struct DescriptorSet {
+    inner: Arc<Inner>,
 }
 
-unsafe impl Send for WritableDescriptorSet {}
-unsafe impl Sync for WritableDescriptorSet {}
-
-impl WritableDescriptorSet {
+impl DescriptorSet {
     pub(crate) fn new(
         allocated: AllocatedDescriptorSet,
         info: DescriptorSetInfo,
@@ -113,34 +110,27 @@ impl WritableDescriptorSet {
 
         Self {
             #[allow(clippy::arc_with_non_send_sync)]
-            inner: Arc::new(UnsafeCell::new(Inner {
+            inner: Arc::new(Inner {
                 allocated,
                 info,
                 owner,
-                bindings,
-            })),
+                bindings: Mutex::new(bindings),
+            }),
         }
     }
 
-    unsafe fn wrap(inner: &mut Arc<UnsafeCell<Inner>>) -> &mut Self {
-        &mut *(inner as *mut Arc<UnsafeCell<Inner>>).cast::<Self>()
-    }
-
     pub fn handle(&self) -> vk::DescriptorSet {
-        self.inner().allocated.handle()
+        self.inner.allocated.handle()
     }
 
     pub fn info(&self) -> &DescriptorSetInfo {
-        &self.inner().info
+        &self.inner.info
     }
 
-    pub fn freeze(self) -> DescriptorSet {
-        DescriptorSet { inner: self.inner }
-    }
+    pub fn write_descriptors(&self, binding: u32, element: u32, data: DescriptorSlice) {
+        let mut bindings = self.inner.bindings.lock().unwrap();
 
-    pub fn write_descriptors(&mut self, binding: u32, element: u32, data: DescriptorSlice) {
-        let inner = self.inner_mut();
-        match (data, &mut inner.bindings[binding as usize]) {
+        match (data, &mut bindings[binding as usize]) {
             // Sampler
             (DescriptorSlice::Sampler(data), ReferencedDescriptor::Sampler(refs)) => {
                 for (slot, data) in refs.iter_mut().skip(element as usize).zip(data) {
@@ -231,100 +221,17 @@ impl WritableDescriptorSet {
             }
         }
     }
-
-    fn inner(&self) -> &Inner {
-        // SAFETY: "no mutable references" is guaranteed by the interface
-        unsafe { &*self.inner.get() }
-    }
-
-    fn inner_mut(&mut self) -> &mut Inner {
-        // SAFETY: unique access is guaranteed by the interface
-        unsafe { &mut *self.inner.get() }
-    }
-}
-
-impl std::fmt::Debug for WritableDescriptorSet {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let inner = self.inner();
-        if f.alternate() {
-            f.debug_struct("WritableDescriptorSet")
-                .field("handle", &inner.allocated.handle())
-                .field("owner", &inner.owner)
-                .finish()
-        } else {
-            std::fmt::Debug::fmt(&inner.allocated.handle(), f)
-        }
-    }
-}
-
-impl Eq for WritableDescriptorSet {}
-impl PartialEq for WritableDescriptorSet {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.inner, &other.inner)
-    }
-}
-
-impl std::hash::Hash for WritableDescriptorSet {
-    #[inline]
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        std::ptr::hash(&*self.inner, state)
-    }
-}
-
-/// A wrapper around a Vulkan descriptor set object.
-///
-/// A pack of handles to resources that can be bound to a pipeline.
-#[derive(Clone)]
-pub struct DescriptorSet {
-    inner: Arc<UnsafeCell<Inner>>,
-}
-
-unsafe impl Send for DescriptorSet {}
-unsafe impl Sync for DescriptorSet {}
-
-impl DescriptorSet {
-    pub fn handle(&self) -> vk::DescriptorSet {
-        self.inner().allocated.handle()
-    }
-
-    pub fn info(&self) -> &DescriptorSetInfo {
-        &self.inner().info
-    }
-
-    pub fn try_into_mut(mut self) -> Result<WritableDescriptorSet, Self> {
-        if Arc::get_mut(&mut self.inner).is_some() {
-            Ok(WritableDescriptorSet { inner: self.inner })
-        } else {
-            Err(self)
-        }
-    }
-
-    pub fn get_mut(&mut self) -> Option<&mut WritableDescriptorSet> {
-        if Arc::get_mut(&mut self.inner).is_some() {
-            // SAFETY: descriptor set is unique
-            Some(unsafe { WritableDescriptorSet::wrap(&mut self.inner) })
-        } else {
-            None
-        }
-    }
-
-    fn inner(&self) -> &Inner {
-        // SAFETY: "no mutable references" is guaranteed by the interface
-        unsafe { &*self.inner.get() }
-    }
 }
 
 impl std::fmt::Debug for DescriptorSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let inner = self.inner();
         if f.alternate() {
             f.debug_struct("DescriptorSet")
-                .field("handle", &inner.allocated.handle())
-                .field("owner", &inner.owner)
+                .field("handle", &self.inner.allocated.handle())
+                .field("owner", &self.inner.owner)
                 .finish()
         } else {
-            std::fmt::Debug::fmt(&inner.allocated.handle(), f)
+            std::fmt::Debug::fmt(&self.inner.allocated.handle(), f)
         }
     }
 }
@@ -348,7 +255,7 @@ struct Inner {
     allocated: AllocatedDescriptorSet,
     info: DescriptorSetInfo,
     owner: WeakDevice,
-    bindings: Vec<ReferencedDescriptor>,
+    bindings: Mutex<Vec<ReferencedDescriptor>>,
 }
 
 impl Drop for Inner {

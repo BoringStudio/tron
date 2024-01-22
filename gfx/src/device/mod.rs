@@ -21,13 +21,13 @@ use crate::physical_device::{DeviceFeatures, DeviceProperties};
 use crate::queue::QueueId;
 use crate::resources::{
     Blending, Buffer, BufferInfo, BufferUsage, BufferView, BufferViewInfo, ColorBlend,
-    ComponentMask, ComputePipeline, ComputePipelineInfo, DescriptorBindingFlags, DescriptorSetInfo,
-    DescriptorSetLayout, DescriptorSetLayoutFlags, DescriptorSetLayoutInfo, DescriptorSetSize,
-    DescriptorSlice, DescriptorType, Fence, FenceState, Framebuffer, FramebufferInfo,
-    GraphicsPipeline, GraphicsPipelineInfo, Image, ImageInfo, ImageView, ImageViewInfo,
-    ImageViewType, MappableBuffer, MemoryUsage, PipelineLayout, PipelineLayoutInfo, RenderPass,
-    RenderPassInfo, Sampler, SamplerInfo, Semaphore, ShaderModule, ShaderModuleInfo, StencilTest,
-    UpdateDescriptorSet, WritableDescriptorSet,
+    ComponentMask, ComputePipeline, ComputePipelineInfo, DescriptorBindingFlags, DescriptorSet,
+    DescriptorSetInfo, DescriptorSetLayout, DescriptorSetLayoutFlags, DescriptorSetLayoutInfo,
+    DescriptorSetSize, DescriptorSlice, DescriptorType, Fence, FenceState, Framebuffer,
+    FramebufferInfo, GraphicsPipeline, GraphicsPipelineInfo, Image, ImageInfo, ImageView,
+    ImageViewInfo, ImageViewType, MappableBuffer, MemoryUsage, PipelineLayout, PipelineLayoutInfo,
+    RenderPass, RenderPassInfo, Sampler, SamplerInfo, Semaphore, ShaderModule, ShaderModuleInfo,
+    StencilTest, UpdateDescriptorSet,
 };
 use crate::surface::{CreateSurfaceError, Surface};
 use crate::types::{DeviceAddress, DeviceLost, OutOfDeviceMemory, State};
@@ -948,7 +948,7 @@ impl Device {
     pub fn create_descriptor_set(
         &self,
         info: DescriptorSetInfo,
-    ) -> Result<WritableDescriptorSet, DescriptorAllocError> {
+    ) -> Result<DescriptorSet, DescriptorAllocError> {
         assert!(
             !info
                 .layout
@@ -966,7 +966,7 @@ impl Device {
 
         tracing::debug!(descriptor_set = ?set.handle(), "created descriptor set");
 
-        Ok(WritableDescriptorSet::new(set, info, self.downgrade()))
+        Ok(DescriptorSet::new(set, info, self.downgrade()))
     }
 
     pub(crate) unsafe fn destroy_descriptor_set(&self, allocated: &AllocatedDescriptorSet) {
@@ -977,7 +977,7 @@ impl Device {
             .free(self.logical(), std::slice::from_ref(allocated))
     }
 
-    pub fn update_descriptor_sets(&self, updates: &mut [UpdateDescriptorSet<'_>]) {
+    pub fn update_descriptor_sets(&self, updates: &[UpdateDescriptorSet<'_>]) {
         struct UpdatesIter<I> {
             inner: I,
             len: usize,
@@ -1143,6 +1143,11 @@ impl Device {
         }
         debug_assert!(writes_iter.next().is_none());
 
+        unsafe {
+            self.logical()
+                .update_descriptor_sets(writes, &([] as [vk::CopyDescriptorSet; 0]))
+        };
+
         for update in updates {
             for write in update.writes {
                 update
@@ -1150,11 +1155,6 @@ impl Device {
                     .write_descriptors(write.binding, write.element, write.data);
             }
         }
-
-        unsafe {
-            self.logical()
-                .update_descriptor_sets(writes, &([] as [vk::CopyDescriptorSet; 0]))
-        };
     }
 
     pub fn create_pipeline_layout(

@@ -51,13 +51,13 @@ impl MaterialBuffer {
 
     /// # Safety
     /// - `T` must be the same type as the one used to construct the buffer.
-    pub unsafe fn flush<T, F>(
-        &mut self,
+    pub unsafe fn flush<'a, T, F>(
+        &'a mut self,
         device: &gfx::Device,
         encoder: &mut gfx::Encoder,
         scatter_copy: &ScatterCopy,
         mut get_data: F,
-    ) -> Result<()>
+    ) -> Result<&'a gfx::Buffer>
     where
         T: gfx::Std430,
         F: FnMut(usize) -> T,
@@ -96,7 +96,7 @@ impl MaterialBuffer {
         }
 
         if current_target.updated_slots.is_empty() && prev_target.updated_slots.is_empty() {
-            return Ok(());
+            return Ok(&current_target.buffer);
         }
 
         let data = current_target
@@ -110,16 +110,7 @@ impl MaterialBuffer {
         prev_target.updated_slots.clear();
 
         self.current_target = !self.current_target;
-        Ok(())
-    }
-}
-
-impl std::ops::Deref for MaterialBuffer {
-    type Target = gfx::Buffer;
-
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.targets[self.current_target as usize].buffer
+        Ok(&current_target.buffer)
     }
 }
 

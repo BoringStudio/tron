@@ -78,6 +78,7 @@ impl RendererWorker {
         }
         self.state.eval_instructions(&mut encoder)?;
 
+        // TODO: bind bindless graphics pipeline
         self.state.mesh_manager.bind_index_buffer(&mut encoder);
 
         {

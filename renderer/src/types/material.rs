@@ -1,5 +1,5 @@
-use crate::resource_handle::{RawResourceHandle, ResourceHandle};
 use crate::types::VertexAttributeKind;
+use crate::util::{RawResourceHandle, ResourceHandle};
 
 pub type MaterialHandle = ResourceHandle<MaterialTag>;
 pub(crate) type RawMaterialHandle = RawResourceHandle<MaterialTag>;

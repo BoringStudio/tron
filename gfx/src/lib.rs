@@ -36,7 +36,7 @@ pub use self::resources::{
     Semaphore, ShaderModule, ShaderModuleInfo, ShaderStageFlags, ShaderType, StencilOp,
     StencilTest, StencilTests, StoreOp, Subpass, SubpassDependency, Swizzle, UpdateDescriptorSet,
     VertexFormat, VertexInputAttribute, VertexInputBinding, VertexInputRate, VertexShader,
-    Viewport, WritableDescriptorSet,
+    Viewport,
 };
 pub use self::surface::{
     CreateSurfaceError, PresentMode, Surface, SurfaceError, SurfaceImage, SwapchainSupport,

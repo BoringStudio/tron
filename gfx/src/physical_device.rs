@@ -14,18 +14,70 @@ pub enum DeviceFeature {
     ///
     /// [`Buffer`]: crate::Buffer
     BufferDeviceAddress,
+
+    /// Adds ability to update a descriptor binding of
+    /// type [`DescriptorType::SampledImage`] after
+    /// its descriptor set has been bound.
+    ///
+    /// [`DescriptorType::SampledImage`]: crate::DescriptorType::SampledImage
+    DescriptorBindingSampledImageUpdateAfterBind,
+
+    /// Adds ability to update a descriptor binding of
+    /// type [`DescriptorType::StorageImage`] after
+    /// its descriptor set has been bound.
+    ///
+    /// [`DescriptorType::StorageImage`]: crate::DescriptorType::StorageImage
+    DescriptorBindingStorageImageUpdateAfterBind,
+
+    /// Adds ability to update a descriptor binding of
+    /// type [`DescriptorType::UniformTexelBuffer`] after
+    /// its descriptor set has been bound.
+    ///
+    /// [`DescriptorType::UniformTexelBuffer`]: crate::DescriptorType::UniformTexelBuffer
+    DescriptorBindingUniformTexelBufferUpdateAfterBind,
+
+    /// Adds ability to update a descriptor binding of
+    /// type [`DescriptorType::StorageTexelBuffer`] after
+    /// its descriptor set has been bound.
+    ///
+    /// [`DescriptorType::StorageTexelBuffer`]: crate::DescriptorType::StorageTexelBuffer
+    DescriptorBindingStorageTexelBufferUpdateAfterBind,
+
+    /// Adds ability to update a descriptor binding of
+    /// type [`DescriptorType::UniformBuffer`] after
+    /// its descriptor set has been bound.
+    ///
+    /// [`DescriptorType::UniformBuffer`]: crate::DescriptorType::UniformBuffer
+    DescriptorBindingUniformBufferUpdateAfterBind,
+
+    /// Adds ability to update a descriptor binding of
+    /// type [`DescriptorType::StorageBuffer`] after
+    /// its descriptor set has been bound.
+    ///
+    /// [`DescriptorType::StorageBuffer`]: crate::DescriptorType::StorageBuffer
+    DescriptorBindingStorageBufferUpdateAfterBind,
+
+    /// Adds ability to use [`DescriptorBindingFlags::PARTIALLY_BOUND`]
+    /// for descriptor bindings.
+    ///
+    /// [`DescriptorBindingFlags::PARTIALLY_BOUND`]: crate::DescriptorBindingFlags::PARTIALLY_BOUND
+    DescriptorBindingPartiallyBound,
+
     /// Adds ability to query the frame presentation timing.
     DisplayTiming,
+
     /// Adds [`Min`] and [`Max`] reduction modes to the [`SamplerInfo`].
     ///
     /// [`Min`]: crate::ReductionMode::Min
     /// [`Max`]: crate::ReductionMode::Max
     /// [`SamplerInfo`]: crate::SamplerInfo
     SamplerFilterMinMax,
+
     /// Must be enabled to use the [`Surface`]
     ///
     /// [`Surface`]: crate::Surface
     SurfacePresentation,
+
     /// This extension enables C-like structure layout for SPIR-V blocks.
     ScalarBlockLayout,
 }
@@ -130,13 +182,117 @@ impl PhysicalDevice {
         let features_v1_3 = vk::PhysicalDeviceVulkan13Features::builder();
         let mut features_sbl = vk::PhysicalDeviceScalarBlockLayoutFeatures::builder();
         let mut features_bda = vk::PhysicalDeviceBufferAddressFeaturesEXT::builder();
+        let mut features_di = vk::PhysicalDeviceDescriptorIndexingFeatures::builder();
 
         let mut include_features_v1_2 = false;
         let mut include_features_sbl = false;
         let mut include_features_bda = false;
         let mut include_features_sfmm = false;
+        let mut include_features_di = false;
 
         // === Begin fill feature requirements ===
+        if requested_features.remove(&DeviceFeature::BufferDeviceAddress) {
+            assert!(
+                self.features.v1_2.buffer_device_address != 0,
+                "`BufferDeviceAddress` feature is requested but not supported"
+            );
+            features_v1_2.buffer_device_address = 1;
+            include_features_v1_2 = true;
+            features_bda.buffer_device_address = 1;
+            include_features_bda = true;
+        }
+
+        if requested_features.remove(&DeviceFeature::DisplayTiming) {
+            let supported = require_ext(&vk::GOOGLE_DISPLAY_TIMING_EXTENSION);
+            assert!(
+                supported,
+                "`DisplayTiming` feature is requested but not supported"
+            );
+        }
+
+        if requested_features.remove(&DeviceFeature::DescriptorBindingSampledImageUpdateAfterBind) {
+            assert!(
+                self.features.v1_2.descriptor_binding_sampled_image_update_after_bind != 0,
+                "`DescriptorBindingSampledImageUpdateAfterBind` feature is requested but not supported"
+            );
+            features_v1_2.descriptor_binding_sampled_image_update_after_bind = 1;
+            include_features_v1_2 = true;
+            features_di.descriptor_binding_sampled_image_update_after_bind = 1;
+            include_features_di = true;
+        }
+
+        if requested_features.remove(&DeviceFeature::DescriptorBindingStorageImageUpdateAfterBind) {
+            assert!(
+                self.features.v1_2.descriptor_binding_storage_image_update_after_bind != 0,
+                "`DescriptorBindingStorageImageUpdateAfterBind` feature is requested but not supported"
+            );
+            features_v1_2.descriptor_binding_storage_image_update_after_bind = 1;
+            include_features_v1_2 = true;
+            features_di.descriptor_binding_storage_image_update_after_bind = 1;
+            include_features_di = true;
+        }
+
+        if requested_features
+            .remove(&DeviceFeature::DescriptorBindingUniformTexelBufferUpdateAfterBind)
+        {
+            assert!(
+                self.features.v1_2.descriptor_binding_uniform_texel_buffer_update_after_bind != 0,
+                "`DescriptorBindingUniformTexelBufferUpdateAfterBind` feature is requested but not supported"
+            );
+            features_v1_2.descriptor_binding_uniform_texel_buffer_update_after_bind = 1;
+            include_features_v1_2 = true;
+            features_di.descriptor_binding_uniform_texel_buffer_update_after_bind = 1;
+            include_features_di = true;
+        }
+
+        if requested_features
+            .remove(&DeviceFeature::DescriptorBindingStorageTexelBufferUpdateAfterBind)
+        {
+            assert!(
+                self.features.v1_2.descriptor_binding_storage_texel_buffer_update_after_bind != 0,
+                "`DescriptorBindingStorageTexelBufferUpdateAfterBind` feature is requested but not supported"
+            );
+            features_v1_2.descriptor_binding_storage_texel_buffer_update_after_bind = 1;
+            include_features_v1_2 = true;
+            features_di.descriptor_binding_storage_texel_buffer_update_after_bind = 1;
+            include_features_di = true;
+        }
+
+        if requested_features.remove(&DeviceFeature::DescriptorBindingUniformBufferUpdateAfterBind)
+        {
+            assert!(
+                self.features.v1_2.descriptor_binding_uniform_buffer_update_after_bind != 0,
+                "`DescriptorBindingUniformBufferUpdateAfterBind` feature is requested but not supported"
+            );
+            features_v1_2.descriptor_binding_uniform_buffer_update_after_bind = 1;
+            include_features_v1_2 = true;
+            features_di.descriptor_binding_uniform_buffer_update_after_bind = 1;
+            include_features_di = true;
+        }
+
+        if requested_features.remove(&DeviceFeature::DescriptorBindingStorageBufferUpdateAfterBind)
+        {
+            assert!(
+                self.features.v1_2.descriptor_binding_storage_buffer_update_after_bind != 0,
+                "`DescriptorBindingStorageBufferUpdateAfterBind` feature is requested but not supported"
+            );
+            features_v1_2.descriptor_binding_storage_buffer_update_after_bind = 1;
+            include_features_v1_2 = true;
+            features_di.descriptor_binding_storage_buffer_update_after_bind = 1;
+            include_features_di = true;
+        }
+
+        if requested_features.remove(&DeviceFeature::DescriptorBindingPartiallyBound) {
+            assert!(
+                self.features.v1_2.descriptor_binding_partially_bound != 0,
+                "`DescriptorBindingPartiallyBound` feature is requested but not supported"
+            );
+            features_v1_2.descriptor_binding_partially_bound = 1;
+            include_features_v1_2 = true;
+            features_di.descriptor_binding_partially_bound = 1;
+            include_features_di = true;
+        }
+
         if requested_features.remove(&DeviceFeature::SurfacePresentation) {
             let supported = require_ext(&vk::KHR_SWAPCHAIN_EXTENSION);
             assert!(
@@ -165,25 +321,6 @@ impl PhysicalDevice {
             features_sbl.scalar_block_layout = 1;
             include_features_sbl = true;
         }
-
-        if requested_features.remove(&DeviceFeature::BufferDeviceAddress) {
-            assert!(
-                self.features.v1_2.buffer_device_address != 0,
-                "`BufferDeviceAddress` feature is requested but not supported"
-            );
-            features_v1_2.buffer_device_address = 1;
-            include_features_v1_2 = true;
-            features_bda.buffer_device_address = 1;
-            include_features_bda = true;
-        }
-
-        if requested_features.remove(&DeviceFeature::DisplayTiming) {
-            let supported = require_ext(&vk::GOOGLE_DISPLAY_TIMING_EXTENSION);
-            assert!(
-                supported,
-                "`DisplayTiming` feature is requested but not supported"
-            );
-        }
         // === End fill feature requirements ===
 
         device_create_info = device_create_info.enabled_features(&features_v1_0);
@@ -193,6 +330,7 @@ impl PhysicalDevice {
             include_features_sbl = false;
             include_features_bda = false;
             include_features_sfmm = false;
+            include_features_di = false;
         } else {
             include_features_v1_2 = false;
         }
@@ -223,6 +361,14 @@ impl PhysicalDevice {
                 supported,
                 "`SamplerFilterMinMax` feature is requested but not supported"
             )
+        }
+        if include_features_di {
+            let supported = require_ext(&vk::EXT_DESCRIPTOR_INDEXING_EXTENSION);
+            assert!(
+                supported,
+                "Descriptor indexing feature is requested but not supported"
+            );
+            device_create_info = device_create_info.push_next(&mut features_di);
         }
 
         // Ensure all required features are supported

@@ -121,11 +121,11 @@ impl ScatterCopy {
             staging_buffer.freeze()
         };
 
-        let mut descriptor_set = device.create_descriptor_set(gfx::DescriptorSetInfo {
+        let descriptor_set = device.create_descriptor_set(gfx::DescriptorSetInfo {
             layout: self.descriptor_set_layout.clone(),
         })?;
-        device.update_descriptor_sets(&mut [gfx::UpdateDescriptorSet {
-            set: &mut descriptor_set,
+        device.update_descriptor_sets(&[gfx::UpdateDescriptorSet {
+            set: &descriptor_set,
             writes: &[
                 gfx::DescriptorSetWrite {
                     binding: 0,
@@ -143,7 +143,6 @@ impl ScatterCopy {
                 },
             ],
         }]);
-        let descriptor_set = descriptor_set.freeze();
 
         encoder.bind_compute_pipeline(&self.pipeline);
         encoder.bind_compute_descriptor_sets(

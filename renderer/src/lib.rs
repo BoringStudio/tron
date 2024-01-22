@@ -15,15 +15,13 @@ pub use crate::types::{
 };
 
 use crate::managers::{MaterialManager, MeshManager};
-use crate::resource_handle::ResourceHandleAllocator;
 use crate::types::{RawMaterialHandle, RawMeshHandle};
-use crate::util::{ScatterCopy, ShaderPreprocessor};
+use crate::util::{BindlessResources, ResourceHandleAllocator, ScatterCopy, ShaderPreprocessor};
 use crate::worker::{RendererWorker, RendererWorkerCallbacks, RendererWorkerConfig};
 
 mod managers;
 mod pipelines;
 mod render_passes;
-mod resource_handle;
 mod types;
 mod util;
 mod worker;
@@ -49,7 +47,13 @@ impl RendererBuilder {
         let graphics = gfx::Graphics::get_or_init()?;
         let physical = graphics.get_physical_devices()?.find_best()?;
         let (device, queue) = physical.create_device(
-            &[gfx::DeviceFeature::SurfacePresentation],
+            &[
+                gfx::DeviceFeature::SurfacePresentation,
+                gfx::DeviceFeature::DescriptorBindingUniformBufferUpdateAfterBind,
+                gfx::DeviceFeature::DescriptorBindingStorageBufferUpdateAfterBind,
+                gfx::DeviceFeature::DescriptorBindingSampledImageUpdateAfterBind,
+                gfx::DeviceFeature::DescriptorBindingPartiallyBound,
+            ],
             gfx::SingleQueueQuery::GRAPHICS,
         )?;
 
@@ -64,6 +68,7 @@ impl RendererBuilder {
         }
 
         let scatter_copy = ScatterCopy::new(&device, &shader_preprocessor)?;
+        let bindless_resources = BindlessResources::new(&device)?;
 
         let mut surface = device.create_surface(self.window.clone())?;
         surface.configure()?;
@@ -76,6 +81,7 @@ impl RendererBuilder {
             synced_managers: Default::default(),
             handles: Default::default(),
             scatter_copy,
+            bindless_resources,
             shader_preprocessor,
             queue,
             device,
@@ -183,6 +189,7 @@ pub struct RendererState {
     handles: RendererStateHandles,
 
     scatter_copy: ScatterCopy,
+    bindless_resources: BindlessResources,
     shader_preprocessor: ShaderPreprocessor,
     queue: gfx::Queue,
 
@@ -248,6 +255,8 @@ impl RendererState {
 
     pub(crate) fn eval_instructions(&self, encoder: &mut gfx::Encoder) -> Result<()> {
         self.instructions.swap();
+
+        self.bindless_resources.flush_retired();
 
         let mut instructions = self.instructions.consumer.lock().unwrap();
 
