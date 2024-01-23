@@ -2,12 +2,13 @@ use shared::{FastHashMap, FastHashSet};
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::InstanceV1_1;
 
+use self::features::{AllExtensions, HListToTuple, VulkanExtensionsCollection};
 use crate::graphics::Graphics;
 use crate::queue::{Queue, QueueFamily, QueueId, QueuesQuery};
 use crate::types::{DeviceLost, OutOfDeviceMemory};
 use crate::util::ToGfx;
 
-pub use self::features::DeviceFeature;
+pub use self::features::{DeviceFeature, DeviceFeatures};
 
 mod features;
 
@@ -394,21 +395,10 @@ pub struct DeviceProperties {
 unsafe impl Sync for DeviceProperties {}
 unsafe impl Send for DeviceProperties {}
 
-/// All physical device features.
-#[derive(Debug)]
-pub struct DeviceFeatures {
-    pub v1_0: vk::PhysicalDeviceFeatures,
-    pub v1_1: vk::PhysicalDeviceVulkan11Features,
-    pub v1_2: vk::PhysicalDeviceVulkan12Features,
-    pub v1_3: vk::PhysicalDeviceVulkan13Features,
-}
-
-unsafe impl Sync for DeviceFeatures {}
-unsafe impl Send for DeviceFeatures {}
-
 unsafe fn collect_info(handle: vk::PhysicalDevice) -> (DeviceProperties, DeviceFeatures) {
     let graphics = Graphics::get_unchecked();
     let instance = graphics.instance();
+    let api_version = graphics.api_version();
     let (vk1_1, vk1_2, vk1_3) = (graphics.vk1_1(), graphics.vk1_2(), graphics.vk1_3());
 
     let extensions = instance
@@ -430,9 +420,9 @@ unsafe fn collect_info(handle: vk::PhysicalDevice) -> (DeviceProperties, DeviceF
     let mut features_v1_1 = vk::PhysicalDeviceVulkan11Features::builder();
     let mut features_v1_2 = vk::PhysicalDeviceVulkan12Features::builder();
     let mut features_v1_3 = vk::PhysicalDeviceVulkan13Features::builder();
-    let mut features_di = vk::PhysicalDeviceDescriptorIndexingFeatures::builder();
-    let mut features_sbl = vk::PhysicalDeviceScalarBlockLayoutFeaturesEXT::builder();
-    let mut features_bda = vk::PhysicalDeviceBufferAddressFeaturesEXT::builder();
+
+    let mut extension_features = AllExtensions::make_features();
+    let mut extension_propeties = AllExtensions::make_properties();
 
     // Query info
     if vk1_1
@@ -459,19 +449,23 @@ unsafe fn collect_info(handle: vk::PhysicalDevice) -> (DeviceProperties, DeviceF
             }
 
             // Extension properties and features
+
             if !vk1_1 && has_device_ext(&vk::KHR_MAINTENANCE3_EXTENSION) {
                 properties2 = properties2.push_next(&mut properties_mt3);
             }
-            if !vk1_2 && has_device_ext(&vk::EXT_DESCRIPTOR_INDEXING_EXTENSION) {
-                properties2 = properties2.push_next(&mut properties_di);
-                features2 = features2.push_next(&mut features_di);
-            }
-            if !vk1_2 && has_device_ext(&vk::EXT_SCALAR_BLOCK_LAYOUT_EXTENSION) {
-                features2 = features2.push_next(&mut features_sbl);
-            }
-            if !vk1_2 && has_device_ext(&vk::KHR_BUFFER_DEVICE_ADDRESS_EXTENSION) {
-                features2 = features2.push_next(&mut features_bda);
-            }
+
+            features2 = AllExtensions::physical_device_features2_push_all(
+                api_version,
+                has_device_ext,
+                features2,
+                &mut extension_features,
+            );
+            properties2 = AllExtensions::physical_device_properties2_push_all(
+                api_version,
+                has_device_ext,
+                properties2,
+                &mut extension_propeties,
+            );
 
             // Query extended info
             instance.get_physical_device_properties2(handle, &mut properties2);
@@ -487,9 +481,9 @@ unsafe fn collect_info(handle: vk::PhysicalDevice) -> (DeviceProperties, DeviceF
         properties_v1_2.next = std::ptr::null_mut();
         properties_v1_1.next = std::ptr::null_mut();
 
-        features_bda.next = std::ptr::null_mut();
-        features_sbl.next = std::ptr::null_mut();
-        features_di.next = std::ptr::null_mut();
+        // features_bda.next = std::ptr::null_mut();
+        // features_sbl.next = std::ptr::null_mut();
+        // features_di.next = std::ptr::null_mut();
         features_v1_3.next = std::ptr::null_mut();
         features_v1_2.next = std::ptr::null_mut();
         features_v1_1.next = std::ptr::null_mut();
@@ -498,6 +492,8 @@ unsafe fn collect_info(handle: vk::PhysicalDevice) -> (DeviceProperties, DeviceF
         properties_v1_0 = instance.get_physical_device_properties(handle);
         features_v1_0 = instance.get_physical_device_features(handle);
     }
+
+    let _t = extension_features.into_tuple();
 
     // Other info
     let queue_families = instance.get_physical_device_queue_family_properties(handle);
@@ -555,60 +551,60 @@ unsafe fn collect_info(handle: vk::PhysicalDevice) -> (DeviceProperties, DeviceF
         properties_v1_2.max_descriptor_set_update_after_bind_input_attachments =
             properties_di.max_descriptor_set_update_after_bind_input_attachments;
 
-        features_v1_2.descriptor_indexing = 1;
-        features_v1_2.shader_input_attachment_array_dynamic_indexing =
-            features_di.shader_input_attachment_array_dynamic_indexing;
-        features_v1_2.shader_uniform_texel_buffer_array_dynamic_indexing =
-            features_di.shader_uniform_texel_buffer_array_dynamic_indexing;
-        features_v1_2.shader_storage_texel_buffer_array_dynamic_indexing =
-            features_di.shader_storage_texel_buffer_array_dynamic_indexing;
-        features_v1_2.shader_uniform_buffer_array_non_uniform_indexing =
-            features_di.shader_uniform_buffer_array_non_uniform_indexing;
-        features_v1_2.shader_sampled_image_array_non_uniform_indexing =
-            features_di.shader_sampled_image_array_non_uniform_indexing;
-        features_v1_2.shader_storage_buffer_array_non_uniform_indexing =
-            features_di.shader_storage_buffer_array_non_uniform_indexing;
-        features_v1_2.shader_storage_image_array_non_uniform_indexing =
-            features_di.shader_storage_image_array_non_uniform_indexing;
-        features_v1_2.shader_input_attachment_array_non_uniform_indexing =
-            features_di.shader_input_attachment_array_non_uniform_indexing;
-        features_v1_2.shader_uniform_texel_buffer_array_non_uniform_indexing =
-            features_di.shader_uniform_texel_buffer_array_non_uniform_indexing;
-        features_v1_2.shader_storage_texel_buffer_array_non_uniform_indexing =
-            features_di.shader_storage_texel_buffer_array_non_uniform_indexing;
-        features_v1_2.descriptor_binding_uniform_buffer_update_after_bind =
-            features_di.descriptor_binding_uniform_buffer_update_after_bind;
-        features_v1_2.descriptor_binding_sampled_image_update_after_bind =
-            features_di.descriptor_binding_sampled_image_update_after_bind;
-        features_v1_2.descriptor_binding_storage_image_update_after_bind =
-            features_di.descriptor_binding_storage_image_update_after_bind;
-        features_v1_2.descriptor_binding_storage_buffer_update_after_bind =
-            features_di.descriptor_binding_storage_buffer_update_after_bind;
-        features_v1_2.descriptor_binding_uniform_texel_buffer_update_after_bind =
-            features_di.descriptor_binding_uniform_texel_buffer_update_after_bind;
-        features_v1_2.descriptor_binding_storage_texel_buffer_update_after_bind =
-            features_di.descriptor_binding_storage_texel_buffer_update_after_bind;
-        features_v1_2.descriptor_binding_update_unused_while_pending =
-            features_di.descriptor_binding_update_unused_while_pending;
-        features_v1_2.descriptor_binding_partially_bound =
-            features_di.descriptor_binding_partially_bound;
-        features_v1_2.descriptor_binding_variable_descriptor_count =
-            features_di.descriptor_binding_variable_descriptor_count;
-        features_v1_2.runtime_descriptor_array = features_di.runtime_descriptor_array;
+        // features_v1_2.descriptor_indexing = 1;
+        // features_v1_2.shader_input_attachment_array_dynamic_indexing =
+        //     features_di.shader_input_attachment_array_dynamic_indexing;
+        // features_v1_2.shader_uniform_texel_buffer_array_dynamic_indexing =
+        //     features_di.shader_uniform_texel_buffer_array_dynamic_indexing;
+        // features_v1_2.shader_storage_texel_buffer_array_dynamic_indexing =
+        //     features_di.shader_storage_texel_buffer_array_dynamic_indexing;
+        // features_v1_2.shader_uniform_buffer_array_non_uniform_indexing =
+        //     features_di.shader_uniform_buffer_array_non_uniform_indexing;
+        // features_v1_2.shader_sampled_image_array_non_uniform_indexing =
+        //     features_di.shader_sampled_image_array_non_uniform_indexing;
+        // features_v1_2.shader_storage_buffer_array_non_uniform_indexing =
+        //     features_di.shader_storage_buffer_array_non_uniform_indexing;
+        // features_v1_2.shader_storage_image_array_non_uniform_indexing =
+        //     features_di.shader_storage_image_array_non_uniform_indexing;
+        // features_v1_2.shader_input_attachment_array_non_uniform_indexing =
+        //     features_di.shader_input_attachment_array_non_uniform_indexing;
+        // features_v1_2.shader_uniform_texel_buffer_array_non_uniform_indexing =
+        //     features_di.shader_uniform_texel_buffer_array_non_uniform_indexing;
+        // features_v1_2.shader_storage_texel_buffer_array_non_uniform_indexing =
+        //     features_di.shader_storage_texel_buffer_array_non_uniform_indexing;
+        // features_v1_2.descriptor_binding_uniform_buffer_update_after_bind =
+        //     features_di.descriptor_binding_uniform_buffer_update_after_bind;
+        // features_v1_2.descriptor_binding_sampled_image_update_after_bind =
+        //     features_di.descriptor_binding_sampled_image_update_after_bind;
+        // features_v1_2.descriptor_binding_storage_image_update_after_bind =
+        //     features_di.descriptor_binding_storage_image_update_after_bind;
+        // features_v1_2.descriptor_binding_storage_buffer_update_after_bind =
+        //     features_di.descriptor_binding_storage_buffer_update_after_bind;
+        // features_v1_2.descriptor_binding_uniform_texel_buffer_update_after_bind =
+        //     features_di.descriptor_binding_uniform_texel_buffer_update_after_bind;
+        // features_v1_2.descriptor_binding_storage_texel_buffer_update_after_bind =
+        //     features_di.descriptor_binding_storage_texel_buffer_update_after_bind;
+        // features_v1_2.descriptor_binding_update_unused_while_pending =
+        //     features_di.descriptor_binding_update_unused_while_pending;
+        // features_v1_2.descriptor_binding_partially_bound =
+        //     features_di.descriptor_binding_partially_bound;
+        // features_v1_2.descriptor_binding_variable_descriptor_count =
+        //     features_di.descriptor_binding_variable_descriptor_count;
+        // features_v1_2.runtime_descriptor_array = features_di.runtime_descriptor_array;
     }
     if !vk1_2 && has_device_ext(&vk::EXT_SAMPLER_FILTER_MINMAX_EXTENSION) {
         features_v1_2.sampler_filter_minmax = 1;
     }
-    if !vk1_2 && has_device_ext(&vk::EXT_SCALAR_BLOCK_LAYOUT_EXTENSION) {
-        features_v1_2.scalar_block_layout = features_sbl.scalar_block_layout;
-    }
-    if !vk1_2 && has_device_ext(&vk::KHR_BUFFER_DEVICE_ADDRESS_EXTENSION) {
-        features_v1_2.buffer_device_address = features_bda.buffer_device_address;
-        features_v1_2.buffer_device_address_capture_replay =
-            features_bda.buffer_device_address_capture_replay;
-        features_v1_2.buffer_device_address_multi_device =
-            features_bda.buffer_device_address_multi_device;
-    }
+    // if !vk1_2 && has_device_ext(&vk::EXT_SCALAR_BLOCK_LAYOUT_EXTENSION) {
+    //     features_v1_2.scalar_block_layout = features_sbl.scalar_block_layout;
+    // }
+    // if !vk1_2 && has_device_ext(&vk::KHR_BUFFER_DEVICE_ADDRESS_EXTENSION) {
+    //     features_v1_2.buffer_device_address = features_bda.buffer_device_address;
+    //     features_v1_2.buffer_device_address_capture_replay =
+    //         features_bda.buffer_device_address_capture_replay;
+    //     features_v1_2.buffer_device_address_multi_device =
+    //         features_bda.buffer_device_address_multi_device;
+    // }
 
     let properties = DeviceProperties {
         extensions,

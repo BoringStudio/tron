@@ -86,6 +86,18 @@ pub type AllExtensions = (
     SurfacePresentationExtension,
 );
 
+/// All physical device features.
+#[derive(Debug)]
+pub struct DeviceFeatures {
+    pub v1_0: vk::PhysicalDeviceFeatures,
+    pub v1_1: vk::PhysicalDeviceVulkan11Features,
+    pub v1_2: vk::PhysicalDeviceVulkan12Features,
+    pub v1_3: vk::PhysicalDeviceVulkan13Features,
+}
+
+unsafe impl Sync for DeviceFeatures {}
+unsafe impl Send for DeviceFeatures {}
+
 pub struct BufferDeviceAddressExtension;
 
 impl VulkanExtension for BufferDeviceAddressExtension {
@@ -93,12 +105,14 @@ impl VulkanExtension for BufferDeviceAddressExtension {
 
     type Core = VulkanCore<1, 2>;
     type ExtensionFeatures = WithFeatures<vk::PhysicalDeviceBufferDeviceAddressFeatures>;
-    type ExtensionProperties = ();
+    type ExtensionProperties = NoProperties;
 
     fn copy_features(
         extension_features: &Self::ExtensionFeatures,
-        core_features: &mut VulkanCoreFeatures<Self::Core>,
+        core_features: &mut DeviceFeatures,
     ) {
+        let core_features = &mut core_features.v1_2;
+
         core_features.buffer_device_address = extension_features.buffer_device_address;
         core_features.buffer_device_address_capture_replay =
             extension_features.buffer_device_address_capture_replay;
@@ -107,7 +121,7 @@ impl VulkanExtension for BufferDeviceAddressExtension {
     }
 
     fn process_features<L, I>(
-        availabe: &VulkanCoreFeatures<Self::Core>,
+        availabe: &DeviceFeatures,
         enabled: &mut L,
         required: &mut HashSet<DeviceFeature>,
     ) -> bool
@@ -118,7 +132,7 @@ impl VulkanExtension for BufferDeviceAddressExtension {
         let mut changed = false;
         if required.remove(&DeviceFeature::BufferDeviceAddress) {
             assert!(
-                availabe.buffer_device_address != 0,
+                availabe.v1_2.buffer_device_address != 0,
                 "`BufferDeviceAddress` feature is required but not supported"
             );
             enabled.buffer_device_address = 1;
@@ -135,12 +149,14 @@ impl VulkanExtension for DescriptorIndexingExtension {
 
     type Core = VulkanCore<1, 2>;
     type ExtensionFeatures = WithFeatures<vk::PhysicalDeviceDescriptorIndexingFeatures>;
-    type ExtensionProperties = vk::PhysicalDeviceDescriptorIndexingProperties;
+    type ExtensionProperties = WithProperties<vk::PhysicalDeviceDescriptorIndexingProperties>;
 
     fn copy_features(
         extension_features: &Self::ExtensionFeatures,
-        core_features: &mut VulkanCoreFeatures<Self::Core>,
+        core_features: &mut DeviceFeatures,
     ) {
+        let core_features = &mut core_features.v1_2;
+
         core_features.descriptor_indexing = 1;
         core_features.shader_input_attachment_array_dynamic_indexing =
             extension_features.shader_input_attachment_array_dynamic_indexing;
@@ -236,13 +252,14 @@ impl VulkanExtension for DescriptorIndexingExtension {
     }
 
     fn process_features<L, I>(
-        available: &VulkanCoreFeatures<Self::Core>,
+        available: &DeviceFeatures,
         enabled: &mut L,
         required: &mut HashSet<DeviceFeature>,
     ) -> bool
     where
         L: Selector<Self::ExtensionFeatures, I>,
     {
+        let available = &available.v1_2;
         let enabled = enabled.get_mut();
         let mut changed = false;
         if required.remove(&DeviceFeature::DescriptorBindingSampledImageUpdateAfterBind) {
@@ -312,10 +329,10 @@ impl VulkanExtension for DisplayTimingExtension {
 
     type Core = VulkanCoreUnknown;
     type ExtensionFeatures = NoFeatures;
-    type ExtensionProperties = ();
+    type ExtensionProperties = NoProperties;
 
     fn process_features<L, I>(
-        _available: &VulkanCoreFeatures<Self::Core>,
+        _available: &DeviceFeatures,
         _enabled: &mut L,
         required: &mut HashSet<DeviceFeature>,
     ) -> bool
@@ -333,13 +350,13 @@ impl VulkanExtension for SamplerFilterMinMaxExtension {
 
     type Core = VulkanCore<1, 2>;
     type ExtensionFeatures = NoFeatures;
-    type ExtensionProperties = vk::PhysicalDeviceSamplerFilterMinmaxProperties;
+    type ExtensionProperties = WithProperties<vk::PhysicalDeviceSamplerFilterMinmaxProperties>;
 
     fn copy_features(
         _extension_features: &Self::ExtensionFeatures,
-        core_features: &mut VulkanCoreFeatures<Self::Core>,
+        core_features: &mut DeviceFeatures,
     ) {
-        core_features.sampler_filter_minmax = 1;
+        core_features.v1_2.sampler_filter_minmax = 1;
     }
 
     fn copy_properties(
@@ -353,7 +370,7 @@ impl VulkanExtension for SamplerFilterMinMaxExtension {
     }
 
     fn process_features<L, I>(
-        available: &VulkanCoreFeatures<Self::Core>,
+        available: &DeviceFeatures,
         _enabled: &mut L,
         required: &mut HashSet<DeviceFeature>,
     ) -> bool
@@ -363,7 +380,7 @@ impl VulkanExtension for SamplerFilterMinMaxExtension {
         let mut changed = false;
         if required.remove(&DeviceFeature::SamplerFilterMinMax) {
             assert!(
-                available.sampler_filter_minmax != 0,
+                available.v1_2.sampler_filter_minmax != 0,
                 "`SamplerFilterMinMax` feature is required but not supported"
             );
             changed = true;
@@ -379,17 +396,17 @@ impl VulkanExtension for ScalarBlockLayoutExtension {
 
     type Core = VulkanCore<1, 2>;
     type ExtensionFeatures = WithFeatures<vk::PhysicalDeviceScalarBlockLayoutFeatures>;
-    type ExtensionProperties = ();
+    type ExtensionProperties = NoProperties;
 
     fn copy_features(
         extension_features: &Self::ExtensionFeatures,
-        core_features: &mut VulkanCoreFeatures<Self::Core>,
+        core_features: &mut DeviceFeatures,
     ) {
-        core_features.scalar_block_layout = extension_features.scalar_block_layout;
+        core_features.v1_2.scalar_block_layout = extension_features.scalar_block_layout;
     }
 
     fn process_features<L, I>(
-        available: &VulkanCoreFeatures<Self::Core>,
+        available: &DeviceFeatures,
         enabled: &mut L,
         required: &mut HashSet<DeviceFeature>,
     ) -> bool
@@ -400,7 +417,7 @@ impl VulkanExtension for ScalarBlockLayoutExtension {
         let mut changed = false;
         if required.remove(&DeviceFeature::ScalarBlockLayout) {
             assert!(
-                available.scalar_block_layout != 0,
+                available.v1_2.scalar_block_layout != 0,
                 "`ScalarBlockLayout` feature is required but not supported"
             );
             enabled.scalar_block_layout = 1;
@@ -417,10 +434,10 @@ impl VulkanExtension for SurfacePresentationExtension {
 
     type Core = VulkanCoreUnknown;
     type ExtensionFeatures = NoFeatures;
-    type ExtensionProperties = ();
+    type ExtensionProperties = NoProperties;
 
     fn process_features<L, I>(
-        _available: &VulkanCoreFeatures<Self::Core>,
+        _available: &DeviceFeatures,
         _enabled: &mut L,
         required: &mut HashSet<DeviceFeature>,
     ) -> bool
@@ -433,24 +450,238 @@ impl VulkanExtension for SurfacePresentationExtension {
 
 // === Stuff ===
 
+pub trait ExtensionsHList: HList {
+    type Features: HList;
+    type Properties: HList;
+
+    fn make_features() -> Self::Features;
+    fn make_properties() -> Self::Properties;
+
+    fn physical_device_properties2_push_all<'a, F>(
+        api_version: u32,
+        has_extension: F,
+        builder: vk::PhysicalDeviceProperties2Builder<'a>,
+        properties: &'a mut Self::Properties,
+    ) -> vk::PhysicalDeviceProperties2Builder<'a>
+    where
+        for<'e> F: FnMut(&'e vk::Extension) -> bool;
+
+    fn physical_device_features2_push_all<'a, F>(
+        api_version: u32,
+        has_extension: F,
+        builder: vk::PhysicalDeviceFeatures2Builder<'a>,
+        features: &'a mut Self::Features,
+    ) -> vk::PhysicalDeviceFeatures2Builder<'a>
+    where
+        for<'e> F: FnMut(&'e vk::Extension) -> bool;
+
+    fn copy_features<F>(
+        api_version: u32,
+        has_extension: F,
+        extension_features: &Self::Features,
+        core_features: &mut DeviceFeatures,
+    ) where
+        for<'e> F: FnMut(&'e vk::Extension) -> bool;
+}
+
+impl ExtensionsHList for HNil {
+    type Features = HNil;
+    type Properties = HNil;
+
+    #[inline]
+    fn make_features() -> Self::Features {
+        HNil
+    }
+
+    #[inline]
+    fn make_properties() -> Self::Properties {
+        HNil
+    }
+
+    #[inline]
+    fn physical_device_properties2_push_all<'a, F>(
+        _api_version: u32,
+        _has_extension: F,
+        builder: vk::PhysicalDeviceProperties2Builder<'a>,
+        _properties: &'a mut Self::Properties,
+    ) -> vk::PhysicalDeviceProperties2Builder<'a>
+    where
+        for<'e> F: FnMut(&'e vk::Extension) -> bool,
+    {
+        builder
+    }
+
+    #[inline]
+    fn physical_device_features2_push_all<'a, F>(
+        _api_version: u32,
+        _has_extension: F,
+        builder: vk::PhysicalDeviceFeatures2Builder<'a>,
+        _features: &'a mut Self::Features,
+    ) -> vk::PhysicalDeviceFeatures2Builder<'a>
+    where
+        for<'e> F: FnMut(&'e vk::Extension) -> bool,
+    {
+        builder
+    }
+
+    #[inline]
+    fn copy_features<F>(
+        _api_version: u32,
+        _has_extension: F,
+        _extension_features: &Self::Features,
+        _core_features: &mut DeviceFeatures,
+    ) where
+        for<'e> F: FnMut(&'e vk::Extension) -> bool,
+    {
+    }
+}
+
+impl<H, T> ExtensionsHList for HCons<H, T>
+where
+    H: VulkanExtension,
+    T: ExtensionsHList,
+{
+    type Features = HCons<H::ExtensionFeatures, T::Features>;
+    type Properties = HCons<H::ExtensionProperties, T::Properties>;
+
+    #[inline]
+    fn make_features() -> Self::Features {
+        HCons {
+            head: H::ExtensionFeatures::default(),
+            tail: T::make_features(),
+        }
+    }
+
+    #[inline]
+    fn make_properties() -> Self::Properties {
+        HCons {
+            head: H::ExtensionProperties::default(),
+            tail: T::make_properties(),
+        }
+    }
+
+    fn physical_device_properties2_push_all<'a, F>(
+        api_version: u32,
+        mut has_extension: F,
+        mut builder: vk::PhysicalDeviceProperties2Builder<'a>,
+        properties: &'a mut Self::Properties,
+    ) -> vk::PhysicalDeviceProperties2Builder<'a>
+    where
+        for<'e> F: FnMut(&'e vk::Extension) -> bool,
+    {
+        if !H::Core::is_supported(api_version) && has_extension(H::META) {
+            builder = properties
+                .head
+                .physical_device_properties2_push_next(builder);
+        }
+        T::physical_device_properties2_push_all(
+            api_version,
+            has_extension,
+            builder,
+            &mut properties.tail,
+        )
+    }
+
+    #[inline]
+    fn physical_device_features2_push_all<'a, F>(
+        api_version: u32,
+        mut has_extension: F,
+        mut builder: vk::PhysicalDeviceFeatures2Builder<'a>,
+        features: &'a mut Self::Features,
+    ) -> vk::PhysicalDeviceFeatures2Builder<'a>
+    where
+        for<'e> F: FnMut(&'e vk::Extension) -> bool,
+    {
+        if !H::Core::is_supported(api_version) && has_extension(H::META) {
+            builder = features.head.physical_device_features2_push_next(builder);
+        }
+        T::physical_device_features2_push_all(
+            api_version,
+            has_extension,
+            builder,
+            &mut features.tail,
+        )
+    }
+
+    fn copy_features<F>(
+        api_version: u32,
+        mut has_extension: F,
+        extension_features: &Self::Features,
+        core_features: &mut DeviceFeatures,
+    ) where
+        for<'e> F: FnMut(&'e vk::Extension) -> bool,
+    {
+        if !H::Core::is_supported(api_version) && has_extension(H::META) {
+            H::copy_features(&extension_features.head, core_features);
+        }
+
+        <T as ExtensionsHList>::copy_features(
+            api_version,
+            has_extension,
+            &extension_features.tail,
+            core_features,
+        );
+    }
+}
+
 pub trait VulkanExtensionsCollection {
-    type Features: Default;
-    type Properties: Default;
+    type Extensions: ExtensionsHList;
+
+    fn make_features() -> <Self::Extensions as ExtensionsHList>::Features {
+        Self::Extensions::make_features()
+    }
+
+    fn make_properties() -> <Self::Extensions as ExtensionsHList>::Properties {
+        Self::Extensions::make_properties()
+    }
+
+    fn physical_device_properties2_push_all<'a, F>(
+        api_version: u32,
+        has_extension: F,
+        builder: vk::PhysicalDeviceProperties2Builder<'a>,
+        properties: &'a mut <Self::Extensions as ExtensionsHList>::Properties,
+    ) -> vk::PhysicalDeviceProperties2Builder<'a>
+    where
+        for<'e> F: FnMut(&'e vk::Extension) -> bool,
+    {
+        <Self::Extensions as ExtensionsHList>::physical_device_properties2_push_all(
+            api_version,
+            has_extension,
+            builder,
+            properties,
+        )
+    }
+
+    #[inline]
+    fn physical_device_features2_push_all<'a, F>(
+        api_version: u32,
+        has_extension: F,
+        builder: vk::PhysicalDeviceFeatures2Builder<'a>,
+        features: &'a mut <Self::Extensions as ExtensionsHList>::Features,
+    ) -> vk::PhysicalDeviceFeatures2Builder<'a>
+    where
+        for<'e> F: FnMut(&'e vk::Extension) -> bool,
+    {
+        <Self::Extensions as ExtensionsHList>::physical_device_features2_push_all(
+            api_version,
+            has_extension,
+            builder,
+            features,
+        )
+    }
 }
 
 impl VulkanExtensionsCollection for () {
-    type Features = ();
-    type Properties = ();
+    type Extensions = HNil;
 }
 
 macro_rules! impl_vulkan_extensions_collection {
-    ($($ty:ident),*$(,)?) => {
+    ($($ty:ident),+$(,)?) => {
         impl<$($ty),*> VulkanExtensionsCollection for ($($ty),*,)
         where
             $($ty: VulkanExtension),*
         {
-            type Features = ($(<$ty>::ExtensionFeatures),*,);
-            type Properties = ($(<$ty>::ExtensionProperties),*,);
+            type Extensions = <($($ty),*,) as TupleToHList>::HList;
         }
     };
 }
@@ -471,11 +702,11 @@ pub trait VulkanExtension {
 
     type Core: VulkanCoreTypes;
     type ExtensionFeatures: VulkanFeatures;
-    type ExtensionProperties: Default;
+    type ExtensionProperties: VulkanProperties;
 
     fn copy_features(
         extension_features: &Self::ExtensionFeatures,
-        core_features: &mut VulkanCoreFeatures<Self::Core>,
+        core_features: &mut DeviceFeatures,
     ) {
         _ = extension_features;
         _ = core_features;
@@ -490,7 +721,7 @@ pub trait VulkanExtension {
     }
 
     fn process_features<L, I>(
-        available: &VulkanCoreFeatures<Self::Core>,
+        available: &DeviceFeatures,
         enabled: &mut L,
         required: &mut HashSet<DeviceFeature>,
     ) -> bool
@@ -498,9 +729,44 @@ pub trait VulkanExtension {
         L: Selector<Self::ExtensionFeatures, I>;
 }
 
+pub struct InvalidExtension;
+
+impl VulkanExtension for InvalidExtension {
+    const META: &'static vk::Extension = &INVALID_EXTENSION;
+
+    type Core = VulkanCoreUnknown;
+    type ExtensionFeatures = NoFeatures;
+    type ExtensionProperties = NoProperties;
+
+    fn process_features<L, I>(_: &DeviceFeatures, _: &mut L, _: &mut HashSet<DeviceFeature>) -> bool
+    where
+        L: Selector<Self::ExtensionFeatures, I>,
+    {
+        unreachable!()
+    }
+}
+
+const INVALID_EXTENSION: vk::Extension = vk::Extension {
+    name: vk::ExtensionName::from_bytes(b"invalid"),
+    number: 258,
+    type_: "device",
+    author: "invalid",
+    contact: "invalid",
+    platform: None,
+    required_extensions: None,
+    required_version: None,
+    deprecated_by: None,
+    obsoleted_by: None,
+    promoted_to: None,
+};
+
+// === Core ===
+
 pub trait VulkanCoreTypes {
     type Properties: Default;
     type Features: Default;
+
+    fn is_supported(api_version: u32) -> bool;
 }
 
 pub type VulkanCoreProperties<T> = <T as VulkanCoreTypes>::Properties;
@@ -509,9 +775,7 @@ pub type VulkanCoreFeatures<T> = <T as VulkanCoreTypes>::Features;
 pub struct VulkanCore<const MAJOR: u32, const MINOR: u32>;
 
 impl<const MAJOR: u32, const MINOR: u32> VulkanCore<MAJOR, MINOR> {
-    pub const fn is_supported(api_version: u32) -> bool {
-        api_version >= vk::make_version(MAJOR, MINOR, 0)
-    }
+    const API_VERSION: u32 = vk::make_version(MAJOR, MINOR, 0);
 }
 
 pub type VulkanCoreUnknown = VulkanCore<999, 999>;
@@ -519,38 +783,140 @@ pub type VulkanCoreUnknown = VulkanCore<999, 999>;
 impl VulkanCoreTypes for VulkanCoreUnknown {
     type Features = ();
     type Properties = ();
+
+    fn is_supported(api_version: u32) -> bool {
+        false
+    }
 }
 
 impl VulkanCoreTypes for VulkanCore<1, 0> {
     type Features = vk::PhysicalDeviceFeatures;
     type Properties = vk::PhysicalDeviceProperties;
+
+    fn is_supported(api_version: u32) -> bool {
+        api_version >= Self::API_VERSION
+    }
 }
 
 impl VulkanCoreTypes for VulkanCore<1, 1> {
     type Features = vk::PhysicalDeviceVulkan11Features;
     type Properties = vk::PhysicalDeviceVulkan11Properties;
+
+    fn is_supported(api_version: u32) -> bool {
+        api_version >= Self::API_VERSION
+    }
 }
 
 impl VulkanCoreTypes for VulkanCore<1, 2> {
     type Features = vk::PhysicalDeviceVulkan12Features;
     type Properties = vk::PhysicalDeviceVulkan12Properties;
+
+    fn is_supported(api_version: u32) -> bool {
+        api_version >= Self::API_VERSION
+    }
 }
 
 impl VulkanCoreTypes for VulkanCore<1, 3> {
     type Features = vk::PhysicalDeviceVulkan13Features;
     type Properties = vk::PhysicalDeviceVulkan13Properties;
+
+    fn is_supported(api_version: u32) -> bool {
+        api_version >= Self::API_VERSION
+    }
 }
+
+// === Properties ===
+
+pub trait VulkanProperties: Default {
+    fn physical_device_properties2_push_next<'a>(
+        &'a mut self,
+        physical_device_properties2: vk::PhysicalDeviceProperties2Builder<'a>,
+    ) -> vk::PhysicalDeviceProperties2Builder<'a>;
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NoProperties;
+
+impl VulkanProperties for NoProperties {
+    #[inline]
+    fn physical_device_properties2_push_next<'a>(
+        &'a mut self,
+        builder: vk::PhysicalDeviceProperties2Builder<'a>,
+    ) -> vk::PhysicalDeviceProperties2Builder<'a> {
+        builder
+    }
+}
+
+#[repr(transparent)]
+pub struct WithProperties<T>(pub T);
+
+impl<T> WithProperties<T> {
+    #[inline]
+    fn wrap(inner: &T) -> &Self {
+        // SAFETY: `WithProperties` is `repr(transparent)`
+        unsafe { &*(inner as *const T).cast() }
+    }
+
+    #[inline]
+    fn wrap_mut(inner: &mut T) -> &mut Self {
+        // SAFETY: `WithProperties` is `repr(transparent)`
+        unsafe { &mut *(inner as *mut T).cast() }
+    }
+}
+
+impl<T: Default> Default for WithProperties<T> {
+    #[inline]
+    fn default() -> Self {
+        Self(T::default())
+    }
+}
+
+impl<T> std::ops::Deref for WithProperties<T> {
+    type Target = T;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> std::ops::DerefMut for WithProperties<T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<T> VulkanProperties for WithProperties<T>
+where
+    T: Default + vk::ExtendsPhysicalDeviceProperties2 + vk::Cast<Target = T>,
+{
+    #[inline]
+    fn physical_device_properties2_push_next<'a>(
+        &'a mut self,
+        builder: vk::PhysicalDeviceProperties2Builder<'a>,
+    ) -> vk::PhysicalDeviceProperties2Builder<'a> {
+        builder.push_next::<T>(&mut self.0)
+    }
+}
+
+// === Features ===
 
 pub trait VulkanFeatures: Default {
     fn physical_device_features2_push_next<'a>(
         &'a mut self,
-        physical_device_features2: vk::PhysicalDeviceFeatures2Builder<'a>,
+        builder: vk::PhysicalDeviceFeatures2Builder<'a>,
     ) -> vk::PhysicalDeviceFeatures2Builder<'a>;
 
     fn device_create_info_push_next<'a>(
         &'a mut self,
-        device_create_info: vk::DeviceCreateInfoBuilder<'a>,
+        builder: vk::DeviceCreateInfoBuilder<'a>,
     ) -> vk::DeviceCreateInfoBuilder<'a>;
+}
+
+trait ExtractFeatures<T> {
+    fn extract_features(&self) -> &T;
+    fn extract_features_mut(&mut self) -> &mut T;
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -560,21 +926,52 @@ impl VulkanFeatures for NoFeatures {
     #[inline]
     fn physical_device_features2_push_next<'a>(
         &'a mut self,
-        physical_device_features2: vk::PhysicalDeviceFeatures2Builder<'a>,
+        builder: vk::PhysicalDeviceFeatures2Builder<'a>,
     ) -> vk::PhysicalDeviceFeatures2Builder<'a> {
-        physical_device_features2
+        builder
     }
 
     #[inline]
     fn device_create_info_push_next<'a>(
         &'a mut self,
-        device_create_info: vk::DeviceCreateInfoBuilder<'a>,
+        builder: vk::DeviceCreateInfoBuilder<'a>,
     ) -> vk::DeviceCreateInfoBuilder<'a> {
-        device_create_info
+        builder
     }
 }
 
+impl<T> ExtractFeatures<NoFeatures> for T {
+    #[inline]
+    fn extract_features(&self) -> &NoFeatures {
+        &NoFeatures
+    }
+
+    #[inline]
+    fn extract_features_mut(&mut self) -> &mut NoFeatures {
+        const _: () = assert!(std::mem::size_of::<NoFeatures>() == 0);
+
+        // NOTE: does not allocate because `NoFeatures` is ZST
+        // Related issue (return &mut to temp ZST): https://github.com/rust-lang/rust/issues/103821
+        Box::leak(Box::new(NoFeatures))
+    }
+}
+
+#[repr(transparent)]
 pub struct WithFeatures<T>(pub T);
+
+impl<T> WithFeatures<T> {
+    #[inline]
+    fn wrap(inner: &T) -> &Self {
+        // SAFETY: `WithFeatures` is `repr(transparent)`
+        unsafe { &*(inner as *const T).cast() }
+    }
+
+    #[inline]
+    fn wrap_mut(inner: &mut T) -> &mut Self {
+        // SAFETY: `WithFeatures` is `repr(transparent)`
+        unsafe { &mut *(inner as *mut T).cast() }
+    }
+}
 
 impl<T: Default> Default for WithFeatures<T> {
     #[inline]
@@ -599,6 +996,21 @@ impl<T> std::ops::DerefMut for WithFeatures<T> {
     }
 }
 
+impl<T, F> ExtractFeatures<WithFeatures<F>> for T
+where
+    T: AsRef<F> + AsMut<F>,
+{
+    #[inline]
+    fn extract_features(&self) -> &WithFeatures<F> {
+        WithFeatures::wrap(self.as_ref())
+    }
+
+    #[inline]
+    fn extract_features_mut(&mut self) -> &mut WithFeatures<F> {
+        WithFeatures::wrap_mut(self.as_mut())
+    }
+}
+
 impl<T> VulkanFeatures for WithFeatures<T>
 where
     T: Default
@@ -609,45 +1021,201 @@ where
     #[inline]
     fn physical_device_features2_push_next<'a>(
         &'a mut self,
-        physical_device_features2: vk::PhysicalDeviceFeatures2Builder<'a>,
+        builder: vk::PhysicalDeviceFeatures2Builder<'a>,
     ) -> vk::PhysicalDeviceFeatures2Builder<'a> {
-        physical_device_features2.push_next(&mut self.0)
+        builder.push_next(&mut self.0)
     }
 
     #[inline]
     fn device_create_info_push_next<'a>(
         &'a mut self,
-        device_create_info: vk::DeviceCreateInfoBuilder<'a>,
+        builder: vk::DeviceCreateInfoBuilder<'a>,
     ) -> vk::DeviceCreateInfoBuilder<'a> {
-        device_create_info.push_next::<T>(&mut self.0)
+        builder.push_next::<T>(&mut self.0)
     }
 }
 
 // === HList ===
 
-trait HList: Sized {
+macro_rules! hlist_ty {
+    ($($ty:ident),+) => { hlist_ty!(@inner [] [] $($ty)+) };
+
+    (@inner [ $($prev:tt)* ] [ $($closing:tt)* ] $ty:ident) => {
+        $($prev)* HCons<$ty, HNil>
+        $($closing)*
+    };
+    (@inner [ $($prev:tt)* ] [ $($closing:tt)* ] $ty:ident $($rest:ident)+) => {
+        hlist_ty!(@inner
+            [$($prev)* HCons<$ty,]
+            [$($closing)* >]
+            $($rest)+
+        )
+    };
+}
+
+pub trait TupleToHList {
+    type HList;
+
+    fn into_hlist(self) -> Self::HList;
+}
+
+impl TupleToHList for () {
+    type HList = HNil;
+
+    #[inline]
+    fn into_hlist(self) -> Self::HList {
+        HNil
+    }
+}
+
+macro_rules! impl_tuple_to_hlist {
+    ($($idx:tt: $ty:ident),+$(,)?) => {
+        impl<$($ty),*> TupleToHList for ($($ty),*,)
+        {
+            type HList = hlist_ty!($($ty),+);
+
+            #[inline]
+            fn into_hlist(self) -> Self::HList {
+                impl_tuple_to_hlist!(@construct [ HNil ] [] $(self.$idx)+)
+            }
+        }
+    };
+
+    (@construct [ $($prev:tt)* ] []) => { $($prev)* };
+    (@construct [ $($prev:tt)* ] [ $tuple:ident.$idx:tt $($rest:tt)* ]) => {
+        impl_tuple_to_hlist!(@construct
+            [HCons {
+                head: $tuple.$idx,
+                tail: $($prev)*,
+            }]
+            [ $($rest)* ]
+        )
+    };
+    (@construct [ $($prev:tt)* ] [ $($reversed:tt)* ] $tuple:ident.$idx:tt $($rest:tt)* ) => {
+        impl_tuple_to_hlist!(@construct
+            [ $($prev)* ]
+            [ $tuple.$idx $($reversed)*]
+            $($rest)*
+        )
+    };
+}
+
+impl_tuple_to_hlist!(0: T0);
+impl_tuple_to_hlist!(0: T0, 1: T1);
+impl_tuple_to_hlist!(0: T0, 1: T1, 2: T2);
+impl_tuple_to_hlist!(0: T0, 1: T1, 2: T2, 3: T3);
+impl_tuple_to_hlist!(0: T0, 1: T1, 2: T2, 3: T3, 4: T4);
+impl_tuple_to_hlist!(0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5);
+impl_tuple_to_hlist!(0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5, 6: T6);
+impl_tuple_to_hlist!(0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5, 6: T6, 7: T7);
+impl_tuple_to_hlist!(0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5, 6: T6, 7: T7, 8: T8);
+impl_tuple_to_hlist!(0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5, 6: T6, 7: T7, 8: T8, 9: T9);
+
+pub trait HListToTuple {
+    type Tuple;
+
+    fn into_tuple(self) -> Self::Tuple;
+}
+
+impl HListToTuple for HNil {
+    type Tuple = ();
+
+    #[inline]
+    fn into_tuple(self) -> Self::Tuple {}
+}
+
+macro_rules! impl_hlist_to_tuple {
+    ($($ty:ident),+$(,)?) => {
+        impl<$($ty),*> HListToTuple for hlist_ty!($($ty),+)
+        {
+            type Tuple = ($($ty),*,);
+
+            #[inline]
+            fn into_tuple(self) -> Self::Tuple {
+                impl_hlist_to_tuple!(@deconstruct [] [self] $($ty)+)
+            }
+        }
+    };
+
+    (@deconstruct [ $($prev:tt)* ] [ $($prefix:tt)* ]) => { ($($prev)*) };
+    (@deconstruct [ $($prev:tt)* ] [ $($prefix:tt)* ] $ty:ident $($rest:ident)*) => {
+        impl_hlist_to_tuple!(@deconstruct
+            [$($prev)* $($prefix)*.head,]
+            [$($prefix)*.tail]
+            $($rest)*
+        )
+    };
+}
+
+impl_hlist_to_tuple!(T0);
+impl_hlist_to_tuple!(T0, T1);
+impl_hlist_to_tuple!(T0, T1, T2);
+impl_hlist_to_tuple!(T0, T1, T2, T3);
+impl_hlist_to_tuple!(T0, T1, T2, T3, T4);
+impl_hlist_to_tuple!(T0, T1, T2, T3, T4, T5);
+impl_hlist_to_tuple!(T0, T1, T2, T3, T4, T5, T6);
+impl_hlist_to_tuple!(T0, T1, T2, T3, T4, T5, T6, T7);
+impl_hlist_to_tuple!(T0, T1, T2, T3, T4, T5, T6, T7, T8);
+impl_hlist_to_tuple!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9);
+
+pub trait HList: Sized {
     fn prepend<H>(self, head: H) -> HCons<H, Self> {
         HCons { head, tail: self }
     }
 }
 
-struct HNil;
+#[derive(Debug, Default)]
+pub struct HNil;
 
 impl HList for HNil {}
 
-struct HCons<H, T> {
+impl AsRef<()> for HNil {
+    #[inline]
+    fn as_ref(&self) -> &() {
+        &()
+    }
+}
+
+impl AsMut<()> for HNil {
+    #[inline]
+    fn as_mut(&mut self) -> &mut () {
+        Box::leak(Box::new(()))
+    }
+}
+
+pub struct HCons<H, T: HList> {
     head: H,
     tail: T,
 }
 
-impl<H, T> HList for HCons<H, T> {}
+impl<H, T: HList> HList for HCons<H, T> {}
+
+impl<H: Default, T: Default + HList> Default for HCons<H, T> {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            head: H::default(),
+            tail: T::default(),
+        }
+    }
+}
+
+impl<H: std::fmt::Debug, T: std::fmt::Debug + HList> std::fmt::Debug for HCons<H, T> {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_tuple("HCons")
+            .field(&self.head)
+            .field(&self.tail)
+            .finish()
+    }
+}
 
 pub trait Selector<S, I> {
     fn get(&self) -> &S;
     fn get_mut(&mut self) -> &mut S;
 }
 
-impl<T, Tail> Selector<T, Here> for HCons<T, Tail> {
+impl<T, Tail: HList> Selector<T, Here> for HCons<T, Tail> {
     #[inline]
     fn get(&self) -> &T {
         &self.head
@@ -659,7 +1227,7 @@ impl<T, Tail> Selector<T, Here> for HCons<T, Tail> {
     }
 }
 
-impl<Head, Tail, T, I> Selector<T, There<I>> for HCons<Head, Tail>
+impl<Head, Tail: HList, T, I> Selector<T, There<I>> for HCons<Head, Tail>
 where
     Tail: Selector<T, I>,
 {
