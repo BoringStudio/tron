@@ -111,8 +111,10 @@ impl PhysicalDevice {
         let mut extension_features = AllExtensions::make_features();
 
         // Fill extension features
+        let mut min_api_version = vk::make_version(1, 0, 0);
         device_create_info = AllExtensions::process_features(
             api_version,
+            &mut min_api_version,
             require_extension,
             &self.features,
             &mut core_features,
@@ -122,13 +124,13 @@ impl PhysicalDevice {
         );
 
         // Fill core features
-        if graphics.vk1_3() {
+        if min_api_version >= vk::make_version(1, 3, 0) {
             device_create_info = device_create_info.push_next(&mut core_features.v1_3);
         }
-        if graphics.vk1_2() {
+        if min_api_version >= vk::make_version(1, 2, 0) {
             device_create_info = device_create_info.push_next(&mut core_features.v1_2);
         }
-        if graphics.vk1_1() {
+        if min_api_version >= vk::make_version(1, 1, 0) {
             device_create_info = device_create_info.push_next(&mut core_features.v1_1);
         }
         device_create_info = device_create_info.enabled_features(&core_features.v1_0);

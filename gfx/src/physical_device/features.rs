@@ -459,8 +459,10 @@ pub trait VulkanExtensionsCollection {
     }
 
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     fn process_features<'a, F, C>(
         api_version: u32,
+        min_api_version: &mut u32,
         require_extension: F,
         available_core_features: &C,
         enabled_core_features: &mut C,
@@ -474,6 +476,7 @@ pub trait VulkanExtensionsCollection {
     {
         <Self::Extensions as ExtensionsHListProcessFeatures<C>>::process_features(
             api_version,
+            min_api_version,
             require_extension,
             available_core_features,
             enabled_core_features,
@@ -684,8 +687,10 @@ where
 //
 
 pub trait ExtensionsHListProcessFeatures<C>: ExtensionsHList {
+    #[allow(clippy::too_many_arguments)]
     fn process_features<'a, F>(
         api_version: u32,
+        min_api_version: &mut u32,
         require_extension: F,
         available_core_features: &C,
         enabled_core_features: &mut C,
@@ -701,6 +706,7 @@ impl<C> ExtensionsHListProcessFeatures<C> for HNil {
     #[inline]
     fn process_features<'a, F>(
         _api_version: u32,
+        _min_api_version: &mut u32,
         _require_extension: F,
         _available_core_features: &C,
         _enabled_core_features: &mut C,
@@ -723,6 +729,7 @@ where
 {
     fn process_features<'a, F>(
         api_version: u32,
+        min_api_version: &mut u32,
         mut require_extension: F,
         available_core_features: &C,
         enabled_core_features: &mut C,
@@ -743,6 +750,7 @@ where
                     &enabled_extension_features.head,
                     enabled_core_features.as_mut(),
                 );
+                *min_api_version = std::cmp::max(*min_api_version, H::Core::API_VERSION);
             } else {
                 let supported = require_extension(H::META);
                 assert!(
@@ -759,6 +767,7 @@ where
 
         <T as ExtensionsHListProcessFeatures<C>>::process_features(
             api_version,
+            min_api_version,
             require_extension,
             available_core_features,
             enabled_core_features,
@@ -908,10 +917,13 @@ pub trait VulkanExtension {
 // === Core ===
 
 pub trait VulkanCoreTypes {
+    const API_VERSION: u32;
     type Properties: Default;
     type Features: Default;
 
-    fn is_supported(api_version: u32) -> bool;
+    fn is_supported(api_version: u32) -> bool {
+        api_version >= Self::API_VERSION
+    }
 }
 
 pub type VulkanCoreProperties<T> = <T as VulkanCoreTypes>::Properties;
@@ -920,54 +932,45 @@ pub type VulkanCoreFeatures<T> = <T as VulkanCoreTypes>::Features;
 pub struct VulkanCore<const MAJOR: u32, const MINOR: u32>;
 
 impl<const MAJOR: u32, const MINOR: u32> VulkanCore<MAJOR, MINOR> {
-    const API_VERSION: u32 = vk::make_version(MAJOR, MINOR, 0);
+    pub const MAJOR: u32 = MAJOR;
+    pub const MINOR: u32 = MINOR;
 }
 
 pub type VulkanCoreUnknown = VulkanCore<999, 999>;
 
 impl VulkanCoreTypes for VulkanCoreUnknown {
+    const API_VERSION: u32 = vk::make_version(Self::MAJOR, Self::MINOR, 0);
     type Features = NoFeatures;
     type Properties = NoProperties;
 
+    #[inline]
     fn is_supported(_: u32) -> bool {
         false
     }
 }
 
 impl VulkanCoreTypes for VulkanCore<1, 0> {
+    const API_VERSION: u32 = vk::make_version(Self::MAJOR, Self::MINOR, 0);
     type Features = vk::PhysicalDeviceFeatures;
     type Properties = vk::PhysicalDeviceProperties;
-
-    fn is_supported(api_version: u32) -> bool {
-        api_version >= Self::API_VERSION
-    }
 }
 
 impl VulkanCoreTypes for VulkanCore<1, 1> {
+    const API_VERSION: u32 = vk::make_version(Self::MAJOR, Self::MINOR, 0);
     type Features = vk::PhysicalDeviceVulkan11Features;
     type Properties = vk::PhysicalDeviceVulkan11Properties;
-
-    fn is_supported(api_version: u32) -> bool {
-        api_version >= Self::API_VERSION
-    }
 }
 
 impl VulkanCoreTypes for VulkanCore<1, 2> {
+    const API_VERSION: u32 = vk::make_version(Self::MAJOR, Self::MINOR, 0);
     type Features = vk::PhysicalDeviceVulkan12Features;
     type Properties = vk::PhysicalDeviceVulkan12Properties;
-
-    fn is_supported(api_version: u32) -> bool {
-        api_version >= Self::API_VERSION
-    }
 }
 
 impl VulkanCoreTypes for VulkanCore<1, 3> {
+    const API_VERSION: u32 = vk::make_version(Self::MAJOR, Self::MINOR, 0);
     type Features = vk::PhysicalDeviceVulkan13Features;
     type Properties = vk::PhysicalDeviceVulkan13Properties;
-
-    fn is_supported(api_version: u32) -> bool {
-        api_version >= Self::API_VERSION
-    }
 }
 
 // === Properties ===
