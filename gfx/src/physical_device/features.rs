@@ -10,6 +10,54 @@ pub enum DeviceFeature {
     /// [`Buffer`]: crate::Buffer
     BufferDeviceAddress,
 
+    /// Allows using dynamic indexes for accessing arrays of
+    /// type [`DescriptorType::SampledImage`].
+    ///
+    /// [`DescriptorType::SampledImage`]: crate::DescriptorType::SampledImage
+    ShaderSampledImageDynamicIndexing,
+
+    /// Allows using dynamic indexes for accessing arrays of
+    /// type [`DescriptorType::StorageImage`].
+    ///
+    /// [`DescriptorType::StorageImage`]: crate::DescriptorType::StorageImage
+    ShaderStorageImageDynamicIndexing,
+
+    /// Allows using dynamic indexes for accessing arrays of
+    /// type [`DescriptorType::UniformBuffer`].
+    ///
+    /// [`DescriptorType::UniformBuffer`]: crate::DescriptorType::UniformBuffer
+    ShaderUniformBufferDynamicIndexing,
+
+    /// Allows using dynamic indexes for accessing arrays of
+    /// type [`DescriptorType::StorageBuffer`].
+    ///
+    /// [`DescriptorType::StorageBuffer`]: crate::DescriptorType::StorageBuffer
+    ShaderStorageBufferDynamicIndexing,
+
+    /// Allows using non-uniform indexes for accessing arrays of
+    /// type [`DescriptorType::SampledImage`].
+    ///
+    /// [`DescriptorType::SampledImage`]: crate::DescriptorType::SampledImage
+    ShaderSampledImageNonUniformIndexing,
+
+    /// Allows using non-uniform indexes for accessing arrays of
+    /// type [`DescriptorType::StorageImage`].
+    ///
+    /// [`DescriptorType::StorageImage`]: crate::DescriptorType::StorageImage
+    ShaderStorageImageNonUniformIndexing,
+
+    /// Allows using non-uniform indexes for accessing arrays of
+    /// type [`DescriptorType::UniformBuffer`].
+    ///
+    /// [`DescriptorType::UniformBuffer`]: crate::DescriptorType::UniformBuffer
+    ShaderUniformBufferNonUniformIndexing,
+
+    /// Allows using non-uniform indexes for accessing arrays of
+    /// type [`DescriptorType::StorageBuffer`].
+    ///
+    /// [`DescriptorType::StorageBuffer`]: crate::DescriptorType::StorageBuffer
+    ShaderStorageBufferNonUniformIndexing,
+
     /// Adds ability to update a descriptor binding of
     /// type [`DescriptorType::SampledImage`] after
     /// its descriptor set has been bound.
@@ -78,6 +126,7 @@ pub enum DeviceFeature {
 }
 
 pub type AllExtensions = (
+    BaseExtension,
     BufferDeviceAddressExtension,
     DescriptorIndexingExtension,
     DisplayTimingExtension,
@@ -85,6 +134,106 @@ pub type AllExtensions = (
     ScalarBlockLayoutExtension,
     SurfacePresentationExtension,
 );
+
+/// Base Vulkan features.
+pub struct BaseExtension;
+
+impl VulkanExtension for BaseExtension {
+    const META: &'static vk::Extension = &NO_EXTENSION;
+
+    type Core = VulkanCore<1, 0>;
+    type ExtensionFeatures = WithFeatures<BaseFeatures>;
+    type ExtensionProperties = NoProperties;
+
+    fn copy_features(
+        extension_features: &Self::ExtensionFeatures,
+        core_features: &mut VulkanCoreFeatures<Self::Core>,
+    ) {
+        core_features.shader_sampled_image_array_dynamic_indexing =
+            extension_features.shader_sampled_image_array_dynamic_indexing as _;
+        core_features.shader_storage_image_array_dynamic_indexing =
+            extension_features.shader_storage_image_array_dynamic_indexing as _;
+        core_features.shader_uniform_buffer_array_dynamic_indexing =
+            extension_features.shader_uniform_buffer_array_dynamic_indexing as _;
+        core_features.shader_storage_buffer_array_dynamic_indexing =
+            extension_features.shader_storage_buffer_array_dynamic_indexing as _;
+    }
+
+    fn process_features(
+        available: &VulkanCoreFeatures<Self::Core>,
+        enabled: &mut Self::ExtensionFeatures,
+        required: &mut FastHashSet<DeviceFeature>,
+    ) -> bool {
+        let mut changed = false;
+        if required.remove(&DeviceFeature::ShaderSampledImageDynamicIndexing) {
+            assert!(
+                available.shader_sampled_image_array_dynamic_indexing != 0,
+                "`ShaderSampledImageDynamicIndexing` feature is required but not supported"
+            );
+            enabled.shader_sampled_image_array_dynamic_indexing = true;
+            changed = true;
+        }
+        if required.remove(&DeviceFeature::ShaderStorageImageDynamicIndexing) {
+            assert!(
+                available.shader_storage_image_array_dynamic_indexing != 0,
+                "`ShaderStorageImageDynamicIndexing` feature is required but not supported"
+            );
+            enabled.shader_storage_image_array_dynamic_indexing = true;
+            changed = true;
+        }
+        if required.remove(&DeviceFeature::ShaderUniformBufferDynamicIndexing) {
+            assert!(
+                available.shader_uniform_buffer_array_dynamic_indexing != 0,
+                "`ShaderUniformBufferDynamicIndexing` feature is required but not supported"
+            );
+            enabled.shader_uniform_buffer_array_dynamic_indexing = true;
+            changed = true;
+        }
+        if required.remove(&DeviceFeature::ShaderStorageBufferDynamicIndexing) {
+            assert!(
+                available.shader_storage_buffer_array_dynamic_indexing != 0,
+                "`ShaderStorageBufferDynamicIndexing` feature is required but not supported"
+            );
+            enabled.shader_storage_buffer_array_dynamic_indexing = true;
+            changed = true;
+        }
+        changed
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct BaseFeatures {
+    shader_sampled_image_array_dynamic_indexing: bool,
+    shader_storage_image_array_dynamic_indexing: bool,
+    shader_uniform_buffer_array_dynamic_indexing: bool,
+    shader_storage_buffer_array_dynamic_indexing: bool,
+}
+
+unsafe impl vk::Cast for BaseFeatures {
+    type Target = Self;
+
+    #[inline]
+    fn into(self) -> Self::Target {
+        panic!("must never be called");
+    }
+}
+
+unsafe impl vk::ExtendsPhysicalDeviceFeatures2 for BaseFeatures {}
+unsafe impl vk::ExtendsDeviceCreateInfo for BaseFeatures {}
+
+const NO_EXTENSION: vk::Extension = vk::Extension {
+    name: vk::ExtensionName::from_bytes(b"no extension"),
+    number: 0,
+    type_: "device",
+    author: "",
+    contact: "",
+    platform: None,
+    required_extensions: None,
+    required_version: None,
+    deprecated_by: None,
+    obsoleted_by: None,
+    promoted_to: None,
+};
 
 pub struct BufferDeviceAddressExtension;
 
@@ -237,6 +386,38 @@ impl VulkanExtension for DescriptorIndexingExtension {
         required: &mut FastHashSet<DeviceFeature>,
     ) -> bool {
         let mut changed = false;
+        if required.remove(&DeviceFeature::ShaderSampledImageNonUniformIndexing) {
+            assert!(
+                available.shader_sampled_image_array_non_uniform_indexing != 0,
+                "`ShaderSampledImageNonUniformIndexing` feature is required but not supported"
+            );
+            enabled.shader_sampled_image_array_non_uniform_indexing = 1;
+            changed = true;
+        }
+        if required.remove(&DeviceFeature::ShaderStorageImageNonUniformIndexing) {
+            assert!(
+                available.shader_storage_image_array_non_uniform_indexing != 0,
+                "`ShaderStorageImageNonUniformIndexing` feature is required but not supported"
+            );
+            enabled.shader_storage_image_array_non_uniform_indexing = 1;
+            changed = true;
+        }
+        if required.remove(&DeviceFeature::ShaderUniformBufferNonUniformIndexing) {
+            assert!(
+                available.shader_uniform_buffer_array_non_uniform_indexing != 0,
+                "`ShaderUniformBufferNonUniformIndexing` feature is required but not supported"
+            );
+            enabled.shader_uniform_buffer_array_non_uniform_indexing = 1;
+            changed = true;
+        }
+        if required.remove(&DeviceFeature::ShaderStorageBufferNonUniformIndexing) {
+            assert!(
+                available.shader_storage_buffer_array_non_uniform_indexing != 0,
+                "`ShaderStorageBufferNonUniformIndexing` feature is required but not supported"
+            );
+            enabled.shader_storage_buffer_array_non_uniform_indexing = 1;
+            changed = true;
+        }
         if required.remove(&DeviceFeature::DescriptorBindingSampledImageUpdateAfterBind) {
             assert!(
                 available.shader_sampled_image_array_non_uniform_indexing != 0,
