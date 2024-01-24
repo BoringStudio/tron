@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 pub mod util;
+pub mod hlist;
 
 pub type FastHashSet<K> = HashSet<K, ahash::RandomState>;
 pub type FastHashMap<K, V> = HashMap<K, V, ahash::RandomState>;
