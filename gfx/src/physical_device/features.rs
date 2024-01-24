@@ -125,6 +125,35 @@ pub enum DeviceFeature {
     ScalarBlockLayout,
 }
 
+impl DeviceFeature {
+    #[track_caller]
+    fn check(&self, required: &mut FastHashSet<DeviceFeature>, supported: bool) -> bool {
+        let required = required.remove(self);
+        if required {
+            assert!(supported, "`{self:?}` is required but not supported");
+        }
+        required
+    }
+}
+
+macro_rules! process_features {
+    (
+        $available:ident,
+        $enabled:ident,
+        $required:ident,
+        $($ident:ident => $field:ident),*$(,)?
+    ) => {{
+        let mut __changed = false;
+        $(
+            if DeviceFeature::$ident.check($required, $available.$field != 0) {
+                $enabled.$field = 1;
+                __changed = true;
+            }
+        )*
+        __changed
+    }};
+}
+
 pub type AllExtensions = (
     BaseExtension,
     BufferDeviceAddressExtension,
@@ -150,13 +179,13 @@ impl VulkanExtension for BaseExtension {
         core_features: &mut VulkanCoreFeatures<Self::Core>,
     ) {
         core_features.shader_sampled_image_array_dynamic_indexing =
-            extension_features.shader_sampled_image_array_dynamic_indexing as _;
+            extension_features.shader_sampled_image_array_dynamic_indexing;
         core_features.shader_storage_image_array_dynamic_indexing =
-            extension_features.shader_storage_image_array_dynamic_indexing as _;
+            extension_features.shader_storage_image_array_dynamic_indexing;
         core_features.shader_uniform_buffer_array_dynamic_indexing =
-            extension_features.shader_uniform_buffer_array_dynamic_indexing as _;
+            extension_features.shader_uniform_buffer_array_dynamic_indexing;
         core_features.shader_storage_buffer_array_dynamic_indexing =
-            extension_features.shader_storage_buffer_array_dynamic_indexing as _;
+            extension_features.shader_storage_buffer_array_dynamic_indexing;
     }
 
     fn process_features(
@@ -164,49 +193,24 @@ impl VulkanExtension for BaseExtension {
         enabled: &mut Self::ExtensionFeatures,
         required: &mut FastHashSet<DeviceFeature>,
     ) -> bool {
-        let mut changed = false;
-        if required.remove(&DeviceFeature::ShaderSampledImageDynamicIndexing) {
-            assert!(
-                available.shader_sampled_image_array_dynamic_indexing != 0,
-                "`ShaderSampledImageDynamicIndexing` feature is required but not supported"
-            );
-            enabled.shader_sampled_image_array_dynamic_indexing = true;
-            changed = true;
-        }
-        if required.remove(&DeviceFeature::ShaderStorageImageDynamicIndexing) {
-            assert!(
-                available.shader_storage_image_array_dynamic_indexing != 0,
-                "`ShaderStorageImageDynamicIndexing` feature is required but not supported"
-            );
-            enabled.shader_storage_image_array_dynamic_indexing = true;
-            changed = true;
-        }
-        if required.remove(&DeviceFeature::ShaderUniformBufferDynamicIndexing) {
-            assert!(
-                available.shader_uniform_buffer_array_dynamic_indexing != 0,
-                "`ShaderUniformBufferDynamicIndexing` feature is required but not supported"
-            );
-            enabled.shader_uniform_buffer_array_dynamic_indexing = true;
-            changed = true;
-        }
-        if required.remove(&DeviceFeature::ShaderStorageBufferDynamicIndexing) {
-            assert!(
-                available.shader_storage_buffer_array_dynamic_indexing != 0,
-                "`ShaderStorageBufferDynamicIndexing` feature is required but not supported"
-            );
-            enabled.shader_storage_buffer_array_dynamic_indexing = true;
-            changed = true;
-        }
-        changed
+        process_features!(
+            available,
+            enabled,
+            required,
+            ShaderSampledImageDynamicIndexing => shader_sampled_image_array_dynamic_indexing,
+            ShaderStorageImageDynamicIndexing => shader_storage_image_array_dynamic_indexing,
+            ShaderUniformBufferDynamicIndexing => shader_uniform_buffer_array_dynamic_indexing,
+            ShaderStorageBufferDynamicIndexing => shader_storage_buffer_array_dynamic_indexing,
+        )
     }
 }
 
 #[derive(Debug, Default)]
 pub struct BaseFeatures {
-    shader_sampled_image_array_dynamic_indexing: bool,
-    shader_storage_image_array_dynamic_indexing: bool,
-    shader_uniform_buffer_array_dynamic_indexing: bool,
-    shader_storage_buffer_array_dynamic_indexing: bool,
+    shader_sampled_image_array_dynamic_indexing: vk::Bool32,
+    shader_storage_image_array_dynamic_indexing: vk::Bool32,
+    shader_uniform_buffer_array_dynamic_indexing: vk::Bool32,
+    shader_storage_buffer_array_dynamic_indexing: vk::Bool32,
 }
 
 unsafe impl vk::Cast for BaseFeatures {
@@ -260,16 +264,12 @@ impl VulkanExtension for BufferDeviceAddressExtension {
         enabled: &mut Self::ExtensionFeatures,
         required: &mut FastHashSet<DeviceFeature>,
     ) -> bool {
-        let mut changed = false;
-        if required.remove(&DeviceFeature::BufferDeviceAddress) {
-            assert!(
-                availabe.buffer_device_address != 0,
-                "`BufferDeviceAddress` feature is required but not supported"
-            );
-            enabled.buffer_device_address = 1;
-            changed = true;
-        }
-        changed
+        process_features!(
+            availabe,
+            enabled,
+            required,
+            BufferDeviceAddress => buffer_device_address,
+        )
     }
 }
 
@@ -385,96 +385,22 @@ impl VulkanExtension for DescriptorIndexingExtension {
         enabled: &mut Self::ExtensionFeatures,
         required: &mut FastHashSet<DeviceFeature>,
     ) -> bool {
-        let mut changed = false;
-        if required.remove(&DeviceFeature::ShaderSampledImageNonUniformIndexing) {
-            assert!(
-                available.shader_sampled_image_array_non_uniform_indexing != 0,
-                "`ShaderSampledImageNonUniformIndexing` feature is required but not supported"
-            );
-            enabled.shader_sampled_image_array_non_uniform_indexing = 1;
-            changed = true;
-        }
-        if required.remove(&DeviceFeature::ShaderStorageImageNonUniformIndexing) {
-            assert!(
-                available.shader_storage_image_array_non_uniform_indexing != 0,
-                "`ShaderStorageImageNonUniformIndexing` feature is required but not supported"
-            );
-            enabled.shader_storage_image_array_non_uniform_indexing = 1;
-            changed = true;
-        }
-        if required.remove(&DeviceFeature::ShaderUniformBufferNonUniformIndexing) {
-            assert!(
-                available.shader_uniform_buffer_array_non_uniform_indexing != 0,
-                "`ShaderUniformBufferNonUniformIndexing` feature is required but not supported"
-            );
-            enabled.shader_uniform_buffer_array_non_uniform_indexing = 1;
-            changed = true;
-        }
-        if required.remove(&DeviceFeature::ShaderStorageBufferNonUniformIndexing) {
-            assert!(
-                available.shader_storage_buffer_array_non_uniform_indexing != 0,
-                "`ShaderStorageBufferNonUniformIndexing` feature is required but not supported"
-            );
-            enabled.shader_storage_buffer_array_non_uniform_indexing = 1;
-            changed = true;
-        }
-        if required.remove(&DeviceFeature::DescriptorBindingSampledImageUpdateAfterBind) {
-            assert!(
-                available.shader_sampled_image_array_non_uniform_indexing != 0,
-                "`DescriptorBindingSampledImageUpdateAfterBind` feature is required but not supported"
-            );
-            enabled.descriptor_binding_sampled_image_update_after_bind = 1;
-            changed = true;
-        }
-        if required.remove(&DeviceFeature::DescriptorBindingStorageImageUpdateAfterBind) {
-            assert!(
-                available.shader_storage_image_array_non_uniform_indexing != 0,
-                "`DescriptorBindingStorageImageUpdateAfterBind` feature is required but not supported"
-            );
-            enabled.descriptor_binding_storage_image_update_after_bind = 1;
-            changed = true;
-        }
-        if required.remove(&DeviceFeature::DescriptorBindingUniformTexelBufferUpdateAfterBind) {
-            assert!(
-                available.shader_uniform_texel_buffer_array_non_uniform_indexing != 0,
-                "`DescriptorBindingUniformTexelBufferUpdateAfterBind` feature is required but not supported"
-            );
-            enabled.descriptor_binding_uniform_texel_buffer_update_after_bind = 1;
-            changed = true;
-        }
-        if required.remove(&DeviceFeature::DescriptorBindingStorageTexelBufferUpdateAfterBind) {
-            assert!(
-                available.shader_storage_texel_buffer_array_non_uniform_indexing != 0,
-                "`DescriptorBindingStorageTexelBufferUpdateAfterBind` feature is required but not supported"
-            );
-            enabled.descriptor_binding_storage_texel_buffer_update_after_bind = 1;
-            changed = true;
-        }
-        if required.remove(&DeviceFeature::DescriptorBindingUniformBufferUpdateAfterBind) {
-            assert!(
-                available.shader_uniform_buffer_array_non_uniform_indexing != 0,
-                "`DescriptorBindingUniformBufferUpdateAfterBind` feature is required but not supported"
-            );
-            enabled.descriptor_binding_uniform_buffer_update_after_bind = 1;
-            changed = true;
-        }
-        if required.remove(&DeviceFeature::DescriptorBindingStorageBufferUpdateAfterBind) {
-            assert!(
-                available.shader_storage_buffer_array_non_uniform_indexing != 0,
-                "`DescriptorBindingStorageBufferUpdateAfterBind` feature is required but not supported"
-            );
-            enabled.descriptor_binding_storage_buffer_update_after_bind = 1;
-            changed = true;
-        }
-        if required.remove(&DeviceFeature::DescriptorBindingPartiallyBound) {
-            assert!(
-                available.descriptor_binding_partially_bound != 0,
-                "`DescriptorBindingPartiallyBound` feature is required but not supported"
-            );
-            enabled.descriptor_binding_partially_bound = 1;
-            changed = true;
-        }
-        changed
+        process_features!(
+            available,
+            enabled,
+            required,
+            ShaderSampledImageNonUniformIndexing => shader_sampled_image_array_non_uniform_indexing,
+            ShaderStorageImageNonUniformIndexing => shader_storage_image_array_non_uniform_indexing,
+            ShaderUniformBufferNonUniformIndexing => shader_uniform_buffer_array_non_uniform_indexing,
+            ShaderStorageBufferNonUniformIndexing => shader_storage_buffer_array_non_uniform_indexing,
+            DescriptorBindingSampledImageUpdateAfterBind => descriptor_binding_sampled_image_update_after_bind,
+            DescriptorBindingStorageImageUpdateAfterBind => descriptor_binding_storage_image_update_after_bind,
+            DescriptorBindingUniformTexelBufferUpdateAfterBind => descriptor_binding_uniform_texel_buffer_update_after_bind,
+            DescriptorBindingStorageTexelBufferUpdateAfterBind => descriptor_binding_storage_texel_buffer_update_after_bind,
+            DescriptorBindingUniformBufferUpdateAfterBind => descriptor_binding_uniform_buffer_update_after_bind,
+            DescriptorBindingStorageBufferUpdateAfterBind => descriptor_binding_storage_buffer_update_after_bind,
+            DescriptorBindingPartiallyBound => descriptor_binding_partially_bound,
+        )
     }
 }
 
@@ -527,15 +453,7 @@ impl VulkanExtension for SamplerFilterMinMaxExtension {
         _enabled: &mut Self::ExtensionFeatures,
         required: &mut FastHashSet<DeviceFeature>,
     ) -> bool {
-        let mut changed = false;
-        if required.remove(&DeviceFeature::SamplerFilterMinMax) {
-            assert!(
-                available.sampler_filter_minmax != 0,
-                "`SamplerFilterMinMax` feature is required but not supported"
-            );
-            changed = true;
-        }
-        changed
+        DeviceFeature::SamplerFilterMinMax.check(required, available.sampler_filter_minmax != 0)
     }
 }
 
@@ -560,16 +478,12 @@ impl VulkanExtension for ScalarBlockLayoutExtension {
         enabled: &mut Self::ExtensionFeatures,
         required: &mut FastHashSet<DeviceFeature>,
     ) -> bool {
-        let mut changed = false;
-        if required.remove(&DeviceFeature::ScalarBlockLayout) {
-            assert!(
-                available.scalar_block_layout != 0,
-                "`ScalarBlockLayout` feature is required but not supported"
-            );
-            enabled.scalar_block_layout = 1;
-            changed = true;
-        }
-        changed
+        process_features!(
+            available,
+            enabled,
+            required,
+            ScalarBlockLayout => scalar_block_layout,
+        )
     }
 }
 
