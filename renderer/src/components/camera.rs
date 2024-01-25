@@ -1,6 +1,7 @@
+use bevy_ecs::component::Component;
 use glam::{Mat4, Vec3A};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Component)]
 pub struct Camera {
     pub projection: CameraProjection,
     pub view: Mat4,
@@ -15,7 +16,7 @@ impl Default for Camera {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CameraProjection {
     Orhographic {
         /// Width, height and near depth of the orthographic view volume.

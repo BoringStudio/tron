@@ -83,8 +83,8 @@ impl Device {
     pub(crate) fn new(
         logical: vulkanalia::Device,
         physical: vk::PhysicalDevice,
-        properties: DeviceProperties,
-        features: DeviceFeatures,
+        properties: Box<DeviceProperties>,
+        features: Box<DeviceFeatures>,
         queues: impl IntoIterator<Item = QueueId>,
     ) -> Self {
         let allocator = Mutex::new(GpuAllocator::new(
@@ -1569,8 +1569,8 @@ impl PartialEq<WeakDevice> for &Device {
 struct Inner {
     logical: vulkanalia::Device,
     physical: vk::PhysicalDevice,
-    properties: DeviceProperties,
-    features: DeviceFeatures,
+    properties: Box<DeviceProperties>,
+    features: Box<DeviceFeatures>,
     allocator: Mutex<GpuAllocator<vk::DeviceMemory>>,
     descriptors: Mutex<DescriptorAlloc>,
     samplers_cache: FastDashMap<SamplerInfo, Sampler>,

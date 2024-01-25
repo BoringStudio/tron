@@ -2,22 +2,24 @@ use shared::{FastHashMap, FastHashSet};
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::InstanceV1_1;
 
-use self::features::{AllExtensions, NoFeatures, NoProperties, AllExtensionsExt};
+use self::features::{AllExtensions, AllExtensionsExt, NoFeatures, NoProperties};
 use crate::graphics::Graphics;
 use crate::queue::{Queue, QueueFamily, QueueId, QueuesQuery};
 use crate::types::{DeviceLost, OutOfDeviceMemory};
 use crate::util::ToGfx;
 
 pub use self::features::DeviceFeature;
+pub use self::selector::{PhysicalDeviceSelector, PhysicalDeviceSelectorError};
 
 mod features;
+mod selector;
 
 /// A wrapper around Vulkan physical device.
 #[derive(Debug)]
 pub struct PhysicalDevice {
     handle: vk::PhysicalDevice,
-    properties: DeviceProperties,
-    features: DeviceFeatures,
+    properties: Box<DeviceProperties>,
+    features: Box<DeviceFeatures>,
 }
 
 impl PhysicalDevice {
@@ -107,7 +109,7 @@ impl PhysicalDevice {
             }
         };
 
-        let mut core_features = DeviceFeatures::default();
+        let mut core_features = Box::<DeviceFeatures>::default();
         let mut extension_features = AllExtensions::make_features();
 
         // Fill extension features
@@ -116,8 +118,8 @@ impl PhysicalDevice {
             api_version,
             &mut min_api_version,
             require_extension,
-            &self.features,
-            &mut core_features,
+            self.features.as_ref(),
+            core_features.as_mut(),
             &mut extension_features,
             &mut requested_features,
             device_create_info,
@@ -211,6 +213,38 @@ impl PhysicalDevice {
     }
 }
 
+macro_rules! impl_as_ref_mut(
+    ($ident:ident, _: $rest:tt, $($field:ident: $ty:ty),*$(,)?) => {
+        impl AsRef<$rest> for $ident {
+            #[inline]
+            fn as_ref(&self) -> &$rest {
+                &$rest
+            }
+        }
+
+        impl AsMut<$rest> for $ident {
+            #[inline]
+            fn as_mut(&mut self) -> &mut $rest {
+                Box::leak(Box::new($rest))
+            }
+        }
+
+        $(impl AsRef<$ty> for $ident {
+            #[inline]
+            fn as_ref(&self) -> &$ty {
+                &self.$field
+            }
+        }
+
+        impl AsMut<$ty> for $ident {
+            #[inline]
+            fn as_mut(&mut self) -> &mut $ty {
+                &mut self.$field
+            }
+        })*
+    };
+);
+
 /// All physical device properties.
 #[derive(Debug, Default)]
 pub struct DeviceProperties {
@@ -226,75 +260,14 @@ pub struct DeviceProperties {
 unsafe impl Sync for DeviceProperties {}
 unsafe impl Send for DeviceProperties {}
 
-impl AsRef<NoProperties> for DeviceProperties {
-    #[inline]
-    fn as_ref(&self) -> &NoProperties {
-        &NoProperties
-    }
-}
-
-impl AsMut<NoProperties> for DeviceProperties {
-    #[inline]
-    fn as_mut(&mut self) -> &mut NoProperties {
-        Box::leak(Box::new(NoProperties))
-    }
-}
-
-impl AsRef<vk::PhysicalDeviceProperties> for DeviceProperties {
-    #[inline]
-    fn as_ref(&self) -> &vk::PhysicalDeviceProperties {
-        &self.v1_0
-    }
-}
-
-impl AsMut<vk::PhysicalDeviceProperties> for DeviceProperties {
-    #[inline]
-    fn as_mut(&mut self) -> &mut vk::PhysicalDeviceProperties {
-        &mut self.v1_0
-    }
-}
-
-impl AsRef<vk::PhysicalDeviceVulkan11Properties> for DeviceProperties {
-    #[inline]
-    fn as_ref(&self) -> &vk::PhysicalDeviceVulkan11Properties {
-        &self.v1_1
-    }
-}
-
-impl AsMut<vk::PhysicalDeviceVulkan11Properties> for DeviceProperties {
-    #[inline]
-    fn as_mut(&mut self) -> &mut vk::PhysicalDeviceVulkan11Properties {
-        &mut self.v1_1
-    }
-}
-
-impl AsRef<vk::PhysicalDeviceVulkan12Properties> for DeviceProperties {
-    #[inline]
-    fn as_ref(&self) -> &vk::PhysicalDeviceVulkan12Properties {
-        &self.v1_2
-    }
-}
-
-impl AsMut<vk::PhysicalDeviceVulkan12Properties> for DeviceProperties {
-    #[inline]
-    fn as_mut(&mut self) -> &mut vk::PhysicalDeviceVulkan12Properties {
-        &mut self.v1_2
-    }
-}
-
-impl AsRef<vk::PhysicalDeviceVulkan13Properties> for DeviceProperties {
-    #[inline]
-    fn as_ref(&self) -> &vk::PhysicalDeviceVulkan13Properties {
-        &self.v1_3
-    }
-}
-
-impl AsMut<vk::PhysicalDeviceVulkan13Properties> for DeviceProperties {
-    #[inline]
-    fn as_mut(&mut self) -> &mut vk::PhysicalDeviceVulkan13Properties {
-        &mut self.v1_3
-    }
-}
+impl_as_ref_mut!(
+    DeviceProperties,
+    _: NoProperties,
+    v1_0: vk::PhysicalDeviceProperties,
+    v1_1: vk::PhysicalDeviceVulkan11Properties,
+    v1_2: vk::PhysicalDeviceVulkan12Properties,
+    v1_3: vk::PhysicalDeviceVulkan13Properties,
+);
 
 /// All physical device features.
 #[derive(Debug, Default)]
@@ -308,77 +281,16 @@ pub struct DeviceFeatures {
 unsafe impl Sync for DeviceFeatures {}
 unsafe impl Send for DeviceFeatures {}
 
-impl AsRef<NoFeatures> for DeviceFeatures {
-    #[inline]
-    fn as_ref(&self) -> &NoFeatures {
-        &NoFeatures
-    }
-}
+impl_as_ref_mut!(
+    DeviceFeatures,
+    _: NoFeatures,
+    v1_0: vk::PhysicalDeviceFeatures,
+    v1_1: vk::PhysicalDeviceVulkan11Features,
+    v1_2: vk::PhysicalDeviceVulkan12Features,
+    v1_3: vk::PhysicalDeviceVulkan13Features,
+);
 
-impl AsMut<NoFeatures> for DeviceFeatures {
-    #[inline]
-    fn as_mut(&mut self) -> &mut NoFeatures {
-        Box::leak(Box::new(NoFeatures))
-    }
-}
-
-impl AsRef<vk::PhysicalDeviceFeatures> for DeviceFeatures {
-    #[inline]
-    fn as_ref(&self) -> &vk::PhysicalDeviceFeatures {
-        &self.v1_0
-    }
-}
-
-impl AsMut<vk::PhysicalDeviceFeatures> for DeviceFeatures {
-    #[inline]
-    fn as_mut(&mut self) -> &mut vk::PhysicalDeviceFeatures {
-        &mut self.v1_0
-    }
-}
-
-impl AsRef<vk::PhysicalDeviceVulkan11Features> for DeviceFeatures {
-    #[inline]
-    fn as_ref(&self) -> &vk::PhysicalDeviceVulkan11Features {
-        &self.v1_1
-    }
-}
-
-impl AsMut<vk::PhysicalDeviceVulkan11Features> for DeviceFeatures {
-    #[inline]
-    fn as_mut(&mut self) -> &mut vk::PhysicalDeviceVulkan11Features {
-        &mut self.v1_1
-    }
-}
-
-impl AsRef<vk::PhysicalDeviceVulkan12Features> for DeviceFeatures {
-    #[inline]
-    fn as_ref(&self) -> &vk::PhysicalDeviceVulkan12Features {
-        &self.v1_2
-    }
-}
-
-impl AsMut<vk::PhysicalDeviceVulkan12Features> for DeviceFeatures {
-    #[inline]
-    fn as_mut(&mut self) -> &mut vk::PhysicalDeviceVulkan12Features {
-        &mut self.v1_2
-    }
-}
-
-impl AsRef<vk::PhysicalDeviceVulkan13Features> for DeviceFeatures {
-    #[inline]
-    fn as_ref(&self) -> &vk::PhysicalDeviceVulkan13Features {
-        &self.v1_3
-    }
-}
-
-impl AsMut<vk::PhysicalDeviceVulkan13Features> for DeviceFeatures {
-    #[inline]
-    fn as_mut(&mut self) -> &mut vk::PhysicalDeviceVulkan13Features {
-        &mut self.v1_3
-    }
-}
-
-unsafe fn collect_info(handle: vk::PhysicalDevice) -> (DeviceProperties, DeviceFeatures) {
+unsafe fn collect_info(handle: vk::PhysicalDevice) -> (Box<DeviceProperties>, Box<DeviceFeatures>) {
     let graphics = Graphics::get_unchecked();
     let instance = graphics.instance();
     let api_version = graphics.api_version();
@@ -392,8 +304,8 @@ unsafe fn collect_info(handle: vk::PhysicalDevice) -> (DeviceProperties, DeviceF
         .collect::<FastHashSet<_>>();
     let has_extension = |ext: &vk::Extension| -> bool { extensions.contains(&ext.name) };
 
-    let mut core_features = DeviceFeatures::default();
-    let mut core_properties = DeviceProperties::default();
+    let mut core_features = Box::<DeviceFeatures>::default();
+    let mut core_properties = Box::<DeviceProperties>::default();
     let mut properties_mt3 = vk::PhysicalDeviceMaintenance3Properties::builder();
 
     let mut extension_features = AllExtensions::make_features();
@@ -479,14 +391,14 @@ unsafe fn collect_info(handle: vk::PhysicalDevice) -> (DeviceProperties, DeviceF
         api_version,
         has_extension,
         &extension_features,
-        &mut core_features,
+        core_features.as_mut(),
     );
 
     AllExtensions::copy_properties(
         api_version,
         has_extension,
         &extension_properties,
-        &mut core_properties,
+        core_properties.as_mut(),
     );
 
     // Done

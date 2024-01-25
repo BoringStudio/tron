@@ -2,15 +2,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
 use anyhow::{Context, Result};
+use bevy_ecs::entity::Entity;
+use bevy_ecs::system::Resource;
 use shared::Embed;
-use vulkanalia::vk;
 use winit::window::Window;
 
 pub use crate::types::{
-    BoundingSphere, Camera, CameraProjection, Color, CubeMeshGenerator, Frustum, Material,
-    MaterialArray, MaterialHandle, MaterialTag, Mesh, MeshBuilder, MeshGenerator, MeshHandle,
-    Normal, Plane, PlaneMeshGenerator, Position, Sorting, SortingOrder, SortingReason, Tangent,
-    VertexAttribute, VertexAttributeData, VertexAttributeKind, UV0,
+    Color, CubeMeshGenerator, Material, MaterialArray, MaterialHandle, MaterialTag, Mesh,
+    MeshBuilder, MeshGenerator, MeshHandle, Normal, PlaneMeshGenerator, Position, Sorting,
+    SortingOrder, SortingReason, Tangent, VertexAttribute, VertexAttributeData,
+    VertexAttributeKind, UV0,
 };
 
 use crate::managers::{MaterialManager, MeshManager};
@@ -18,13 +19,20 @@ use crate::types::{RawMaterialHandle, RawMeshHandle};
 use crate::util::{BindlessResources, ResourceHandleAllocator, ScatterCopy, ShaderPreprocessor};
 use crate::worker::{RendererWorker, RendererWorkerCallbacks};
 
-mod components;
+pub mod components;
+pub mod systems;
+
 mod managers;
 mod pipelines;
 mod render_passes;
 mod types;
 mod util;
 mod worker;
+
+#[derive(Resource, Default)]
+pub struct MainCamera {
+    pub entity: Option<Entity>,
+}
 
 pub struct RendererBuilder {
     window: Arc<Window>,
@@ -44,17 +52,17 @@ impl RendererBuilder {
         });
 
         let graphics = gfx::Graphics::get_or_init()?;
-        let physical = graphics.get_physical_devices()?.find_best()?;
-        let (device, queue) = physical.create_device(
-            &[
+        let (device, queue) = graphics
+            .get_physical_devices()?
+            .with_required_features(&[
                 gfx::DeviceFeature::SurfacePresentation,
                 gfx::DeviceFeature::DescriptorBindingUniformBufferUpdateAfterBind,
                 gfx::DeviceFeature::DescriptorBindingStorageBufferUpdateAfterBind,
                 gfx::DeviceFeature::DescriptorBindingSampledImageUpdateAfterBind,
                 gfx::DeviceFeature::DescriptorBindingPartiallyBound,
-            ],
-            gfx::SingleQueueQuery::GRAPHICS,
-        )?;
+            ])
+            .find_best()?
+            .create_logical_device(gfx::SingleQueueQuery::GRAPHICS)?;
 
         let mesh_manager = MeshManager::new(&device)?;
 
@@ -366,43 +374,6 @@ struct WorkerCallbacks {
 impl RendererWorkerCallbacks for WorkerCallbacks {
     fn before_present(&self) {
         self.window.pre_present_notify();
-    }
-}
-
-trait PhysicalDevicesExt {
-    fn find_best(self) -> Result<gfx::PhysicalDevice>;
-}
-
-impl PhysicalDevicesExt for Vec<gfx::PhysicalDevice> {
-    fn find_best(mut self) -> Result<gfx::PhysicalDevice> {
-        let mut result = None;
-
-        for (index, physical_device) in self.iter().enumerate() {
-            let properties = physical_device.properties();
-
-            let mut score = 0usize;
-            match properties.v1_0.device_type {
-                vk::PhysicalDeviceType::DISCRETE_GPU => score += 1000,
-                vk::PhysicalDeviceType::INTEGRATED_GPU => score += 100,
-                vk::PhysicalDeviceType::CPU => score += 10,
-                vk::PhysicalDeviceType::VIRTUAL_GPU => score += 1,
-                _ => continue,
-            }
-
-            tracing::info!(
-                name = %properties.v1_0.device_name,
-                ty = ?properties.v1_0.device_type,
-                "found physical device",
-            );
-
-            match &result {
-                Some((_index, best_score)) if *best_score >= score => continue,
-                _ => result = Some((index, score)),
-            }
-        }
-
-        let (index, _) = result.context("no suitable physical device found")?;
-        Ok(self.swap_remove(index))
     }
 }
 

@@ -9,7 +9,7 @@ use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::ExtDebugUtilsExtension as _;
 use vulkanalia::Instance;
 
-use crate::physical::PhysicalDevice;
+use crate::physical::{PhysicalDevice, PhysicalDeviceSelector};
 use crate::types::OutOfDeviceMemory;
 
 /// Graphics instance configuration.
@@ -229,7 +229,7 @@ impl Graphics {
     }
 
     /// Returns the [`PhysicalDevice`]s available on the system.
-    pub fn get_physical_devices(&self) -> Result<Vec<PhysicalDevice>, OutOfDeviceMemory> {
+    pub fn get_physical_devices(&self) -> Result<PhysicalDeviceSelector, OutOfDeviceMemory> {
         let devices =
             unsafe { self.instance.enumerate_physical_devices() }.map_err(|e| match e {
                 vk::ErrorCode::OUT_OF_HOST_MEMORY => crate::out_of_host_memory(),
@@ -237,10 +237,12 @@ impl Graphics {
                 _ => crate::unexpected_vulkan_error(e),
             })?;
 
-        Ok(devices
-            .into_iter()
-            .map(|handle| unsafe { PhysicalDevice::new(handle) })
-            .collect())
+        Ok(PhysicalDeviceSelector::new(
+            devices
+                .into_iter()
+                .map(|handle| unsafe { PhysicalDevice::new(handle) })
+                .collect(),
+        ))
     }
 
     /// Returns the underlying Vulkan instance.

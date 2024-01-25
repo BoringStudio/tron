@@ -12,6 +12,7 @@ pub use self::graphics::{Graphics, InitGraphicsError, InstanceConfig};
 pub use self::layout::{AsStd140, AsStd430, Padded, Padding, Std140, Std430};
 pub use self::physical::{
     CreateDeviceError, DeviceFeature, DeviceFeatures, DeviceProperties, PhysicalDevice,
+    PhysicalDeviceSelector, PhysicalDeviceSelectorError,
 };
 pub use self::queue::{
     PresentError, PresentStatus, Queue, QueueError, QueueFamily, QueueFlags, QueueId,
