@@ -33,8 +33,13 @@ impl RendererWorker {
         let fences = Fences::new(&state.device, FRAMES_IN_FLIGHT)?;
 
         let pass = MainPass::default();
-        let pipeline = OpaqueMeshPipeline::make_descr(&state.device, &state.shader_preprocessor)
-            .map(CachedGraphicsPipeline::new)?;
+        let pipeline = OpaqueMeshPipeline::make_descr(
+            &state.device,
+            &state.shader_preprocessor,
+            &state.frame_resources,
+            &state.bindless_resources,
+        )
+        .map(CachedGraphicsPipeline::new)?;
 
         Ok(Self {
             state,
@@ -91,12 +96,21 @@ impl RendererWorker {
             .duration_since(prev_frame_at)
             .as_secs_f32();
 
-        let _globals_offset = self
+        let globals_dynamic_offset = self
             .state
             .frame_resources
             .flush(time, delta_time, self.frame);
 
-        // TODO: bind bindless graphics pipeline
+        encoder.bind_graphics_descriptor_sets(
+            &self.pipeline.descr().layout,
+            0,
+            &[
+                self.state.frame_resources.descriptor_set(),
+                self.state.bindless_resources.descriptor_set(),
+            ],
+            &[globals_dynamic_offset],
+        );
+
         self.state.mesh_manager.bind_index_buffer(&mut encoder);
 
         {

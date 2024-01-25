@@ -42,9 +42,12 @@ impl FrameResources {
             writes: &[gfx::DescriptorSetWrite {
                 binding: 0,
                 element: 0,
-                data: gfx::DescriptorSlice::UniformBufferDynamic(&[gfx::BufferRange::whole(
-                    buffer.inner.clone(),
-                )]),
+                data: gfx::DescriptorSlice::UniformBufferDynamic(&[gfx::BufferRange {
+                    buffer: buffer.inner.clone(),
+                    offset: 0,
+                    // NOTE: size is one slot, not the whole buffer due to dynamic offsets usage
+                    size: buffer.slot_len as _,
+                }]),
             }],
         }]);
 
@@ -83,18 +86,18 @@ impl FrameResources {
     }
 
     /// Update the uniform buffer and return the byte offset of the updated data
-    pub fn flush(&self, time: f32, delta_time: f32, frame: u32) -> u64 {
+    pub fn flush(&self, time: f32, delta_time: f32, frame: u32) -> u32 {
         let mut globals = self.globals.lock().unwrap();
         globals.time = time;
         globals.delta_time = delta_time;
-        globals.frame = frame;
+        globals.frame_index = frame;
         self.buffer.lock().unwrap().write(&globals)
     }
 }
 
 struct UniformBuffer {
     ptr: *mut MaybeUninit<GpuGlobals>,
-    slot_len: u64,
+    slot_len: u32,
     odd_frame: bool,
     inner: gfx::Buffer,
 }
@@ -130,14 +133,14 @@ impl UniformBuffer {
 
         Ok(Self {
             ptr,
-            slot_len,
+            slot_len: slot_len as u32,
             odd_frame: false,
             inner: buffer.freeze(),
         })
     }
 
-    fn write(&mut self, globals: &Globals) -> u64 {
-        let byte_offset = self.slot_len * self.odd_frame as u64;
+    fn write(&mut self, globals: &Globals) -> u32 {
+        let byte_offset = self.slot_len * self.odd_frame as u32;
         // SAFETY:
         // - `byte_offset` is always less than `self.slot_len * 2`
         // - `self.ptr` is a valid pointer to mapped memory
@@ -163,7 +166,7 @@ struct Globals {
     render_resolution: Vec2,
     time: f32,
     delta_time: f32,
-    frame: u32,
+    frame_index: u32,
 }
 
 impl Default for Globals {
@@ -178,7 +181,7 @@ impl Default for Globals {
             render_resolution: Vec2::ONE,
             time: 0.0,
             delta_time: f32::EPSILON,
-            frame: 0,
+            frame_index: 0,
         }
     }
 }

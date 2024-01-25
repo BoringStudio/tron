@@ -7,22 +7,27 @@ pub struct BindlessResources {
     descriptor_set_layout: gfx::DescriptorSetLayout,
     descriptor_set: gfx::DescriptorSet,
 
+    image_allocator: ImageHandleAllocator,
     uniform_buffer_allocator: UniformBufferHandleAllocator,
     storage_buffer_allocator: StorageBufferHandleAllocator,
-    sampled_image_allocator: SampledImageHandleAllocator,
 }
 
 impl BindlessResources {
     #[tracing::instrument(level = "debug", name = "create_bindless_resources", skip_all)]
     pub fn new(device: &gfx::Device) -> Result<Self> {
-        // TODO: add static samplers here?
-
         // Create descriptor set layout
         let flags = gfx::DescriptorBindingFlags::UPDATE_AFTER_BIND
             | gfx::DescriptorBindingFlags::PARTIALLY_BOUND;
         let descriptor_set_layout =
             device.create_descriptor_set_layout(gfx::DescriptorSetLayoutInfo {
                 bindings: vec![
+                    gfx::DescriptorSetLayoutBinding {
+                        binding: IMAGE_BINDING,
+                        ty: gfx::DescriptorType::CombinedImageSampler,
+                        count: IMAGE_CAPACITY,
+                        stages: gfx::ShaderStageFlags::ALL,
+                        flags,
+                    },
                     gfx::DescriptorSetLayoutBinding {
                         binding: UNIFORM_BUFFER_BINDING,
                         ty: gfx::DescriptorType::UniformBuffer,
@@ -34,13 +39,6 @@ impl BindlessResources {
                         binding: STORAGE_BUFFER_BINDING,
                         ty: gfx::DescriptorType::StorageBuffer,
                         count: STORAGE_BUFFER_CAPACITY,
-                        stages: gfx::ShaderStageFlags::ALL,
-                        flags,
-                    },
-                    gfx::DescriptorSetLayoutBinding {
-                        binding: SAMPLED_IMAGE_BINDING,
-                        ty: gfx::DescriptorType::SampledImage,
-                        count: SAMPLED_IMAGE_CAPACITY,
                         stages: gfx::ShaderStageFlags::ALL,
                         flags,
                     },
@@ -56,9 +54,9 @@ impl BindlessResources {
         Ok(Self {
             descriptor_set_layout,
             descriptor_set,
+            image_allocator: Default::default(),
             uniform_buffer_allocator: Default::default(),
             storage_buffer_allocator: Default::default(),
-            sampled_image_allocator: Default::default(),
         })
     }
 
@@ -71,9 +69,37 @@ impl BindlessResources {
     }
 
     pub fn flush_retired(&self) {
+        self.image_allocator.flush_retired();
         self.uniform_buffer_allocator.flush_retired();
         self.storage_buffer_allocator.flush_retired();
-        self.sampled_image_allocator.flush_retired();
+    }
+
+    pub fn alloc_image(
+        &self,
+        device: &gfx::Device,
+        image: gfx::ImageView,
+        sampler: gfx::Sampler,
+    ) -> SampledImageHandle {
+        let handle = self.image_allocator.alloc();
+
+        device.update_descriptor_sets(&[gfx::UpdateDescriptorSet {
+            set: &self.descriptor_set,
+            writes: &[gfx::DescriptorSetWrite {
+                binding: IMAGE_BINDING,
+                element: handle.index(),
+                data: gfx::DescriptorSlice::CombinedImageSampler(&[gfx::CombinedImageSampler {
+                    view: image,
+                    layout: gfx::ImageLayout::ShaderReadOnlyOptimal,
+                    sampler,
+                }]),
+            }],
+        }]);
+
+        handle
+    }
+
+    pub fn free_image(&self, handle: SampledImageHandle) {
+        self.image_allocator.dealloc(handle);
     }
 
     pub fn alloc_uniform_buffer(
@@ -121,32 +147,6 @@ impl BindlessResources {
     pub fn free_storage_buffer(&self, handle: StorageBufferHandle) {
         self.storage_buffer_allocator.dealloc(handle);
     }
-
-    pub fn alloc_sampled_image(
-        &self,
-        device: &gfx::Device,
-        image: gfx::ImageView,
-    ) -> SampledImageHandle {
-        let handle = self.sampled_image_allocator.alloc();
-
-        device.update_descriptor_sets(&[gfx::UpdateDescriptorSet {
-            set: &self.descriptor_set,
-            writes: &[gfx::DescriptorSetWrite {
-                binding: SAMPLED_IMAGE_BINDING,
-                element: handle.index(),
-                data: gfx::DescriptorSlice::SampledImage(&[(
-                    image,
-                    gfx::ImageLayout::ShaderReadOnlyOptimal,
-                )]),
-            }],
-        }]);
-
-        handle
-    }
-
-    pub fn free_sampled_image(&self, handle: SampledImageHandle) {
-        self.sampled_image_allocator.dealloc(handle);
-    }
 }
 
 #[repr(u8)]
@@ -160,8 +160,7 @@ type UniformBufferHandleAllocator =
     GpuResourceHandleAllocator<{ GpuResourceKind::UniformBuffer as u8 }>;
 type StorageBufferHandleAllocator =
     GpuResourceHandleAllocator<{ GpuResourceKind::StorageBuffer as u8 }>;
-type SampledImageHandleAllocator =
-    GpuResourceHandleAllocator<{ GpuResourceKind::SampledImage as u8 }>;
+type ImageHandleAllocator = GpuResourceHandleAllocator<{ GpuResourceKind::SampledImage as u8 }>;
 
 /// Allocator for GPU resource handles with two-stage deallocation.
 ///
@@ -278,10 +277,10 @@ const HANDLE_VERSION_MASK: u32 = (1 << HANDLE_VERSION_BITS) - 1;
 const HANDLE_KIND_MASK: u32 = (1 << HANDLE_KIND_BITS) - 1;
 const HANDLE_INDEX_MASK: u32 = (1 << HANDLE_INDEX_BITS) - 1;
 
-const UNIFORM_BUFFER_BINDING: u32 = 0;
-const STORAGE_BUFFER_BINDING: u32 = 1;
-const SAMPLED_IMAGE_BINDING: u32 = 2;
+const IMAGE_BINDING: u32 = 0;
+const UNIFORM_BUFFER_BINDING: u32 = 1;
+const STORAGE_BUFFER_BINDING: u32 = 2;
 
-const UNIFORM_BUFFER_CAPACITY: u32 = 1000;
-const STORAGE_BUFFER_CAPACITY: u32 = 1000;
-const SAMPLED_IMAGE_CAPACITY: u32 = 1000;
+const IMAGE_CAPACITY: u32 = 1024;
+const UNIFORM_BUFFER_CAPACITY: u32 = 1024;
+const STORAGE_BUFFER_CAPACITY: u32 = 1024;

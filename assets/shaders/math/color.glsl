@@ -5,4 +5,4 @@ float saturate(float v) {
   return clamp(v, 0.0, 1.0);
 }
 
-#endif
+#endif  // MATH_COLOR_GLSL

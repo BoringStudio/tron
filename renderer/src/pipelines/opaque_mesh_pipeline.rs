@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::util::ShaderPreprocessor;
+use crate::util::{BindlessResources, FrameResources, ShaderPreprocessor};
 
 pub struct OpaqueMeshPipeline;
 
@@ -8,16 +8,21 @@ impl OpaqueMeshPipeline {
     pub fn make_descr(
         device: &gfx::Device,
         shaders: &ShaderPreprocessor,
+        frame_resources: &FrameResources,
+        bindless_resources: &BindlessResources,
     ) -> Result<gfx::GraphicsPipelineDescr> {
         let layout = device.create_pipeline_layout(gfx::PipelineLayoutInfo {
-            sets: Default::default(),
+            sets: vec![
+                frame_resources.descriptor_set_layout().clone(),
+                bindless_resources.descriptor_set_layout().clone(),
+            ],
             push_constants: Default::default(),
         })?;
 
         let shaders = shaders.begin();
 
-        let vertex_shader = shaders.make_vertex_shader(device, "triangle.vert", "main")?;
-        let fragment_shader = shaders.make_fragment_shader(device, "triangle.frag", "main")?;
+        let vertex_shader = shaders.make_vertex_shader(device, "opaque_mesh.vert", "main")?;
+        let fragment_shader = shaders.make_fragment_shader(device, "opaque_mesh.frag", "main")?;
 
         Ok(gfx::GraphicsPipelineDescr {
             vertex_bindings: Vec::new(),

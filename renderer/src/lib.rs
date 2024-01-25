@@ -379,9 +379,11 @@ shared::embed!(
     Shaders("../../assets/shaders") = [
         "math/color.glsl",
         "math/const.glsl",
+        "uniforms/bindless.glsl",
+        "uniforms/globals.glsl",
         "scatter_copy.comp",
-        "triangle.vert",
-        "triangle.frag"
+        "opaque_mesh.vert",
+        "opaque_mesh.frag"
     ]
 );
 
