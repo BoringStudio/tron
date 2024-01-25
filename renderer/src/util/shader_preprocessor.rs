@@ -12,6 +12,7 @@ pub struct ShaderPreprocessor {
     fs: VirtualFs,
     global_defines: FastHashMap<String, Option<String>>,
     optimizations_enabled: bool,
+    debug_info_enabled: bool,
 }
 
 impl ShaderPreprocessor {
@@ -46,6 +47,10 @@ impl ShaderPreprocessor {
         self.optimizations_enabled = enabled;
     }
 
+    pub fn set_debug_info_enabled(&mut self, enabled: bool) {
+        self.debug_info_enabled = enabled;
+    }
+
     pub fn begin(&self) -> ShaderPreprocessorScope<'_> {
         let mut res = ShaderPreprocessorScope {
             inner: self,
@@ -75,6 +80,9 @@ impl ShaderPreprocessor {
             }
         }
         res.set_optimizations_enabled(self.optimizations_enabled);
+        if self.debug_info_enabled {
+            res.options.set_generate_debug_info();
+        }
         res
     }
 }

@@ -41,6 +41,7 @@ pub struct RendererBuilder {
     app_version: (u32, u32, u32),
     validation_layer: bool,
     optimize_shaders: bool,
+    shaders_debug_info_enabled: bool,
 }
 
 impl RendererBuilder {
@@ -70,6 +71,7 @@ impl RendererBuilder {
 
         let mut shader_preprocessor = ShaderPreprocessor::new();
         shader_preprocessor.set_optimizations_enabled(self.optimize_shaders);
+        shader_preprocessor.set_debug_info_enabled(self.shaders_debug_info_enabled);
         for (path, contents) in Shaders::iter() {
             let contents = std::str::from_utf8(contents)
                 .with_context(|| anyhow::anyhow!("invalid shader {path}"))?;
@@ -138,6 +140,11 @@ impl RendererBuilder {
         self.optimize_shaders = optimize_shaders;
         self
     }
+
+    pub fn shaders_debug_info_enabled(mut self, shaders_debug_info_enabled: bool) -> Self {
+        self.shaders_debug_info_enabled = shaders_debug_info_enabled;
+        self
+    }
 }
 
 pub struct Renderer {
@@ -152,6 +159,7 @@ impl Renderer {
             app_version: (0, 0, 1),
             validation_layer: false,
             optimize_shaders: true,
+            shaders_debug_info_enabled: false,
         }
     }
 

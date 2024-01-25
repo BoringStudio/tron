@@ -34,6 +34,10 @@ struct App {
     #[argh(switch)]
     vk_validation_layer: bool,
 
+    /// generate shader debug info
+    #[argh(switch)]
+    vk_debug_shaders: bool,
+
     /// enable X11-specific popup mode
     #[cfg(x11_platform)]
     #[argh(switch)]
@@ -108,6 +112,7 @@ impl App {
         let mut renderer = Renderer::builder(window.clone())
             .app_version((0, 0, 1))
             .validation_layer(self.vk_validation_layer)
+            .shaders_debug_info_enabled(self.vk_debug_shaders)
             .build()?;
 
         // TEMP
