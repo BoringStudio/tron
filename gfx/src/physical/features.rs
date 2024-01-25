@@ -138,9 +138,7 @@ impl DeviceFeature {
 
 macro_rules! process_features {
     (
-        $available:ident,
-        $enabled:ident,
-        $required:ident,
+        { $available:ident, $enabled:ident, $required:ident },
         $($ident:ident => $field:ident),*$(,)?
     ) => {{
         let mut __changed = false;
@@ -168,7 +166,19 @@ pub type AllExtensions = (
 pub struct BaseExtension;
 
 impl VulkanExtension for BaseExtension {
-    const META: &'static vk::Extension = &NO_EXTENSION;
+    const META: &'static vk::Extension = &vk::Extension {
+        name: vk::ExtensionName::from_bytes(b"no extension"),
+        number: 0,
+        type_: "device",
+        author: "",
+        contact: "",
+        platform: None,
+        required_extensions: None,
+        required_version: None,
+        deprecated_by: None,
+        obsoleted_by: None,
+        promoted_to: None,
+    };
 
     type Core = VulkanCore<1, 0>;
     type ExtensionFeatures = WithFeatures<BaseFeatures>;
@@ -194,9 +204,7 @@ impl VulkanExtension for BaseExtension {
         required: &mut FastHashSet<DeviceFeature>,
     ) -> bool {
         process_features!(
-            available,
-            enabled,
-            required,
+            { available, enabled, required },
             ShaderSampledImageDynamicIndexing => shader_sampled_image_array_dynamic_indexing,
             ShaderStorageImageDynamicIndexing => shader_storage_image_array_dynamic_indexing,
             ShaderUniformBufferDynamicIndexing => shader_uniform_buffer_array_dynamic_indexing,
@@ -222,22 +230,10 @@ unsafe impl vk::Cast for BaseFeatures {
     }
 }
 
+// SAFETY: `BaseExtension` is always supported by core, so it will never be
+// passed to `...::push_next`, or it will at least panic if it is.
 unsafe impl vk::ExtendsPhysicalDeviceFeatures2 for BaseFeatures {}
 unsafe impl vk::ExtendsDeviceCreateInfo for BaseFeatures {}
-
-const NO_EXTENSION: vk::Extension = vk::Extension {
-    name: vk::ExtensionName::from_bytes(b"no extension"),
-    number: 0,
-    type_: "device",
-    author: "",
-    contact: "",
-    platform: None,
-    required_extensions: None,
-    required_version: None,
-    deprecated_by: None,
-    obsoleted_by: None,
-    promoted_to: None,
-};
 
 pub struct BufferDeviceAddressExtension;
 
@@ -260,14 +256,12 @@ impl VulkanExtension for BufferDeviceAddressExtension {
     }
 
     fn process_features(
-        availabe: &VulkanCoreFeatures<Self::Core>,
+        available: &VulkanCoreFeatures<Self::Core>,
         enabled: &mut Self::ExtensionFeatures,
         required: &mut FastHashSet<DeviceFeature>,
     ) -> bool {
         process_features!(
-            availabe,
-            enabled,
-            required,
+            { available, enabled, required },
             BufferDeviceAddress => buffer_device_address,
         )
     }
@@ -386,9 +380,7 @@ impl VulkanExtension for DescriptorIndexingExtension {
         required: &mut FastHashSet<DeviceFeature>,
     ) -> bool {
         process_features!(
-            available,
-            enabled,
-            required,
+            { available, enabled, required },
             ShaderSampledImageNonUniformIndexing => shader_sampled_image_array_non_uniform_indexing,
             ShaderStorageImageNonUniformIndexing => shader_storage_image_array_non_uniform_indexing,
             ShaderUniformBufferNonUniformIndexing => shader_uniform_buffer_array_non_uniform_indexing,
@@ -479,9 +471,7 @@ impl VulkanExtension for ScalarBlockLayoutExtension {
         required: &mut FastHashSet<DeviceFeature>,
     ) -> bool {
         process_features!(
-            available,
-            enabled,
-            required,
+            { available, enabled, required },
             ScalarBlockLayout => scalar_block_layout,
         )
     }
@@ -507,7 +497,7 @@ impl VulkanExtension for SurfacePresentationExtension {
 
 // === Stuff ===
 
-pub trait VulkanExtensionsCollection {
+pub trait AllExtensionsExt {
     type Extensions: ExtensionsHList;
 
     fn make_features() -> <Self::Extensions as ExtensionsHList>::Features {
@@ -618,13 +608,13 @@ pub trait VulkanExtensionsCollection {
     }
 }
 
-impl VulkanExtensionsCollection for () {
+impl AllExtensionsExt for () {
     type Extensions = HNil;
 }
 
 macro_rules! impl_vulkan_extensions_collection {
     ($($ty:ident),+$(,)?) => {
-        impl<$($ty),*> VulkanExtensionsCollection for ($($ty),*,)
+        impl<$($ty),*> AllExtensionsExt for ($($ty),*,)
         where
             $($ty: VulkanExtension),*
         {

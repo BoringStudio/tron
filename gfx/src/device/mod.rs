@@ -17,7 +17,7 @@ pub use self::descriptor_alloc::DescriptorAllocError;
 use self::descriptor_alloc::DescriptorAlloc;
 use self::epochs::Epochs;
 use crate::graphics::Graphics;
-use crate::physical_device::{DeviceFeatures, DeviceProperties};
+use crate::physical::{DeviceFeatures, DeviceProperties};
 use crate::queue::QueueId;
 use crate::resources::{
     Blending, Buffer, BufferInfo, BufferUsage, BufferView, BufferViewInfo, ColorBlend,

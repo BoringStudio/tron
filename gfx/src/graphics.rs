@@ -9,7 +9,7 @@ use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::ExtDebugUtilsExtension as _;
 use vulkanalia::Instance;
 
-use crate::physical_device::PhysicalDevice;
+use crate::physical::PhysicalDevice;
 use crate::types::OutOfDeviceMemory;
 
 /// Graphics instance configuration.

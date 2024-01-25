@@ -1,4 +1,3 @@
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -11,10 +10,6 @@ use crate::RendererState;
 
 pub trait RendererWorkerCallbacks: Send + Sync + 'static {
     fn before_present(&self);
-}
-
-pub struct RendererWorkerConfig {
-    pub frames_in_flight: NonZeroUsize,
 }
 
 pub struct RendererWorker {
@@ -34,11 +29,12 @@ pub struct RendererWorker {
 impl RendererWorker {
     pub fn new(
         state: Arc<RendererState>,
-        config: RendererWorkerConfig,
         callbacks: Box<dyn RendererWorkerCallbacks>,
         surface: gfx::Surface,
     ) -> Result<Self> {
-        let fences = Fences::new(&state.device, config.frames_in_flight)?;
+        const FRAMES_IN_FLIGHT: usize = 2;
+
+        let fences = Fences::new(&state.device, FRAMES_IN_FLIGHT)?;
 
         let pass = MainPass::default();
         let pipeline = OpaqueMeshPipeline::make_descr(&state.device, &state.shader_preprocessor)
@@ -145,8 +141,10 @@ struct Fences {
 }
 
 impl Fences {
-    fn new(device: &gfx::Device, count: NonZeroUsize) -> Result<Self, gfx::OutOfDeviceMemory> {
-        let fences = (0..count.get())
+    fn new(device: &gfx::Device, count: usize) -> Result<Self, gfx::OutOfDeviceMemory> {
+        assert!(count > 0, "frames in flight must be greater than 0");
+
+        let fences = (0..count)
             .map(|_| device.create_fence())
             .collect::<Result<Box<[_]>, _>>()?;
 

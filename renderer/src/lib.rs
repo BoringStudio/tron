@@ -1,4 +1,3 @@
-use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
@@ -17,8 +16,9 @@ pub use crate::types::{
 use crate::managers::{MaterialManager, MeshManager};
 use crate::types::{RawMaterialHandle, RawMeshHandle};
 use crate::util::{BindlessResources, ResourceHandleAllocator, ScatterCopy, ShaderPreprocessor};
-use crate::worker::{RendererWorker, RendererWorkerCallbacks, RendererWorkerConfig};
+use crate::worker::{RendererWorker, RendererWorkerCallbacks};
 
+mod components;
 mod managers;
 mod pipelines;
 mod render_passes;
@@ -30,7 +30,6 @@ pub struct RendererBuilder {
     window: Arc<Window>,
     app_version: (u32, u32, u32),
     validation_layer: bool,
-    frames_in_flight: NonZeroUsize,
     optimize_shaders: bool,
 }
 
@@ -89,9 +88,6 @@ impl RendererBuilder {
 
         let mut worker = RendererWorker::new(
             state.clone(),
-            RendererWorkerConfig {
-                frames_in_flight: self.frames_in_flight,
-            },
             Box::new(WorkerCallbacks {
                 window: self.window.clone(),
             }),
@@ -130,11 +126,6 @@ impl RendererBuilder {
         self
     }
 
-    pub fn frames_in_flight(mut self, frames_in_flight: usize) -> Self {
-        self.frames_in_flight = frames_in_flight.try_into().unwrap();
-        self
-    }
-
     pub fn optimize_shaders(mut self, optimize_shaders: bool) -> Self {
         self.optimize_shaders = optimize_shaders;
         self
@@ -152,7 +143,6 @@ impl Renderer {
             window,
             app_version: (0, 0, 1),
             validation_layer: false,
-            frames_in_flight: NonZeroUsize::new(2).unwrap(),
             optimize_shaders: true,
         }
     }

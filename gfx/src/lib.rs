@@ -10,7 +10,7 @@ pub use self::encoder::{
 };
 pub use self::graphics::{Graphics, InitGraphicsError, InstanceConfig};
 pub use self::layout::{AsStd140, AsStd430, Padded, Padding, Std140, Std430};
-pub use self::physical_device::{
+pub use self::physical::{
     CreateDeviceError, DeviceFeature, DeviceFeatures, DeviceProperties, PhysicalDevice,
 };
 pub use self::queue::{
@@ -49,7 +49,7 @@ mod device;
 mod encoder;
 mod graphics;
 mod layout;
-mod physical_device;
+mod physical;
 mod queue;
 mod resources;
 mod surface;

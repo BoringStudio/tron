@@ -2,7 +2,7 @@ use shared::{FastHashMap, FastHashSet};
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::InstanceV1_1;
 
-use self::features::{AllExtensions, NoFeatures, NoProperties, VulkanExtensionsCollection};
+use self::features::{AllExtensions, NoFeatures, NoProperties, AllExtensionsExt};
 use crate::graphics::Graphics;
 use crate::queue::{Queue, QueueFamily, QueueId, QueuesQuery};
 use crate::types::{DeviceLost, OutOfDeviceMemory};
