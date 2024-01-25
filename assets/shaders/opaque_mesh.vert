@@ -12,6 +12,10 @@ void main() {
   vec3 prev_color = colors[gl_VertexIndex];
   vec3 next_color = colors[(gl_VertexIndex + 1) % 3];
 
-  gl_Position = vec4(positions[gl_VertexIndex], 1.0f);
+  float image_aspect = RENDER_RESOLUTION.x / RENDER_RESOLUTION.y;
+  vec3 position = positions[gl_VertexIndex];
+  position.x /= image_aspect;
+
+  gl_Position = vec4(position, 1.0f);
   outColor = mix(prev_color, next_color, sin(TIME));
 }
