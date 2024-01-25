@@ -15,6 +15,7 @@ pub struct MainPass {
 }
 
 impl MainPass {
+    #[tracing::instrument(level = "debug", name = "create_main_pass", skip_all)]
     fn get_or_init_framebuffer(
         &mut self,
         device: &gfx::Device,

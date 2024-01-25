@@ -16,8 +16,10 @@ pub use crate::types::{
 
 use crate::managers::{MaterialManager, MeshManager};
 use crate::types::{RawMaterialHandle, RawMeshHandle};
-use crate::util::{BindlessResources, ResourceHandleAllocator, ScatterCopy, ShaderPreprocessor};
-use crate::worker::{RendererWorker, RendererWorkerCallbacks};
+use crate::util::{
+    BindlessResources, FrameResources, ResourceHandleAllocator, ScatterCopy, ShaderPreprocessor,
+};
+use crate::worker::RendererWorker;
 
 pub mod components;
 pub mod systems;
@@ -75,6 +77,7 @@ impl RendererBuilder {
         }
 
         let scatter_copy = ScatterCopy::new(&device, &shader_preprocessor)?;
+        let frame_resources = FrameResources::new(&device)?;
         let bindless_resources = BindlessResources::new(&device)?;
 
         let mut surface = device.create_surface(self.window.clone())?;
@@ -82,25 +85,22 @@ impl RendererBuilder {
 
         let state = Arc::new(RendererState {
             is_running: AtomicBool::new(true),
+            window_resized: AtomicBool::new(true),
             worker_barrier: LoopBarrier::default(),
             instructions: InstructionQueue::default(),
             mesh_manager,
             synced_managers: Default::default(),
             handles: Default::default(),
             scatter_copy,
+            frame_resources,
             bindless_resources,
             shader_preprocessor,
+            window: self.window,
             queue,
             device,
         });
 
-        let mut worker = RendererWorker::new(
-            state.clone(),
-            Box::new(WorkerCallbacks {
-                window: self.window.clone(),
-            }),
-            surface,
-        )?;
+        let mut worker = RendererWorker::new(state.clone(), surface)?;
 
         let worker_thread = std::thread::spawn({
             let state = state.clone();
@@ -187,8 +187,12 @@ pub struct RendererState {
     handles: RendererStateHandles,
 
     scatter_copy: ScatterCopy,
+    frame_resources: FrameResources,
     bindless_resources: BindlessResources,
     shader_preprocessor: ShaderPreprocessor,
+
+    window: Arc<Window>,
+    window_resized: AtomicBool,
     queue: gfx::Queue,
 
     // NOTE: device must be dropped last
@@ -203,6 +207,10 @@ impl RendererState {
 
     pub fn notify_draw(&self) {
         self.worker_barrier.notify();
+    }
+
+    pub fn notify_resized(&self) {
+        self.window_resized.store(true, Ordering::Release);
     }
 
     pub fn add_mesh(self: &Arc<Self>, mesh: &Mesh) -> Result<MeshHandle> {
@@ -364,16 +372,6 @@ impl LoopBarrier {
     fn notify(&self) {
         *self.state.lock().unwrap() = true;
         self.condvar.notify_one();
-    }
-}
-
-struct WorkerCallbacks {
-    window: Arc<Window>,
-}
-
-impl RendererWorkerCallbacks for WorkerCallbacks {
-    fn before_present(&self) {
-        self.window.pre_present_notify();
     }
 }
 

@@ -1,4 +1,6 @@
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::Result;
 use bumpalo::Bump;
@@ -8,13 +10,8 @@ use crate::pipelines::{CachedGraphicsPipeline, OpaqueMeshPipeline, RenderPassEnc
 use crate::render_passes::{EncoderExt, MainPass, MainPassInput};
 use crate::RendererState;
 
-pub trait RendererWorkerCallbacks: Send + Sync + 'static {
-    fn before_present(&self);
-}
-
 pub struct RendererWorker {
     state: Arc<RendererState>,
-    callbacks: Box<dyn RendererWorkerCallbacks>,
 
     pass: MainPass,
     pipeline: CachedGraphicsPipeline,
@@ -24,14 +21,13 @@ pub struct RendererWorker {
 
     alloc: Bump,
     non_optimal_count: usize,
+    started_at: Instant,
+    prev_frame_at: Instant,
+    frame: u32,
 }
 
 impl RendererWorker {
-    pub fn new(
-        state: Arc<RendererState>,
-        callbacks: Box<dyn RendererWorkerCallbacks>,
-        surface: gfx::Surface,
-    ) -> Result<Self> {
+    pub fn new(state: Arc<RendererState>, surface: gfx::Surface) -> Result<Self> {
         const FRAMES_IN_FLIGHT: usize = 2;
 
         let fences = Fences::new(&state.device, FRAMES_IN_FLIGHT)?;
@@ -42,13 +38,15 @@ impl RendererWorker {
 
         Ok(Self {
             state,
-            callbacks,
             pass,
             pipeline,
             fences,
             surface,
             non_optimal_count: 0,
             alloc: Bump::default(),
+            started_at: Instant::now(),
+            prev_frame_at: Instant::now(),
+            frame: 0,
         })
     }
 
@@ -73,6 +71,30 @@ impl RendererWorker {
             encoder.execute_commands(std::iter::once(secondary.finish()?));
         }
         self.state.eval_instructions(&mut encoder)?;
+
+        if self
+            .state
+            .window_resized
+            .compare_exchange(true, false, Ordering::Release, Ordering::Relaxed)
+            .is_ok()
+        {
+            let window_size = self.state.window.inner_size();
+            self.state
+                .frame_resources
+                .set_render_resolution(window_size.width, window_size.height);
+        }
+
+        let prev_frame_at = std::mem::replace(&mut self.prev_frame_at, Instant::now());
+        let time = self.started_at.elapsed().as_secs_f32();
+        let delta_time = self
+            .prev_frame_at
+            .duration_since(prev_frame_at)
+            .as_secs_f32();
+
+        let _globals_offset = self
+            .state
+            .frame_resources
+            .flush(time, delta_time, self.frame);
 
         // TODO: bind bindless graphics pipeline
         self.state.mesh_manager.bind_index_buffer(&mut encoder);
@@ -108,7 +130,7 @@ impl RendererWorker {
         {
             profiling::scope!("queue_present");
 
-            self.callbacks.before_present();
+            self.state.window.pre_present_notify();
             match queue.present(surface_image)? {
                 gfx::PresentStatus::Ok => {}
                 gfx::PresentStatus::Suboptimal => is_optimal = false,
@@ -131,6 +153,7 @@ impl RendererWorker {
         }
 
         profiling::finish_frame!();
+        self.frame += 1;
         Ok(())
     }
 }

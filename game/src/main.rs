@@ -144,6 +144,7 @@ impl App {
                         }
                         WindowEvent::Resized(size) => {
                             minimized = size.width == 0 || size.height == 0;
+                            renderer_state.notify_resized();
                         }
                         WindowEvent::CloseRequested => {
                             renderer_state.set_running(false);

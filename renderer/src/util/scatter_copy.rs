@@ -24,6 +24,7 @@ pub struct ScatterCopy {
 }
 
 impl ScatterCopy {
+    #[tracing::instrument(level = "debug", name = "create_scatter_copy", skip_all)]
     pub fn new(device: &gfx::Device, shader_preprocessor: &ShaderPreprocessor) -> Result<Self> {
         let shader = shader_preprocessor.begin().make_compute_shader(
             device,

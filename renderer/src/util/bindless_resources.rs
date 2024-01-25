@@ -13,6 +13,7 @@ pub struct BindlessResources {
 }
 
 impl BindlessResources {
+    #[tracing::instrument(level = "debug", name = "create_bindless_resources", skip_all)]
     pub fn new(device: &gfx::Device) -> Result<Self> {
         // TODO: add static samplers here?
 
