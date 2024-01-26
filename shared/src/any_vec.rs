@@ -1,11 +1,11 @@
-pub struct MaterialData {
+pub struct AnyVec {
     ptr: *mut u8,
     len: usize,
     capacity: usize,
     metadata: &'static VecMetadata,
 }
 
-impl MaterialData {
+impl AnyVec {
     pub fn new<T: Send + Sync>() -> Self {
         Self::from(Vec::<T>::new())
     }
@@ -20,9 +20,9 @@ impl MaterialData {
     /// # Safety
     /// The following must be true:
     /// - `T` must be an original type of `Vec<T>`.
-    pub unsafe fn downcast_mut<T>(&mut self) -> MaterialDataGuard<T> {
+    pub unsafe fn downcast_mut<T>(&mut self) -> AnyVecGuard<T> {
         let vec = self.swap_vec(Vec::new());
-        MaterialDataGuard { vec, data: self }
+        AnyVecGuard { vec, data: self }
     }
 
     /// # Safety
@@ -36,13 +36,13 @@ impl MaterialData {
         std::mem::swap(&mut self.ptr, &mut ptr);
         std::mem::swap(&mut self.len, &mut length);
         std::mem::swap(&mut self.capacity, &mut capacity);
-        // SAFETY: these values came from us, and we always leave ourself in
+        // SAFETY: these values came from us, and we always leave ourselves in
         // a valid state
         Vec::from_raw_parts(ptr.cast(), length, capacity)
     }
 }
 
-impl Drop for MaterialData {
+impl Drop for AnyVec {
     fn drop(&mut self) {
         // SAFETY:
         // - `self.ptr` was aquired from a `Vec<T>`.
@@ -52,7 +52,7 @@ impl Drop for MaterialData {
     }
 }
 
-impl<T: Send + Sync> From<Vec<T>> for MaterialData {
+impl<T: Send + Sync> From<Vec<T>> for AnyVec {
     fn from(vec: Vec<T>) -> Self {
         let mut vec = std::mem::ManuallyDrop::new(vec);
         let ptr = vec.as_mut_ptr().cast();
@@ -69,24 +69,23 @@ impl<T: Send + Sync> From<Vec<T>> for MaterialData {
     }
 }
 
-// SAFETY: `MaterialData` can only be constructed from `Vec<T>`
-// where `T: Send + Sync`.
-unsafe impl Send for MaterialData {}
-unsafe impl Sync for MaterialData {}
+// SAFETY: `AnyVec` can only be constructed from `Vec<T>` where `T: Send + Sync`.
+unsafe impl Send for AnyVec {}
+unsafe impl Sync for AnyVec {}
 
-pub struct MaterialDataGuard<'a, T> {
+pub struct AnyVecGuard<'a, T> {
     vec: Vec<T>,
-    data: &'a mut MaterialData,
+    data: &'a mut AnyVec,
 }
 
-impl<'a, T> Drop for MaterialDataGuard<'a, T> {
+impl<'a, T> Drop for AnyVecGuard<'a, T> {
     fn drop(&mut self) {
         // SAFETY: `T` is the same type as used to construct `self.data`.
         unsafe { self.data.swap_vec(std::mem::take(&mut self.vec)) };
     }
 }
 
-impl<T> std::ops::Deref for MaterialDataGuard<'_, T> {
+impl<T> std::ops::Deref for AnyVecGuard<'_, T> {
     type Target = Vec<T>;
 
     #[inline]
@@ -95,7 +94,7 @@ impl<T> std::ops::Deref for MaterialDataGuard<'_, T> {
     }
 }
 
-impl<T> std::ops::DerefMut for MaterialDataGuard<'_, T> {
+impl<T> std::ops::DerefMut for AnyVecGuard<'_, T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.vec

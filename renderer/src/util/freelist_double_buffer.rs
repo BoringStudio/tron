@@ -2,55 +2,33 @@ use anyhow::Result;
 
 use crate::util::{ScatterCopy, ScatterData};
 
-pub struct MaterialBuffer {
+pub struct FreelistDoubleBuffer {
     targets: [Target; 2],
-    current_target: bool,
-    reserved_count: usize,
+    odd_target: bool,
+    reserved_count: u32,
 }
 
-impl MaterialBuffer {
-    const INITIAL_CAPACITY: usize = 16;
-
-    pub fn new<T: gfx::Std430>(device: &gfx::Device) -> Result<Self, gfx::OutOfDeviceMemory> {
-        fn new_impl(
-            device: &gfx::Device,
-            align_mask: u64,
-            item_size: usize,
-        ) -> Result<MaterialBuffer, gfx::OutOfDeviceMemory> {
-            Ok(MaterialBuffer {
-                targets: [
-                    Target::new(
-                        device,
-                        align_mask,
-                        item_size,
-                        MaterialBuffer::INITIAL_CAPACITY,
-                    )?,
-                    Target::new(
-                        device,
-                        align_mask,
-                        item_size,
-                        MaterialBuffer::INITIAL_CAPACITY,
-                    )?,
-                ],
-                current_target: false,
-                reserved_count: MaterialBuffer::INITIAL_CAPACITY,
-            })
+impl FreelistDoubleBuffer {
+    pub fn with_capacity(initial_capacity: u32) -> Self {
+        FreelistDoubleBuffer {
+            targets: Default::default(),
+            odd_target: false,
+            reserved_count: initial_capacity as u32,
         }
-
-        new_impl(device, T::ALIGN_MASK, std::mem::size_of::<T>())
     }
 
-    pub fn update_slot(&mut self, slot: usize) {
-        let target = &mut self.targets[self.current_target as usize];
+    pub fn update_slot(&mut self, slot: u32) {
+        let target = &mut self.targets[self.odd_target as usize];
 
         if slot > self.reserved_count {
-            self.reserved_count = slot.next_power_of_two();
+            self.reserved_count = slot.checked_next_power_of_two().expect("too many slots");
         }
         target.updated_slots.insert(slot);
     }
 
     /// # Safety
-    /// - `T` must be the same type as the one used to construct the buffer.
+    /// - `T` must be the same type on each invocation.
+    #[inline]
     pub unsafe fn flush<'a, T, F>(
         &'a mut self,
         device: &gfx::Device,
@@ -60,78 +38,96 @@ impl MaterialBuffer {
     ) -> Result<&'a gfx::Buffer>
     where
         T: gfx::Std430,
-        F: FnMut(usize) -> T,
+        F: FnMut(u32) -> T,
     {
-        let item_size = std::mem::size_of::<T>();
+        let mut item_size = std::mem::size_of::<T>();
+
+        // TEMP: align `item_size` to align mask. Will not be needed when
+        // `Std430GpuObject` array padding is correct.
+        if item_size & T::ALIGN_MASK as usize != 0 {
+            item_size += T::ALIGN_MASK as usize + 1 - (item_size & T::ALIGN_MASK as usize);
+        }
 
         let (current_target, prev_target) = {
             let [front, back] = &mut self.targets;
-            if self.current_target {
+            if self.odd_target {
                 (back, front)
             } else {
                 (front, back)
             }
         };
 
-        // NOTE: `reserved_count` is eventially updated on `update_index` calls.
-        if self.reserved_count != current_target.current_count {
-            let buffer = make_buffer(
-                device,
-                T::ALIGN_MASK,
-                (item_size * self.reserved_count) as u64,
-            )?;
-            let old_buffer = std::mem::replace(&mut current_target.buffer, buffer);
+        // NOTE: `reserved_count` is eventually updated on `update_index` calls.
+        let (current_target_buffer, updated_slots) = current_target.prepare(
+            device,
+            encoder,
+            self.reserved_count,
+            item_size,
+            T::ALIGN_MASK,
+        )?;
 
-            encoder.copy_buffer(
-                &old_buffer,
-                &current_target.buffer,
-                &[gfx::BufferCopy {
-                    src_offset: 0,
-                    dst_offset: 0,
-                    size: (item_size * current_target.current_count) as u64,
-                }],
-            );
-
-            current_target.current_count = self.reserved_count;
+        if updated_slots.is_empty() && prev_target.updated_slots.is_empty() {
+            return Ok(current_target_buffer);
         }
 
-        if current_target.updated_slots.is_empty() && prev_target.updated_slots.is_empty() {
-            return Ok(&current_target.buffer);
-        }
-
-        let data = current_target
-            .updated_slots
+        let data = updated_slots
             .merge_iter(&prev_target.updated_slots)
-            .map(|slot| ScatterData::new((item_size * slot) as u32, get_data(slot)));
+            .map(|slot| ScatterData::new(item_size as u32 * slot, get_data(slot)));
 
-        scatter_copy.execute(device, encoder, &current_target.buffer, data)?;
+        scatter_copy.execute(device, encoder, current_target_buffer, data)?;
 
         // Clear previous target updated slots as they are no longer needed.
         prev_target.updated_slots.clear();
 
-        self.current_target = !self.current_target;
-        Ok(&current_target.buffer)
+        self.odd_target = !self.odd_target;
+        Ok(current_target_buffer)
     }
 }
 
+#[derive(Default)]
 struct Target {
-    buffer: gfx::Buffer,
-    current_count: usize,
+    buffer: Option<gfx::Buffer>,
+    current_count: u32,
     updated_slots: UpdatedSlots,
 }
 
 impl Target {
-    fn new(
+    fn prepare<'a>(
+        &'a mut self,
         device: &gfx::Device,
-        align_mask: u64,
+        encoder: &mut gfx::Encoder,
+        reserved_count: u32,
         item_size: usize,
-        capacity: usize,
-    ) -> Result<Self, gfx::OutOfDeviceMemory> {
-        Ok(Target {
-            buffer: make_buffer(device, align_mask, (item_size * capacity) as u64)?,
-            current_count: capacity,
-            updated_slots: Default::default(),
-        })
+        align_mask: u64,
+    ) -> Result<(&'a mut gfx::Buffer, &'a mut UpdatedSlots), gfx::OutOfDeviceMemory> {
+        if self.buffer.is_some() && self.current_count == reserved_count {
+            // SAFETY: `self.buffer` is `Some`
+            // NOTE: borrow checker is mad, I am too!
+            let buffer = unsafe { self.buffer.as_mut().unwrap_unchecked() };
+            return Ok((buffer, &mut self.updated_slots));
+        }
+
+        let old_buffer = self.buffer.take();
+        let buffer = self.buffer.get_or_insert(make_buffer(
+            device,
+            align_mask,
+            item_size as u64 * reserved_count as u64,
+        )?);
+
+        if let Some(old_buffer) = old_buffer {
+            encoder.copy_buffer(
+                &old_buffer,
+                buffer,
+                &[gfx::BufferCopy {
+                    src_offset: 0,
+                    dst_offset: 0,
+                    size: item_size as u64 * self.current_count as u64,
+                }],
+            );
+        }
+
+        self.current_count = reserved_count;
+        Ok((buffer, &mut self.updated_slots))
     }
 }
 
@@ -166,9 +162,9 @@ impl Default for UpdatedSlots {
 }
 
 impl UpdatedSlots {
-    fn insert(&mut self, slot: usize) {
-        let chunk = slot / BITS_PER_CHUNK;
-        let bit = slot % BITS_PER_CHUNK;
+    fn insert(&mut self, slot: u32) {
+        let chunk = (slot as usize) / BITS_PER_CHUNK;
+        let bit = (slot as usize) % BITS_PER_CHUNK;
 
         if chunk >= self.chunks.len() {
             self.chunks.resize(chunk + 1, 0);
@@ -189,7 +185,7 @@ impl UpdatedSlots {
     fn merge_iter<'a>(
         &'a self,
         prev: &'a UpdatedSlots,
-    ) -> impl Iterator<Item = usize> + ExactSizeIterator + 'a {
+    ) -> impl Iterator<Item = u32> + ExactSizeIterator + 'a {
         let cur_len = self.chunks.len();
         let prev_len = prev.chunks.len();
 
@@ -214,7 +210,7 @@ impl UpdatedSlots {
                 .enumerate()
                 .flat_map(|(i, chunk)| ChunkIter {
                     chunk,
-                    offset: i * BITS_PER_CHUNK,
+                    offset: (i * BITS_PER_CHUNK) as u32,
                 }),
             total,
         }
@@ -228,9 +224,9 @@ struct ChunksIter<I> {
 
 impl<I> Iterator for ChunksIter<I>
 where
-    I: Iterator<Item = usize>,
+    I: Iterator<Item = u32>,
 {
-    type Item = usize;
+    type Item = u32;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -243,15 +239,15 @@ where
     }
 }
 
-impl<I> ExactSizeIterator for ChunksIter<I> where I: Iterator<Item = usize> {}
+impl<I> ExactSizeIterator for ChunksIter<I> where I: Iterator<Item = u32> {}
 
 struct ChunkIter {
     chunk: SlotChunk,
-    offset: usize,
+    offset: u32,
 }
 
 impl Iterator for ChunkIter {
-    type Item = usize;
+    type Item = u32;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.chunk == 0 {
@@ -266,7 +262,7 @@ impl Iterator for ChunkIter {
         // 10100 & !00100 -> 10000
         self.chunk &= !mask;
 
-        Some(self.offset + mask.trailing_zeros() as usize)
+        Some(self.offset + mask.trailing_zeros())
     }
 
     #[inline]

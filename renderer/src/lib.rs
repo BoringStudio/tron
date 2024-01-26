@@ -8,14 +8,14 @@ use shared::Embed;
 use winit::window::Window;
 
 pub use crate::types::{
-    Color, CubeMeshGenerator, Material, MaterialArray, MaterialHandle, MaterialTag, Mesh,
-    MeshBuilder, MeshGenerator, MeshHandle, Normal, PlaneMeshGenerator, Position, Sorting,
-    SortingOrder, SortingReason, Tangent, VertexAttribute, VertexAttributeData,
+    Color, CubeMeshGenerator, Material, MaterialHandle, MaterialTag, Mesh, MeshBuilder,
+    MeshGenerator, MeshHandle, Normal, PlaneMeshGenerator, Position, Sorting, SortingOrder,
+    SortingReason, StaticObject, StaticObjectHandle, Tangent, VertexAttribute, VertexAttributeData,
     VertexAttributeKind, UV0,
 };
 
-use crate::managers::{MaterialManager, MeshManager};
-use crate::types::{RawMaterialHandle, RawMeshHandle};
+use crate::managers::{MaterialManager, MeshManager, ObjectManager};
+use crate::types::{RawMaterialHandle, RawMeshHandle, RawStaticObjectHandle};
 use crate::util::{
     BindlessResources, FrameResources, ResourceHandleAllocator, ScatterCopy, ShaderPreprocessor,
 };
@@ -253,9 +253,7 @@ impl RendererState {
 
         self.instructions.send(Instruction::AddMaterial {
             handle: handle.raw(),
-            on_add: Box::new(move |manager, device, handle| {
-                manager.insert(device, handle, material)
-            }),
+            on_add: Box::new(move |manager, handle| manager.insert(handle, material)),
         });
         handle
     }
@@ -267,7 +265,27 @@ impl RendererState {
         });
     }
 
-    pub(crate) fn eval_instructions(&self, encoder: &mut gfx::Encoder) -> Result<()> {
+    pub fn add_static_object(self: &Arc<Self>, object: StaticObject) -> StaticObjectHandle {
+        let state = Arc::downgrade(self);
+        let handle = self
+            .handles
+            .static_object_handle_allocator
+            .alloc(Arc::new(move |handle| {
+                if let Some(state) = state.upgrade() {
+                    state
+                        .instructions
+                        .send(Instruction::DeleteStaticObject { handle });
+                }
+            }));
+
+        self.instructions.send(Instruction::AddStaticObject {
+            handle: handle.raw(),
+            object,
+        });
+        handle
+    }
+
+    pub(crate) fn eval_instructions(&self, encoder: &mut gfx::PrimaryEncoder) -> Result<()> {
         self.instructions.swap();
 
         self.bindless_resources.flush_retired();
@@ -277,6 +295,8 @@ impl RendererState {
         let mut synced_managers = self.synced_managers.lock().unwrap();
         let synced_managers = &mut *synced_managers;
 
+        let mut mesh_manager_data = None;
+
         for instruction in instructions.drain(..) {
             match instruction {
                 Instruction::DeleteMesh { handle } => {
@@ -284,7 +304,7 @@ impl RendererState {
                     self.mesh_manager.remove(handle);
                 }
                 Instruction::AddMaterial { handle, on_add } => {
-                    on_add(&mut synced_managers.material_manager, &self.device, handle)?;
+                    on_add(&mut synced_managers.material_manager, handle);
                 }
                 Instruction::UpdateMaterial { handle, on_update } => {
                     on_update(&mut synced_managers.material_manager, handle);
@@ -292,6 +312,21 @@ impl RendererState {
                 Instruction::DeleteMaterial { handle } => {
                     self.handles.material_handle_allocator.dealloc(handle);
                     synced_managers.material_manager.remove(handle);
+                }
+                Instruction::AddStaticObject { handle, ref object } => {
+                    let inner_meshes =
+                        mesh_manager_data.get_or_insert_with(|| self.mesh_manager.lock_data());
+
+                    synced_managers.object_manager.insert_static(
+                        handle,
+                        object,
+                        inner_meshes,
+                        &mut synced_managers.material_manager,
+                    );
+                }
+                Instruction::DeleteStaticObject { handle } => {
+                    self.handles.static_object_handle_allocator.dealloc(handle);
+                    synced_managers.object_manager.remove_static(handle);
                 }
             }
         }
@@ -303,6 +338,11 @@ impl RendererState {
             &self.scatter_copy,
         )?;
 
+        if let Some(secondary) = self.mesh_manager.drain() {
+            // NOTE: MeshManager registry must not be touched
+            encoder.execute_commands(std::iter::once(secondary.finish()?));
+        }
+
         Ok(())
     }
 }
@@ -310,12 +350,14 @@ impl RendererState {
 #[derive(Default)]
 struct RendererStateSyncedManagers {
     material_manager: MaterialManager,
+    object_manager: ObjectManager,
 }
 
 #[derive(Default)]
 struct RendererStateHandles {
     mesh_handle_allocator: ResourceHandleAllocator<Mesh>,
     material_handle_allocator: ResourceHandleAllocator<MaterialTag>,
+    static_object_handle_allocator: ResourceHandleAllocator<StaticObject>,
 }
 
 #[derive(Default)]
@@ -351,15 +393,16 @@ enum Instruction {
     DeleteMaterial {
         handle: RawMaterialHandle,
     },
+    AddStaticObject {
+        handle: RawStaticObjectHandle,
+        object: StaticObject,
+    },
+    DeleteStaticObject {
+        handle: RawStaticObjectHandle,
+    },
 }
 
-type FnOnAddMaterial = dyn FnOnce(
-        &mut MaterialManager,
-        &gfx::Device,
-        RawMaterialHandle,
-    ) -> Result<(), gfx::OutOfDeviceMemory>
-    + Send
-    + Sync;
+type FnOnAddMaterial = dyn FnOnce(&mut MaterialManager, RawMaterialHandle) + Send + Sync;
 type FnOnUpdateMaterial = dyn FnOnce(&mut MaterialManager, RawMaterialHandle) + Send + Sync;
 
 #[derive(Default)]
@@ -403,11 +446,13 @@ pub struct DebugMaterial {
 
 impl Material for DebugMaterial {
     type ShaderDataType = <glam::Vec3 as gfx::AsStd430>::Output;
+    type RequiredAttributes = [VertexAttributeKind; 1];
+    type SupportedAttributes = [VertexAttributeKind; 5];
 
-    fn required_attributes() -> impl MaterialArray<VertexAttributeKind> {
+    fn required_attributes() -> Self::RequiredAttributes {
         [VertexAttributeKind::Position]
     }
-    fn supported_attributes() -> impl MaterialArray<VertexAttributeKind> {
+    fn supported_attributes() -> Self::SupportedAttributes {
         [
             VertexAttributeKind::Position,
             VertexAttributeKind::Normal,

@@ -1,10 +1,11 @@
 use std::ops::Range;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use anyhow::Result;
 use range_alloc::RangeAllocator;
 
 use crate::types::{Mesh, RawMeshHandle, VertexAttributeKind};
+use crate::util::BoundingSphere;
 
 pub struct MeshManager {
     state: Mutex<MeshManagerState>,
@@ -29,6 +30,12 @@ impl MeshManager {
             }),
             registry: Mutex::default(),
         })
+    }
+
+    pub fn lock_data(&self) -> MeshManagerDataGuard<'_> {
+        MeshManagerDataGuard {
+            registry: self.registry.lock().unwrap(),
+        }
     }
 
     pub fn drain(&self) -> Option<gfx::Encoder> {
@@ -155,6 +162,7 @@ impl MeshManager {
         Ok(GpuMesh {
             vertex_attribute_ranges,
             indices_range,
+            bounding_sphere: *mesh.bounding_sphere(),
         })
     }
 
@@ -188,6 +196,26 @@ impl MeshManager {
             state.index_alloc.free_range(mesh.indices_range.clone());
             tracing::debug!(range = ?mesh.indices_range, "freed indices range");
         }
+    }
+}
+
+pub struct MeshManagerDataGuard<'a> {
+    registry: MutexGuard<'a, Vec<Option<GpuMesh>>>,
+}
+
+impl std::ops::Deref for MeshManagerDataGuard<'_> {
+    type Target = Vec<Option<GpuMesh>>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.registry.deref()
+    }
+}
+
+impl std::ops::DerefMut for MeshManagerDataGuard<'_> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.registry.deref_mut()
     }
 }
 
@@ -322,6 +350,7 @@ impl MeshManagerState {
 pub struct GpuMesh {
     vertex_attribute_ranges: Vec<(VertexAttributeKind, Range<u32>)>,
     indices_range: Range<u32>,
+    bounding_sphere: BoundingSphere,
 }
 
 impl GpuMesh {
@@ -329,6 +358,7 @@ impl GpuMesh {
         Self {
             vertex_attribute_ranges: Default::default(),
             indices_range: 0..0,
+            bounding_sphere: BoundingSphere::compute_from_positions(&[]),
         }
     }
 
@@ -346,6 +376,10 @@ impl GpuMesh {
 
     pub fn indices(&self) -> Range<u32> {
         self.indices_range.clone()
+    }
+
+    pub fn bounding_sphere(&self) -> &BoundingSphere {
+        &self.bounding_sphere
     }
 }
 

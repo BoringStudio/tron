@@ -1,61 +1,9 @@
-use glam::{Mat4, Vec3, Vec4Swizzles};
+use glam::{Mat4, Vec3, Vec4, Vec4Swizzles};
 
 use crate::types::Position;
 
-/// Bounding sphere of a mesh.
-pub struct BoundingSphere {
-    pub center: Vec3,
-    pub radius: f32,
-}
-
-impl BoundingSphere {
-    /// Computes the bounding sphere of the given list of positions.
-    pub fn compute_from_positions(positions: &[Position]) -> Self {
-        if positions.is_empty() {
-            return Self {
-                center: Vec3::ZERO,
-                radius: 0.0,
-            };
-        }
-
-        let center = positions.iter().fold(Vec3::ZERO, |acc, p| acc + p.0) / positions.len() as f32;
-        let radius = positions
-            .iter()
-            .fold(0.0f32, |acc, p| acc.max((p.0 - center).length()));
-        Self { center, radius }
-    }
-
-    /// Returns `true` if the given point is inside the bounding sphere.
-    pub fn contains_point(&self, point: Vec3) -> bool {
-        (point - self.center).length_squared() <= self.radius * self.radius
-    }
-
-    /// Transforms the bounding sphere by the given transform matrix.
-    ///
-    /// # Panics
-    /// Panics if the transform matrix contains a perspective projection.
-    pub fn transformed(self, transform: Mat4) -> Self {
-        let max_scale = transform
-            .x_axis
-            .xyz()
-            .length_squared()
-            .max(
-                transform
-                    .y_axis
-                    .xyz()
-                    .length_squared()
-                    .max(transform.z_axis.xyz().length_squared()),
-            )
-            .sqrt();
-
-        Self {
-            center: transform.transform_point3(self.center),
-            radius: self.radius * max_scale,
-        }
-    }
-}
-
 /// Frustum of a camera with infinite far plane.
+#[derive(Debug, Clone)]
 pub struct Frustum {
     pub near: Plane,
     pub left: Plane,
@@ -139,6 +87,7 @@ impl Frustum {
 }
 
 /// Plane in 3D space.
+#[derive(Debug, Clone, Copy)]
 pub struct Plane {
     pub normal: Vec3,
     pub distance: f32,
@@ -162,5 +111,101 @@ impl Plane {
     pub fn distance_to_point(&self, point: Vec3) -> f32 {
         // Project "origin to point" vector onto plane normal and add distance along normal.
         self.normal.dot(point) + self.distance
+    }
+}
+
+/// Bounding sphere of a mesh.
+#[derive(Debug, Clone, Copy)]
+pub struct BoundingSphere {
+    pub center: Vec3,
+    pub radius: f32,
+}
+
+impl BoundingSphere {
+    /// Computes the bounding sphere of the given list of positions.
+    pub fn compute_from_positions(positions: &[Position]) -> Self {
+        if positions.is_empty() {
+            return Self {
+                center: Vec3::ZERO,
+                radius: 0.0,
+            };
+        }
+
+        let center = positions.iter().fold(Vec3::ZERO, |acc, p| acc + p.0) / positions.len() as f32;
+        let radius = positions
+            .iter()
+            .fold(0.0f32, |acc, p| acc.max((p.0 - center).length()));
+        Self { center, radius }
+    }
+
+    /// Returns `true` if the given point is inside the bounding sphere.
+    pub fn contains_point(&self, point: Vec3) -> bool {
+        (point - self.center).length_squared() <= self.radius * self.radius
+    }
+
+    /// Transforms the bounding sphere by the given transform matrix.
+    ///
+    /// # Panics
+    /// Panics if the transform matrix contains a perspective projection.
+    pub fn transformed(self, transform: Mat4) -> Self {
+        let max_scale = transform
+            .x_axis
+            .xyz()
+            .length_squared()
+            .max(
+                transform
+                    .y_axis
+                    .xyz()
+                    .length_squared()
+                    .max(transform.z_axis.xyz().length_squared()),
+            )
+            .sqrt();
+
+        Self {
+            center: transform.transform_point3(self.center),
+            radius: self.radius * max_scale,
+        }
+    }
+}
+
+impl gfx::AsStd140 for BoundingSphere {
+    type Output = Vec4;
+
+    #[inline]
+    fn as_std140(&self) -> Self::Output {
+        Vec4::from(self)
+    }
+
+    #[inline]
+    fn write_as_std140(&self, dst: &mut Self::Output) {
+        *dst = Vec4::from(self);
+    }
+}
+
+impl gfx::AsStd430 for BoundingSphere {
+    type Output = Vec4;
+
+    #[inline]
+    fn as_std430(&self) -> Self::Output {
+        Vec4::from(self)
+    }
+
+    #[inline]
+    fn write_as_std430(&self, dst: &mut Self::Output) {
+        *dst = Vec4::from(self);
+    }
+}
+
+impl From<BoundingSphere> for Vec4 {
+    #[inline]
+    fn from(value: BoundingSphere) -> Self {
+        value.center.extend(value.radius)
+    }
+}
+
+impl From<&BoundingSphere> for Vec4 {
+    #[inline]
+    fn from(value: &BoundingSphere) -> Self {
+        value.center.extend(value.radius)
     }
 }

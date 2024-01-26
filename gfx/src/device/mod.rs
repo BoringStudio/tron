@@ -9,7 +9,6 @@ use shared::FastDashMap;
 use smallvec::SmallVec;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::{DeviceV1_1, DeviceV1_2};
-use winit::window::Window;
 
 pub(crate) use self::descriptor_alloc::AllocatedDescriptorSet;
 pub use self::descriptor_alloc::DescriptorAllocError;
@@ -29,7 +28,7 @@ use crate::resources::{
     RenderPass, RenderPassInfo, Sampler, SamplerInfo, Semaphore, ShaderModule, ShaderModuleInfo,
     StencilTest, UpdateDescriptorSet,
 };
-use crate::surface::{CreateSurfaceError, Surface};
+use crate::surface::{CreateSurfaceError, Surface, Window};
 use crate::types::{DeviceAddress, DeviceLost, OutOfDeviceMemory, State};
 use crate::util::{FromGfx, ToVk};
 
@@ -329,7 +328,7 @@ impl Device {
         Ok(())
     }
 
-    pub fn create_surface(&self, window: Arc<Window>) -> Result<Surface, CreateSurfaceError> {
+    pub fn create_surface(&self, window: Arc<dyn Window>) -> Result<Surface, CreateSurfaceError> {
         let surface = Surface::new(self.graphics().instance(), window, self)?;
 
         tracing::debug!(surface = ?surface.handle(), "created surface");

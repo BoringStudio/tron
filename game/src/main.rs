@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -129,9 +130,15 @@ impl App {
                 color: glam::vec3(1.0, 0.0, 1.0),
             });
 
+            let static_object = renderer.add_static_object(renderer::StaticObject {
+                mesh,
+                material: material.clone(),
+                transform: glam::Mat4::IDENTITY,
+            });
+
             Some(TestObject {
-                _mesh: mesh,
                 material,
+                _static_object: static_object,
             })
         };
 
@@ -139,7 +146,7 @@ impl App {
         let handle_event = {
             let renderer_state = renderer.state().clone();
             move |event, elwt: &winit::event_loop::EventLoopWindowTarget<_>| {
-                // elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
+                elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
                 match event {
                     Event::AboutToWait => window.request_redraw(),
@@ -206,6 +213,6 @@ impl App {
 }
 
 struct TestObject {
-    _mesh: renderer::MeshHandle,
     material: renderer::MaterialHandle,
+    _static_object: renderer::StaticObjectHandle,
 }

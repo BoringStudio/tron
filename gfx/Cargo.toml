@@ -14,11 +14,12 @@ glam = { workspace = true }
 gpu-alloc = { workspace = true }
 gpu-alloc-vulkanalia = { workspace = true }
 once_cell = { workspace = true }
+raw-window-handle = { workspace = true }
 smallvec = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 vulkanalia = { workspace = true }
-winit = { workspace = true, features = ["rwh_06"] }
+winit = { workspace = true, optional = true }
 
 gfx-macros = { path = "./macros" }
 shared = { path = "../shared" }

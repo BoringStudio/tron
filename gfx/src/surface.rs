@@ -2,14 +2,11 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
 use shared::util::WithDefer;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::{KhrSurfaceExtension, KhrSwapchainExtension};
 use vulkanalia::Instance;
-use winit::raw_window_handle::{
-    HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
-};
-use winit::window::Window;
 
 use crate::device::WeakDevice;
 use crate::resources::{Format, Image, ImageInfo, ImageUsageFlags, Samples, Semaphore};
@@ -79,7 +76,7 @@ impl FromGfx<PresentMode> for vk::PresentModeKHR {
 
 /// Wrapper around a surface object.
 pub struct Surface {
-    window: Arc<Window>,
+    window: Arc<dyn Window>,
     handle: vk::SurfaceKHR,
     owner: WeakDevice,
     swapchain: Option<Swapchain>,
@@ -91,7 +88,7 @@ pub struct Surface {
 impl Surface {
     pub(crate) fn new(
         instance: &Instance,
-        window: Arc<Window>,
+        window: Arc<dyn Window>,
         device: &crate::device::Device,
     ) -> Result<Self, CreateSurfaceError> {
         let handle = create_raw_surface(instance, &*window)?;
@@ -208,7 +205,7 @@ impl Surface {
 
         let image_extent = self
             .swapchain_support
-            .compute_swapchain_extent(&self.window);
+            .compute_swapchain_extent(self.window.as_ref());
 
         let composite_alpha = {
             let bits = capabilities.supported_composite_alpha.bits();
@@ -469,6 +466,18 @@ impl Drop for SurfaceImage<'_> {
     }
 }
 
+pub trait Window: HasDisplayHandle + HasWindowHandle + Send + Sync + 'static {
+    fn inner_size(&self) -> (u32, u32);
+}
+
+#[cfg(feature = "winit")]
+impl Window for winit::window::Window {
+    fn inner_size(&self) -> (u32, u32) {
+        let size = winit::window::Window::inner_size(self);
+        (size.width, size.height)
+    }
+}
+
 struct Swapchain {
     handle: vk::SwapchainKHR,
     format: Format,
@@ -584,25 +593,25 @@ impl SwapchainSupport {
             .unwrap_or(FALLBACK)
     }
 
-    pub fn compute_swapchain_extent(&self, window: &Window) -> vk::Extent2D {
+    pub fn compute_swapchain_extent(&self, window: &dyn Window) -> vk::Extent2D {
         let capabilities = &self.capabilities;
 
         if capabilities.current_extent.width != u32::MAX {
             return capabilities.current_extent;
         }
 
-        let size = window.inner_size();
+        let (width, height) = window.inner_size();
         let clamp = |min: u32, max: u32, v: u32| min.max(max.min(v));
         vk::Extent2D::builder()
             .width(clamp(
                 capabilities.min_image_extent.width,
                 capabilities.max_image_extent.width,
-                size.width,
+                width,
             ))
             .height(clamp(
                 capabilities.min_image_extent.height,
                 capabilities.max_image_extent.height,
-                size.height,
+                height,
             ))
             .build()
     }
@@ -613,7 +622,7 @@ fn create_raw_surface<W>(
     window: &W,
 ) -> Result<vk::SurfaceKHR, CreateSurfaceError>
 where
-    W: HasDisplayHandle + HasWindowHandle,
+    W: HasDisplayHandle + HasWindowHandle + ?Sized,
 {
     let require_extension = |ext: &'static vk::Extension| -> Result<(), CreateSurfaceError> {
         if instance.extensions().contains(&ext.name) {
@@ -728,7 +737,7 @@ pub enum CreateSurfaceError {
     #[error(transparent)]
     SurfaceError(#[from] SurfaceError),
     #[error(transparent)]
-    WindowError(#[from] winit::raw_window_handle::HandleError),
+    WindowError(#[from] raw_window_handle::HandleError),
     #[error("unsupported window and display kind combination")]
     UnsupportedWindowOrDisplay,
     #[error("no queues with present capability found")]

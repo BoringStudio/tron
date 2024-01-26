@@ -81,7 +81,14 @@ impl ScatterCopy {
     {
         let data = data.into_iter();
 
-        let item_size = std::mem::size_of::<T>() as u32;
+        let mut item_size = std::mem::size_of::<T>() as u32;
+
+        // TEMP: align `item_size` to align mask. Will not be needed when
+        // `Std430GpuObject` array padding is correct.
+        if item_size & T::ALIGN_MASK as u32 != 0 {
+            item_size += T::ALIGN_MASK as u32 + 1 - (item_size & T::ALIGN_MASK as u32);
+        }
+
         assert_eq!(item_size % 4, 0);
 
         let count = data.len() as u32;

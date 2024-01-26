@@ -72,9 +72,6 @@ impl RendererWorker {
 
         let mut encoder = queue.create_primary_encoder()?;
 
-        if let Some(secondary) = self.state.mesh_manager.drain() {
-            encoder.execute_commands(std::iter::once(secondary.finish()?));
-        }
         self.state.eval_instructions(&mut encoder)?;
 
         if self

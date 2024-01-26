@@ -28,6 +28,7 @@ profiling = "1.0"
 puffin_http = "0.16"
 rand = "0.8"
 range-alloc = "0.1"
+raw-window-handle = { version = "0.6.0", features = ["std"] }
 shaderc = "0.8"
 smallvec = { version = "1", features = ["union", "const_generics", "const_new"] }
 thiserror = "1.0"

@@ -8,9 +8,11 @@ pub struct MaterialTag;
 
 pub trait Material: Send + Sync + 'static {
     type ShaderDataType: gfx::Std430 + Send + Sync;
+    type RequiredAttributes: MaterialArray<VertexAttributeKind>;
+    type SupportedAttributes: MaterialArray<VertexAttributeKind>;
 
-    fn required_attributes() -> impl MaterialArray<VertexAttributeKind>;
-    fn supported_attributes() -> impl MaterialArray<VertexAttributeKind>;
+    fn required_attributes() -> Self::RequiredAttributes;
+    fn supported_attributes() -> Self::SupportedAttributes;
 
     fn key(&self) -> u64;
     fn sorting(&self) -> Sorting;
@@ -18,7 +20,7 @@ pub trait Material: Send + Sync + 'static {
     fn shader_data(&self) -> Self::ShaderDataType;
 }
 
-pub trait MaterialArray<T>: AsRef<[T]> {
+pub trait MaterialArray<T>: AsRef<[T]> + Clone {
     const LEN: usize;
 
     type U32Array: gfx::Std430 + std::fmt::Debug + Send + Sync;
@@ -30,7 +32,10 @@ pub trait MaterialArray<T>: AsRef<[T]> {
     fn iter(self) -> impl Iterator<Item = T>;
 }
 
-impl<T, const N: usize> MaterialArray<T> for [T; N] {
+impl<T, const N: usize> MaterialArray<T> for [T; N]
+where
+    T: Clone,
+{
     const LEN: usize = N;
 
     type U32Array = [u32; N];

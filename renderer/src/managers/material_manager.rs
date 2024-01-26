@@ -2,16 +2,11 @@ use std::any::TypeId;
 use std::collections::hash_map;
 
 use anyhow::Result;
-use shared::FastHashMap;
+use shared::{AnyVec, FastHashMap};
 
-use self::material_buffer::MaterialBuffer;
-use self::material_data::MaterialData;
-use crate::managers::GpuMesh;
-use crate::types::{Material, MaterialArray, RawMaterialHandle};
-use crate::util::ScatterCopy;
-
-mod material_buffer;
-mod material_data;
+use crate::managers::object_manager::WriteStaticObject;
+use crate::types::{Material, RawMaterialHandle};
+use crate::util::{FreelistDoubleBuffer, ScatterCopy};
 
 #[derive(Default)]
 pub struct MaterialManager {
@@ -21,13 +16,8 @@ pub struct MaterialManager {
 
 impl MaterialManager {
     #[tracing::instrument(level = "debug", name = "insert_material", skip_all)]
-    pub fn insert<M: Material>(
-        &mut self,
-        device: &gfx::Device,
-        handle: RawMaterialHandle,
-        material: M,
-    ) -> Result<(), gfx::OutOfDeviceMemory> {
-        let archetype = self.get_or_create_archetype::<M>(device)?;
+    pub fn insert<M: Material>(&mut self, handle: RawMaterialHandle, material: M) {
+        let archetype = self.get_or_create_archetype::<M>();
 
         let slot = archetype.free_slots.pop().unwrap_or_else(|| {
             let slot = archetype.next_slot;
@@ -38,11 +28,12 @@ impl MaterialManager {
         {
             // SAFETY: `downcast_mut` template parameter is the same as the one used to
             // construct `archetype`.
-            let mut data = unsafe { archetype.data.downcast_mut::<Option<M>>() };
-            if slot >= data.len() {
-                data.resize_with(slot.next_power_of_two(), || None);
+            let mut data = unsafe { archetype.data.downcast_mut::<SlotData<M>>() };
+            if slot as usize >= data.len() {
+                let size = slot.checked_next_power_of_two().expect("too many slots");
+                data.resize_with(size as usize, || None);
             }
-            data[slot] = Some(material);
+            data[slot as usize] = Some(material);
         }
 
         archetype.buffer.update_slot(slot);
@@ -53,8 +44,6 @@ impl MaterialManager {
                 slot,
             },
         );
-
-        Ok(())
     }
 
     #[tracing::instrument(level = "debug", name = "update_material", skip_all)]
@@ -70,7 +59,7 @@ impl MaterialManager {
         // SAFETY: `downcast_mut` template parameter is the same as the one used to
         // construct `archetype`.
         let mut data = unsafe { archetype.data.downcast_mut::<Option<M>>() };
-        let item = data.get_mut(*slot).expect("invalid handle slot");
+        let item = data.get_mut(*slot as usize).expect("invalid handle slot");
         *item.as_mut().expect("value was not initialized") = material;
 
         archetype.buffer.update_slot(*slot);
@@ -85,8 +74,7 @@ impl MaterialManager {
             .get_mut(archetype)
             .expect("invalid handle archetype");
 
-        (archetype.remove_data)(&mut archetype.data, *slot);
-        archetype.free_slots.push(*slot);
+        (archetype.remove)(archetype, *slot);
     }
 
     #[tracing::instrument(level = "debug", name = "flush_materials", skip_all)]
@@ -109,7 +97,7 @@ impl MaterialManager {
                 encoder,
                 scatter_copy,
                 |slot| {
-                    let material = data[slot].as_ref().expect("invalid slot");
+                    let material = data[slot as usize].as_ref().expect("invalid slot");
                     material.shader_data()
                 },
             )?;
@@ -118,78 +106,70 @@ impl MaterialManager {
         Ok(())
     }
 
-    fn get_or_create_archetype<M: Material>(
+    pub(crate) fn write_static_object(
         &mut self,
-        device: &gfx::Device,
-    ) -> Result<&mut MaterialArchetype, gfx::OutOfDeviceMemory> {
+        handle: RawMaterialHandle,
+        args: WriteStaticObject,
+    ) {
+        let HandleData { archetype, slot } = &self.handles[&handle];
+
+        let archetype = self
+            .archetypes
+            .get_mut(archetype)
+            .expect("invalid handle archetype");
+
+        (archetype.write_static_object)(archetype, *slot, args);
+    }
+
+    fn get_or_create_archetype<M: Material>(&mut self) -> &mut MaterialArchetype {
         let id = TypeId::of::<M>();
         match self.archetypes.entry(id) {
-            hash_map::Entry::Occupied(entry) => Ok(entry.into_mut()),
-            hash_map::Entry::Vacant(entry) => {
-                let buffer = MaterialBuffer::new::<M::ShaderDataType>(device)?;
-                Ok(entry.insert(MaterialArchetype {
-                    data: MaterialData::new::<Option<M>>(),
-                    buffer,
-                    next_slot: 0,
-                    free_slots: Vec::new(),
-                    remove_data: remove_data::<M>,
-                }))
-            }
+            hash_map::Entry::Occupied(entry) => entry.into_mut(),
+            hash_map::Entry::Vacant(entry) => entry.insert(MaterialArchetype {
+                data: AnyVec::new::<SlotData<M>>(),
+                buffer: FreelistDoubleBuffer::with_capacity(INITIAL_BUFFER_CAPACITY),
+                next_slot: 0,
+                free_slots: Vec::new(),
+                write_static_object: write_static_object::<M>,
+                remove: remove::<M>,
+            }),
         }
     }
 }
 
+const INITIAL_BUFFER_CAPACITY: u32 = 16;
+
 struct HandleData {
     archetype: TypeId,
-    slot: usize,
+    slot: u32,
 }
 
 struct MaterialArchetype {
-    data: MaterialData,
-    buffer: MaterialBuffer,
-    next_slot: usize,
-    free_slots: Vec<usize>,
-    remove_data: fn(&mut MaterialData, usize),
+    data: AnyVec,
+    buffer: FreelistDoubleBuffer,
+    next_slot: u32,
+    free_slots: Vec<u32>,
+    write_static_object: fn(&MaterialArchetype, u32, WriteStaticObject),
+    remove: fn(&mut MaterialArchetype, u32),
 }
 
-struct AddObjectArgs<'a> {
-    mesh: &'a GpuMesh,
+type SlotData<M> = Option<M>;
+
+fn write_static_object<M: Material>(
+    _archetype: &MaterialArchetype,
+    _slot: u32,
+    args: WriteStaticObject,
+) {
+    // NOTE: read material here if needed
+    args.run::<M>();
 }
 
-// TODO: add to archetype to abstract from mesh+data recording
-#[allow(unused)]
-fn record_object<M: Material>(_material: &M, args: AddObjectArgs<'_>) {
-    let required_attributes_mask = M::required_attributes()
-        .iter()
-        .fold(0u8, |mask, attribute| mask | attribute as u8);
-    let mesh_attributes_mask = args
-        .mesh
-        .attributes()
-        .fold(0u8, |mask, attribute| mask | attribute as u8);
-
-    assert_eq!(
-        mesh_attributes_mask & required_attributes_mask,
-        required_attributes_mask
-    );
-
-    let vertex_attribute_offsets = M::supported_attributes().map_to_u32(|attribute| {
-        match args.mesh.get_attribute_range(attribute) {
-            Some(range) => range.start,
-            None => u32::MAX,
-        }
-    });
-
-    let indices = args.mesh.indices();
-    let first_index = indices.start;
-    let index_count = indices.end - indices.start;
-
-    // TODO: add object
-}
-
-fn remove_data<M: Material>(data: &mut MaterialData, slot: usize) {
+fn remove<M: Material>(archetype: &mut MaterialArchetype, slot: u32) {
     // SAFETY: `downcast_mut` template parameter is the same as the one used to
     // construct `data`.
-    let mut data = unsafe { data.downcast_mut::<Option<M>>() };
-    let item = data.get_mut(slot).expect("invalid handle slot");
+    let mut data = unsafe { archetype.data.downcast_mut::<SlotData<M>>() };
+    let item = data.get_mut(slot as usize).expect("invalid handle slot");
     std::mem::take(item).expect("value was not initialized");
+
+    archetype.free_slots.push(slot);
 }
