@@ -581,7 +581,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ea835d29036a4087793836fa931b08837ad5e957da9e23886b29586fb9b6650"
 
 [[package]]
-name = "ecs-common"
+name = "ecs"
 version = "0.1.0"
 dependencies = [
  "bevy_ecs",
@@ -747,7 +747,6 @@ dependencies = [
  "puffin_http",
  "rand",
  "renderer",
- "thiserror",
  "tikv-jemallocator",
  "tracing",
  "tracing-subscriber",
@@ -1302,7 +1301,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d135ede8821cf6376eb7a64148901e1690b788c11ae94dc297ae917dbc91dc0e"
 dependencies = [
  "profiling-procmacros",
- "puffin",
+ "puffin 0.18.1",
 ]
 
 [[package]]
@@ -1322,6 +1321,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02330f795caafc2007510f742624c10aa813b8c3097c77ff344b1b86eb6be846"
 dependencies = [
  "anyhow",
+ "byteorder",
+ "cfg-if",
+ "once_cell",
+]
+
+[[package]]
+name = "puffin"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9f76ad4bb049fded4e572df72cbb6381ff5d1f41f85c3a04b56e4eca287a02f"
+dependencies = [
+ "anyhow",
  "bincode",
  "byteorder",
  "cfg-if",
@@ -1333,14 +1344,15 @@ dependencies = [
 
 [[package]]
 name = "puffin_http"
-version = "0.15.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fcf8e52cf00569807b02e8089a85e859c00476182730cda9718c94b12cdc31b8"
+checksum = "4936c085e48efc86f6d96609dc5086d1d236afe3ec4676f09b157a4f4be83ff6"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
  "log",
- "puffin",
+ "parking_lot",
+ "puffin 0.19.0",
 ]
 
 [[package]]
@@ -1473,7 +1485,7 @@ dependencies = [
  "bevy_ecs",
  "bumpalo",
  "bytemuck",
- "ecs-common",
+ "ecs",
  "gfx",
  "glam",
  "once_cell",

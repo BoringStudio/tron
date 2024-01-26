@@ -1,17 +1,17 @@
 #ifndef UNIFORMS_GLOBALS_GLSL
 #define UNIFORMS_GLOBALS_GLSL
 
-layout(set = 0, binding = 0, std140) uniform GlobalUniform {
-  mat4 camera_view;
-  mat4 camera_projection;
-  mat4 camera_view_inverse;
-  mat4 camera_projection_inverse;
-  mat4 camera_previous_view;
-  mat4 camera_previous_projection;
-  vec2 render_resolution;
-  float time;
-  float delta_time;
-  uint frame_index;
+layout (set = 0, binding = 0, std140) uniform GlobalUniform {
+    mat4 camera_view;
+    mat4 camera_projection;
+    mat4 camera_view_inverse;
+    mat4 camera_projection_inverse;
+    mat4 camera_previous_view;
+    mat4 camera_previous_projection;
+    vec2 render_resolution;
+    float time;
+    float delta_time;
+    uint frame_index;
 }
 globals;
 
