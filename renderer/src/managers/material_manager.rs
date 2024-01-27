@@ -74,35 +74,19 @@ impl MaterialManager {
             .get_mut(archetype)
             .expect("invalid handle archetype");
 
-        (archetype.remove)(archetype, *slot);
+        (archetype.remove_slot)(archetype, *slot);
     }
 
     #[tracing::instrument(level = "debug", name = "flush_materials", skip_all)]
-    pub fn flush<M: Material>(
+    pub fn flush(
         &mut self,
         device: &gfx::Device,
         encoder: &mut gfx::Encoder,
         scatter_copy: &ScatterCopy,
     ) -> Result<()> {
-        let Some(archetype) = self.archetypes.get_mut(&TypeId::of::<M>()) else {
-            return Ok(());
-        };
-
-        // SAFETY: `typed_data` template parameter is the same as the one used to
-        // construct `archetype`.
-        unsafe {
-            let data = archetype.data.typed_data::<Option<M>>();
-            archetype.buffer.flush::<M::ShaderDataType, _>(
-                device,
-                encoder,
-                scatter_copy,
-                |slot| {
-                    let material = data[slot as usize].as_ref().expect("invalid slot");
-                    material.shader_data()
-                },
-            )?;
+        for archetype in self.archetypes.values_mut() {
+            (archetype.flush)(archetype, device, encoder, scatter_copy)?;
         }
-
         Ok(())
     }
 
@@ -130,8 +114,9 @@ impl MaterialManager {
                 buffer: FreelistDoubleBuffer::with_capacity(INITIAL_BUFFER_CAPACITY),
                 next_slot: 0,
                 free_slots: Vec::new(),
+                flush: flush::<M>,
                 write_static_object: write_static_object::<M>,
-                remove: remove::<M>,
+                remove_slot: remove_slot::<M>,
             }),
         }
     }
@@ -149,11 +134,33 @@ struct MaterialArchetype {
     buffer: FreelistDoubleBuffer,
     next_slot: u32,
     free_slots: Vec<u32>,
+    flush: fn(&mut MaterialArchetype, &gfx::Device, &mut gfx::Encoder, &ScatterCopy) -> Result<()>,
     write_static_object: fn(&MaterialArchetype, u32, WriteStaticObject),
-    remove: fn(&mut MaterialArchetype, u32),
+    remove_slot: fn(&mut MaterialArchetype, u32),
 }
 
 type SlotData<M> = Option<M>;
+
+fn flush<M: Material>(
+    archetype: &mut MaterialArchetype,
+    device: &gfx::Device,
+    encoder: &mut gfx::Encoder,
+    scatter_copy: &ScatterCopy,
+) -> Result<()> {
+    // SAFETY: `typed_data` template parameter is the same as the one used to
+    // construct `archetype`.
+    unsafe {
+        let data = archetype.data.typed_data::<Option<M>>();
+        archetype
+            .buffer
+            .flush::<M::ShaderDataType, _>(device, encoder, scatter_copy, |slot| {
+                let material = data[slot as usize].as_ref().expect("invalid slot");
+                material.shader_data()
+            })?;
+    }
+
+    Ok(())
+}
 
 fn write_static_object<M: Material>(
     _archetype: &MaterialArchetype,
@@ -164,7 +171,7 @@ fn write_static_object<M: Material>(
     args.run::<M>();
 }
 
-fn remove<M: Material>(archetype: &mut MaterialArchetype, slot: u32) {
+fn remove_slot<M: Material>(archetype: &mut MaterialArchetype, slot: u32) {
     // SAFETY: `downcast_mut` template parameter is the same as the one used to
     // construct `data`.
     let mut data = unsafe { archetype.data.downcast_mut::<SlotData<M>>() };

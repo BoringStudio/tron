@@ -331,12 +331,9 @@ impl RendererState {
             }
         }
 
-        // TEMP
-        synced_managers.material_manager.flush::<DebugMaterial>(
-            &self.device,
-            encoder,
-            &self.scatter_copy,
-        )?;
+        synced_managers
+            .material_manager
+            .flush(&self.device, encoder, &self.scatter_copy)?;
 
         if let Some(secondary) = self.mesh_manager.drain() {
             // NOTE: MeshManager registry must not be touched
@@ -430,6 +427,8 @@ shared::embed!(
     Shaders("../../assets/shaders") = [
         "math/color.glsl",
         "math/const.glsl",
+        "math/frustum.glsl",
+        "math/sphere.glsl",
         "uniforms/bindless.glsl",
         "uniforms/globals.glsl",
         "scatter_copy.comp",

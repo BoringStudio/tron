@@ -13,7 +13,7 @@ impl FreelistDoubleBuffer {
         FreelistDoubleBuffer {
             targets: Default::default(),
             odd_target: false,
-            reserved_count: initial_capacity as u32,
+            reserved_count: initial_capacity,
         }
     }
 
@@ -41,9 +41,6 @@ impl FreelistDoubleBuffer {
         F: FnMut(u32) -> T,
     {
         let mut item_size = std::mem::size_of::<T>();
-
-        // TEMP: align `item_size` to align mask. Will not be needed when
-        // `Std430GpuObject` array padding is correct.
         if item_size & T::ALIGN_MASK as usize != 0 {
             item_size += T::ALIGN_MASK as usize + 1 - (item_size & T::ALIGN_MASK as usize);
         }

@@ -28,8 +28,6 @@ pub trait MaterialArray<T>: AsRef<[T]> + Clone {
     fn map_to_u32<F>(self, f: F) -> Self::U32Array
     where
         F: FnMut(T) -> u32;
-
-    fn iter(self) -> impl Iterator<Item = T>;
 }
 
 impl<T, const N: usize> MaterialArray<T> for [T; N]
@@ -46,11 +44,6 @@ where
         F: FnMut(T) -> u32,
     {
         self.map(f)
-    }
-
-    #[inline]
-    fn iter(self) -> impl Iterator<Item = T> {
-        self.into_iter()
     }
 }
 
