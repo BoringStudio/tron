@@ -17,7 +17,8 @@ pub use crate::types::{
 use crate::managers::{MaterialManager, MeshManager, ObjectManager};
 use crate::types::{RawMaterialHandle, RawMeshHandle, RawStaticObjectHandle};
 use crate::util::{
-    BindlessResources, FrameResources, ResourceHandleAllocator, ScatterCopy, ShaderPreprocessor,
+    BindlessResources, FrameResources, FreelistHandleAllocator, HandleAllocator, ScatterCopy,
+    ShaderPreprocessor, SimpleHandleAllocator,
 };
 use crate::worker::RendererWorker;
 
@@ -78,9 +79,9 @@ impl RendererBuilder {
             shader_preprocessor.add_file(path, contents)?;
         }
 
-        let scatter_copy = ScatterCopy::new(&device, &shader_preprocessor)?;
         let frame_resources = FrameResources::new(&device)?;
         let bindless_resources = BindlessResources::new(&device)?;
+        let scatter_copy = ScatterCopy::new(&device, &shader_preprocessor)?;
 
         let mut surface = device.create_surface(self.window.clone())?;
         surface.configure()?;
@@ -93,9 +94,9 @@ impl RendererBuilder {
             mesh_manager,
             synced_managers: Default::default(),
             handles: Default::default(),
-            scatter_copy,
             frame_resources,
             bindless_resources,
+            scatter_copy,
             shader_preprocessor,
             window: self.window,
             queue,
@@ -194,10 +195,10 @@ pub struct RendererState {
     synced_managers: Mutex<RendererStateSyncedManagers>,
     handles: RendererStateHandles,
 
-    scatter_copy: ScatterCopy,
     frame_resources: FrameResources,
     bindless_resources: BindlessResources,
     shader_preprocessor: ShaderPreprocessor,
+    scatter_copy: ScatterCopy,
 
     window: Arc<Window>,
     window_resized: AtomicBool,
@@ -285,6 +286,7 @@ impl RendererState {
         handle
     }
 
+    #[tracing::instrument(level = "debug", name = "eval_instructions", skip_all)]
     pub(crate) fn eval_instructions(&self, encoder: &mut gfx::PrimaryEncoder) -> Result<()> {
         self.instructions.swap();
 
@@ -300,20 +302,25 @@ impl RendererState {
         for instruction in instructions.drain(..) {
             match instruction {
                 Instruction::DeleteMesh { handle } => {
+                    tracing::debug!(?handle, "delete_mesh");
                     self.handles.mesh_handle_allocator.dealloc(handle);
                     self.mesh_manager.remove(handle);
                 }
                 Instruction::AddMaterial { handle, on_add } => {
+                    tracing::debug!(?handle, "add_material");
                     on_add(&mut synced_managers.material_manager, handle);
                 }
                 Instruction::UpdateMaterial { handle, on_update } => {
+                    tracing::debug!(?handle, "update_material");
                     on_update(&mut synced_managers.material_manager, handle);
                 }
                 Instruction::DeleteMaterial { handle } => {
+                    tracing::debug!(?handle, "delete_material");
                     self.handles.material_handle_allocator.dealloc(handle);
                     synced_managers.material_manager.remove(handle);
                 }
-                Instruction::AddStaticObject { handle, ref object } => {
+                Instruction::AddStaticObject { handle, object } => {
+                    tracing::debug!(?handle, "add_static_object");
                     let inner_meshes =
                         mesh_manager_data.get_or_insert_with(|| self.mesh_manager.lock_data());
 
@@ -325,15 +332,26 @@ impl RendererState {
                     );
                 }
                 Instruction::DeleteStaticObject { handle } => {
+                    tracing::debug!(?handle, "delete_static_object");
                     self.handles.static_object_handle_allocator.dealloc(handle);
                     synced_managers.object_manager.remove_static(handle);
                 }
             }
         }
 
-        synced_managers
-            .material_manager
-            .flush(&self.device, encoder, &self.scatter_copy)?;
+        synced_managers.object_manager.flush(
+            &self.device,
+            encoder,
+            &self.scatter_copy,
+            &self.bindless_resources,
+        )?;
+
+        synced_managers.material_manager.flush(
+            &self.device,
+            encoder,
+            &self.scatter_copy,
+            &self.bindless_resources,
+        )?;
 
         if let Some(secondary) = self.mesh_manager.drain() {
             // NOTE: MeshManager registry must not be touched
@@ -352,9 +370,9 @@ struct RendererStateSyncedManagers {
 
 #[derive(Default)]
 struct RendererStateHandles {
-    mesh_handle_allocator: ResourceHandleAllocator<Mesh>,
-    material_handle_allocator: ResourceHandleAllocator<MaterialTag>,
-    static_object_handle_allocator: ResourceHandleAllocator<StaticObject>,
+    mesh_handle_allocator: FreelistHandleAllocator<Mesh>,
+    material_handle_allocator: SimpleHandleAllocator<MaterialTag>,
+    static_object_handle_allocator: SimpleHandleAllocator<StaticObject>,
 }
 
 #[derive(Default)]

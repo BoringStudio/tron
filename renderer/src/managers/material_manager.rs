@@ -6,7 +6,7 @@ use shared::{AnyVec, FastHashMap};
 
 use crate::managers::object_manager::WriteStaticObject;
 use crate::types::{Material, RawMaterialHandle};
-use crate::util::{FreelistDoubleBuffer, ScatterCopy};
+use crate::util::{BindlessResources, FreelistDoubleBuffer, ScatterCopy};
 
 #[derive(Default)]
 pub struct MaterialManager {
@@ -58,7 +58,7 @@ impl MaterialManager {
 
         // SAFETY: `downcast_mut` template parameter is the same as the one used to
         // construct `archetype`.
-        let mut data = unsafe { archetype.data.downcast_mut::<Option<M>>() };
+        let mut data = unsafe { archetype.data.downcast_mut::<SlotData<M>>() };
         let item = data.get_mut(*slot as usize).expect("invalid handle slot");
         *item.as_mut().expect("value was not initialized") = material;
 
@@ -83,9 +83,18 @@ impl MaterialManager {
         device: &gfx::Device,
         encoder: &mut gfx::Encoder,
         scatter_copy: &ScatterCopy,
+        bindless_resources: &BindlessResources,
     ) -> Result<()> {
         for archetype in self.archetypes.values_mut() {
-            (archetype.flush)(archetype, device, encoder, scatter_copy)?;
+            (archetype.flush)(
+                archetype,
+                FlushMaterial {
+                    device,
+                    encoder,
+                    scatter_copy,
+                    bindless_resources,
+                },
+            )?;
         }
         Ok(())
     }
@@ -134,29 +143,35 @@ struct MaterialArchetype {
     buffer: FreelistDoubleBuffer,
     next_slot: u32,
     free_slots: Vec<u32>,
-    flush: fn(&mut MaterialArchetype, &gfx::Device, &mut gfx::Encoder, &ScatterCopy) -> Result<()>,
+    flush: fn(&mut MaterialArchetype, FlushMaterial) -> Result<()>,
     write_static_object: fn(&MaterialArchetype, u32, WriteStaticObject),
     remove_slot: fn(&mut MaterialArchetype, u32),
 }
 
 type SlotData<M> = Option<M>;
 
-fn flush<M: Material>(
-    archetype: &mut MaterialArchetype,
-    device: &gfx::Device,
-    encoder: &mut gfx::Encoder,
-    scatter_copy: &ScatterCopy,
-) -> Result<()> {
+struct FlushMaterial<'a> {
+    device: &'a gfx::Device,
+    encoder: &'a mut gfx::Encoder,
+    scatter_copy: &'a ScatterCopy,
+    bindless_resources: &'a BindlessResources,
+}
+
+fn flush<M: Material>(archetype: &mut MaterialArchetype, args: FlushMaterial) -> Result<()> {
     // SAFETY: `typed_data` template parameter is the same as the one used to
     // construct `archetype`.
     unsafe {
-        let data = archetype.data.typed_data::<Option<M>>();
-        archetype
-            .buffer
-            .flush::<M::ShaderDataType, _>(device, encoder, scatter_copy, |slot| {
+        let data = archetype.data.typed_data::<SlotData<M>>();
+        archetype.buffer.flush::<M::ShaderDataType, _>(
+            args.device,
+            args.encoder,
+            args.scatter_copy,
+            args.bindless_resources,
+            |slot| {
                 let material = data[slot as usize].as_ref().expect("invalid slot");
                 material.shader_data()
-            })?;
+            },
+        )?;
     }
 
     Ok(())
@@ -164,11 +179,11 @@ fn flush<M: Material>(
 
 fn write_static_object<M: Material>(
     _archetype: &MaterialArchetype,
-    _slot: u32,
-    args: WriteStaticObject,
+    slot: u32,
+    args: WriteStaticObject<'_>,
 ) {
     // NOTE: read material here if needed
-    args.run::<M>();
+    args.run::<M>(slot);
 }
 
 fn remove_slot<M: Material>(archetype: &mut MaterialArchetype, slot: u32) {

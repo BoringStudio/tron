@@ -81,7 +81,7 @@ impl ScatterCopy {
     {
         let data = data.into_iter();
 
-        let mut item_size = std::mem::size_of::<T>() as u32;
+        let item_size = std::mem::size_of::<T>() as u32;
         assert_eq!(item_size % 4, 0);
 
         let count = data.len() as u32;

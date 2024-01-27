@@ -1,11 +1,11 @@
-pub use self::bindless_resources::{
-    BindlessResources, GpuResourceHandle, GpuResourceKind, SampledImageHandle, StorageBufferHandle,
-    UniformBufferHandle,
-};
+pub use self::bindless_resources::{BindlessResources, StorageBufferHandle};
 pub use self::frame_resources::FrameResources;
 pub use self::freelist_double_buffer::FreelistDoubleBuffer;
-pub use self::frustum::{BoundingSphere, Frustum, Plane};
-pub use self::resource_handle::{RawResourceHandle, ResourceHandle, ResourceHandleAllocator};
+pub use self::frustum::BoundingSphere;
+pub use self::resource_handle::{
+    FreelistHandleAllocator, HandleAllocator, RawResourceHandle, ResourceHandle,
+    SimpleHandleAllocator,
+};
 pub use self::scatter_copy::{ScatterCopy, ScatterData};
 pub use self::shader_preprocessor::ShaderPreprocessor;
 pub use self::virtual_fs::{VirtualFs, VirtualPath};

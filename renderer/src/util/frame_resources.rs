@@ -72,6 +72,7 @@ impl FrameResources {
         globals.render_resolution = glam::vec2(width as f32, height as f32);
     }
 
+    #[allow(dead_code)]
     pub fn set_camera(&self, view: &Mat4, projection: &CameraProjection) {
         let mut globals = self.globals.lock().unwrap();
 

@@ -14,6 +14,7 @@ pub struct Frustum {
 
 impl Frustum {
     /// Computes the frustum of the given view-projection matrix.
+    #[allow(dead_code)]
     pub fn new(view_proj: Mat4) -> Self {
         // x, y, z, w
         let mat = view_proj.to_cols_array_2d();
@@ -75,6 +76,7 @@ impl Frustum {
     }
 
     /// Returns `true` if the given bounding sphere is inside the frustum.
+    #[allow(dead_code)]
     pub fn contains_sphere(&self, sphere: &BoundingSphere) -> bool {
         let neg_radius = -sphere.radius;
         // Check if sphere is inside all planes (with normals pointing outside).
@@ -95,11 +97,13 @@ pub struct Plane {
 
 impl Plane {
     /// Creates a new plane from the given normal and distance.
+    #[allow(dead_code)]
     pub fn new(normal: Vec3, distance: f32) -> Self {
         Self { normal, distance }
     }
 
     /// Normalizes the plane.
+    #[allow(dead_code)]
     pub fn normalized(mut self) -> Self {
         let length = self.normal.length();
         self.normal /= length;
@@ -108,6 +112,7 @@ impl Plane {
     }
 
     /// Returns a signed distance from the plane to the given point.
+    #[allow(dead_code)]
     pub fn distance_to_point(&self, point: Vec3) -> f32 {
         // Project "origin to point" vector onto plane normal and add distance along normal.
         self.normal.dot(point) + self.distance

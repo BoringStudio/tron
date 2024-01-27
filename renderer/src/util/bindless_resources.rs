@@ -74,6 +74,7 @@ impl BindlessResources {
         self.storage_buffer_allocator.flush_retired();
     }
 
+    #[allow(dead_code)]
     pub fn alloc_image(
         &self,
         device: &gfx::Device,
@@ -98,10 +99,12 @@ impl BindlessResources {
         handle
     }
 
+    #[allow(dead_code)]
     pub fn free_image(&self, handle: SampledImageHandle) {
         self.image_allocator.dealloc(handle);
     }
 
+    #[allow(dead_code)]
     pub fn alloc_uniform_buffer(
         &self,
         device: &gfx::Device,
@@ -121,6 +124,7 @@ impl BindlessResources {
         handle
     }
 
+    #[allow(dead_code)]
     pub fn free_uniform_buffer(&self, handle: UniformBufferHandle) {
         self.uniform_buffer_allocator.dealloc(handle);
     }
@@ -221,22 +225,20 @@ pub type UniformBufferHandle = GpuResourceHandle<{ GpuResourceKind::UniformBuffe
 pub type StorageBufferHandle = GpuResourceHandle<{ GpuResourceKind::StorageBuffer as u8 }>;
 pub type SampledImageHandle = GpuResourceHandle<{ GpuResourceKind::SampledImage as u8 }>;
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(transparent)]
 pub struct GpuResourceHandle<const KIND: u8>(u32);
 
 // TODO: add resource type validation
 impl<const KIND: u8> GpuResourceHandle<KIND> {
-    pub fn new(version: u8, index: u32) -> Self {
+    pub const INVALID: Self = Self::new(0, u32::MAX);
+
+    pub const fn new(version: u8, index: u32) -> Self {
         Self(
             (version as u32) << HANDLE_VERSION_OFFSET
                 | (((KIND as u32) & HANDLE_KIND_MASK) << HANDLE_KIND_OFFSET)
                 | (index & HANDLE_INDEX_MASK),
         )
-    }
-
-    pub fn try_from_raw(value: u32) -> Option<Self> {
-        let kind = (value >> HANDLE_KIND_OFFSET) & HANDLE_KIND_MASK;
-        (kind == KIND as u32).then_some(Self(value))
     }
 
     pub fn version(self) -> u8 {
@@ -245,10 +247,6 @@ impl<const KIND: u8> GpuResourceHandle<KIND> {
 
     pub fn index(self) -> u32 {
         self.0 & HANDLE_INDEX_MASK
-    }
-
-    pub fn recycled(self) -> Self {
-        Self(recycle_handle(self.0))
     }
 }
 
@@ -266,14 +264,11 @@ const fn recycle_handle(handle: u32) -> u32 {
     handle.wrapping_add(1 << HANDLE_VERSION_OFFSET)
 }
 
-const HANDLE_VERSION_BITS: usize = 6;
 const HANDLE_KIND_BITS: usize = 2;
 const HANDLE_INDEX_BITS: usize = 24;
 
 const HANDLE_VERSION_OFFSET: usize = HANDLE_KIND_BITS + HANDLE_INDEX_BITS;
 const HANDLE_KIND_OFFSET: usize = HANDLE_INDEX_BITS;
-
-const HANDLE_VERSION_MASK: u32 = (1 << HANDLE_VERSION_BITS) - 1;
 const HANDLE_KIND_MASK: u32 = (1 << HANDLE_KIND_BITS) - 1;
 const HANDLE_INDEX_MASK: u32 = (1 << HANDLE_INDEX_BITS) - 1;
 

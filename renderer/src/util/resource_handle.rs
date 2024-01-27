@@ -2,17 +2,54 @@ use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-pub struct ResourceHandleAllocator<T: ?Sized> {
+pub trait HandleAllocator<T: ?Sized> {
+    fn alloc(&self, deleter: Arc<dyn Fn(RawResourceHandle<T>) + Send + Sync>) -> ResourceHandle<T>;
+    fn dealloc(&self, handle: RawResourceHandle<T>);
+}
+
+pub struct SimpleHandleAllocator<T: ?Sized> {
+    next: AtomicUsize,
+    _phantom: PhantomData<T>,
+}
+
+impl<T: ?Sized> Default for SimpleHandleAllocator<T> {
+    fn default() -> Self {
+        Self {
+            next: AtomicUsize::new(0),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<T: ?Sized> HandleAllocator<T> for SimpleHandleAllocator<T> {
+    fn alloc(&self, deleter: Arc<dyn Fn(RawResourceHandle<T>) + Send + Sync>) -> ResourceHandle<T> {
+        ResourceHandle {
+            index: self.next.fetch_add(1, Ordering::Relaxed),
+            refcount: deleter,
+        }
+    }
+
+    fn dealloc(&self, _handle: RawResourceHandle<T>) {}
+}
+
+pub struct FreelistHandleAllocator<T: ?Sized> {
     next: AtomicUsize,
     free_list: Mutex<Vec<usize>>,
     _phantom: PhantomData<T>,
 }
 
-impl<T: ?Sized> ResourceHandleAllocator<T> {
-    pub fn alloc(
-        &self,
-        deleter: Arc<dyn Fn(RawResourceHandle<T>) + Send + Sync>,
-    ) -> ResourceHandle<T> {
+impl<T: ?Sized> Default for FreelistHandleAllocator<T> {
+    fn default() -> Self {
+        Self {
+            next: AtomicUsize::new(0),
+            free_list: Mutex::new(Vec::new()),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<T: ?Sized> HandleAllocator<T> for FreelistHandleAllocator<T> {
+    fn alloc(&self, deleter: Arc<dyn Fn(RawResourceHandle<T>) + Send + Sync>) -> ResourceHandle<T> {
         let index = self
             .free_list
             .lock()
@@ -26,18 +63,8 @@ impl<T: ?Sized> ResourceHandleAllocator<T> {
         }
     }
 
-    pub fn dealloc(&self, handle: RawResourceHandle<T>) {
+    fn dealloc(&self, handle: RawResourceHandle<T>) {
         self.free_list.lock().unwrap().push(handle.index);
-    }
-}
-
-impl<T: ?Sized> Default for ResourceHandleAllocator<T> {
-    fn default() -> Self {
-        Self {
-            next: AtomicUsize::new(0),
-            free_list: Mutex::new(Vec::new()),
-            _phantom: PhantomData,
-        }
     }
 }
 

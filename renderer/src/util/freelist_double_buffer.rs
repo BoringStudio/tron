@@ -1,9 +1,10 @@
 use anyhow::Result;
 
-use crate::util::{ScatterCopy, ScatterData};
+use crate::util::{BindlessResources, ScatterCopy, ScatterData, StorageBufferHandle};
 
 pub struct FreelistDoubleBuffer {
     targets: [Target; 2],
+    handle: StorageBufferHandle,
     odd_target: bool,
     reserved_count: u32,
 }
@@ -12,9 +13,15 @@ impl FreelistDoubleBuffer {
     pub fn with_capacity(initial_capacity: u32) -> Self {
         FreelistDoubleBuffer {
             targets: Default::default(),
+            handle: StorageBufferHandle::INVALID,
             odd_target: false,
             reserved_count: initial_capacity,
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn handle(&self) -> StorageBufferHandle {
+        self.handle
     }
 
     pub fn update_slot(&mut self, slot: u32) {
@@ -29,13 +36,14 @@ impl FreelistDoubleBuffer {
     /// # Safety
     /// - `T` must be the same type on each invocation.
     #[inline]
-    pub unsafe fn flush<'a, T, F>(
-        &'a mut self,
+    pub unsafe fn flush<T, F>(
+        &mut self,
         device: &gfx::Device,
         encoder: &mut gfx::Encoder,
         scatter_copy: &ScatterCopy,
+        bindless_resources: &BindlessResources,
         mut get_data: F,
-    ) -> Result<&'a gfx::Buffer>
+    ) -> Result<()>
     where
         T: gfx::Std430,
         F: FnMut(u32) -> T,
@@ -55,35 +63,38 @@ impl FreelistDoubleBuffer {
         };
 
         // NOTE: `reserved_count` is eventually updated on `update_index` calls.
-        let (current_target_buffer, updated_slots) = current_target.prepare(
+        let prepared = current_target.prepare(
             device,
             encoder,
+            bindless_resources,
             self.reserved_count,
             item_size,
             T::ALIGN_MASK,
         )?;
+        self.handle = prepared.handle;
 
-        if updated_slots.is_empty() && prev_target.updated_slots.is_empty() {
-            return Ok(current_target_buffer);
+        if prepared.updated_slots.is_empty() && prev_target.updated_slots.is_empty() {
+            return Ok(());
         }
 
-        let data = updated_slots
+        let data = prepared
+            .updated_slots
             .merge_iter(&prev_target.updated_slots)
             .map(|slot| ScatterData::new(item_size as u32 * slot, get_data(slot)));
 
-        scatter_copy.execute(device, encoder, current_target_buffer, data)?;
+        scatter_copy.execute(device, encoder, prepared.buffer, data)?;
 
         // Clear previous target updated slots as they are no longer needed.
         prev_target.updated_slots.clear();
 
         self.odd_target = !self.odd_target;
-        Ok(current_target_buffer)
+        Ok(())
     }
 }
 
 #[derive(Default)]
 struct Target {
-    buffer: Option<gfx::Buffer>,
+    buffer: Option<(gfx::Buffer, StorageBufferHandle)>,
     current_count: u32,
     updated_slots: UpdatedSlots,
 }
@@ -93,25 +104,31 @@ impl Target {
         &'a mut self,
         device: &gfx::Device,
         encoder: &mut gfx::Encoder,
+        bindless_resources: &BindlessResources,
         reserved_count: u32,
         item_size: usize,
         align_mask: u64,
-    ) -> Result<(&'a mut gfx::Buffer, &'a mut UpdatedSlots), gfx::OutOfDeviceMemory> {
+    ) -> Result<PreparedTarget<'a>, gfx::OutOfDeviceMemory> {
         if self.buffer.is_some() && self.current_count == reserved_count {
             // SAFETY: `self.buffer` is `Some`
             // NOTE: borrow checker is mad, I am too!
-            let buffer = unsafe { self.buffer.as_mut().unwrap_unchecked() };
-            return Ok((buffer, &mut self.updated_slots));
+            let (buffer, handle) = unsafe { self.buffer.as_ref().unwrap_unchecked() };
+            return Ok(PreparedTarget {
+                buffer,
+                handle: *handle,
+                updated_slots: &self.updated_slots,
+            });
         }
 
         let old_buffer = self.buffer.take();
-        let buffer = self.buffer.get_or_insert(make_buffer(
-            device,
-            align_mask,
-            item_size as u64 * reserved_count as u64,
-        )?);
+        let (buffer, handle) = {
+            let buffer = make_buffer(device, align_mask, item_size as u64 * reserved_count as u64)?;
+            let handle = bindless_resources.alloc_storage_buffer(device, buffer.clone());
+            self.buffer.get_or_insert((buffer, handle))
+        };
 
-        if let Some(old_buffer) = old_buffer {
+        if let Some((old_buffer, old_buffer_handle)) = old_buffer {
+            bindless_resources.free_storage_buffer(old_buffer_handle);
             encoder.copy_buffer(
                 &old_buffer,
                 buffer,
@@ -124,8 +141,18 @@ impl Target {
         }
 
         self.current_count = reserved_count;
-        Ok((buffer, &mut self.updated_slots))
+        Ok(PreparedTarget {
+            buffer,
+            handle: *handle,
+            updated_slots: &self.updated_slots,
+        })
     }
+}
+
+struct PreparedTarget<'a> {
+    buffer: &'a gfx::Buffer,
+    handle: StorageBufferHandle,
+    updated_slots: &'a UpdatedSlots,
 }
 
 fn make_buffer(

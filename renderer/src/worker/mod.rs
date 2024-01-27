@@ -72,7 +72,10 @@ impl RendererWorker {
 
         let mut encoder = queue.create_primary_encoder()?;
 
-        self.state.eval_instructions(&mut encoder)?;
+        {
+            profiling::scope!("eval_instructions");
+            self.state.eval_instructions(&mut encoder)?;
+        }
 
         if self
             .state
