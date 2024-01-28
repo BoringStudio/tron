@@ -152,7 +152,7 @@ impl BoundingSphere {
     ///
     /// # Panics
     /// Panics if the transform matrix contains a perspective projection.
-    pub fn transformed(self, transform: Mat4) -> Self {
+    pub fn transformed(self, transform: &Mat4) -> Self {
         let max_scale = transform
             .x_axis
             .xyz()

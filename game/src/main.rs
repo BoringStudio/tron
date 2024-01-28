@@ -137,7 +137,7 @@ impl App {
 
             Some(TestObject {
                 material,
-                _static_object: static_object,
+                static_object,
             })
         };
 
@@ -188,6 +188,11 @@ impl App {
                                             },
                                         );
 
+                                        renderer_state.update_static_object(
+                                            &test_object.static_object,
+                                            glam::Mat4::IDENTITY,
+                                        );
+
                                         tracing::info!("updated test object material");
                                     }
                                 }
@@ -213,5 +218,5 @@ impl App {
 
 struct TestObject {
     material: renderer::MaterialHandle,
-    _static_object: renderer::StaticObjectHandle,
+    static_object: renderer::StaticObjectHandle,
 }

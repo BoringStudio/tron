@@ -4,6 +4,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use anyhow::{Context, Result};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::system::Resource;
+use glam::Mat4;
 use shared::Embed;
 use winit::window::Window;
 
@@ -231,7 +232,7 @@ impl RendererState {
             .mesh_handle_allocator
             .alloc(Arc::new(move |handle| {
                 if let Some(state) = state.upgrade() {
-                    state.instructions.send(Instruction::DeleteMesh { handle });
+                    state.instructions.send(Instruction::RemoveMesh { handle });
                 }
             }));
 
@@ -248,7 +249,7 @@ impl RendererState {
                 if let Some(state) = state.upgrade() {
                     state
                         .instructions
-                        .send(Instruction::DeleteMaterial { handle });
+                        .send(Instruction::RemoveMaterial { handle });
                 }
             }));
 
@@ -275,15 +276,22 @@ impl RendererState {
                 if let Some(state) = state.upgrade() {
                     state
                         .instructions
-                        .send(Instruction::DeleteStaticObject { handle });
+                        .send(Instruction::RemoveStatisObject { handle });
                 }
             }));
 
         self.instructions.send(Instruction::AddStaticObject {
             handle: handle.raw(),
-            object,
+            object: Box::new(object),
         });
         handle
+    }
+
+    pub fn update_static_object(self: &Arc<Self>, handle: &StaticObjectHandle, transform: Mat4) {
+        self.instructions.send(Instruction::UpdateStaticObject {
+            handle: handle.raw(),
+            transform: Box::new(transform),
+        });
     }
 
     #[tracing::instrument(level = "debug", name = "eval_instructions", skip_all)]
@@ -301,8 +309,8 @@ impl RendererState {
 
         for instruction in instructions.drain(..) {
             match instruction {
-                Instruction::DeleteMesh { handle } => {
-                    tracing::debug!(?handle, "delete_mesh");
+                Instruction::RemoveMesh { handle } => {
+                    tracing::debug!(?handle, "remove_mesh");
                     self.handles.mesh_handle_allocator.dealloc(handle);
                     self.mesh_manager.remove(handle);
                 }
@@ -314,8 +322,8 @@ impl RendererState {
                     tracing::debug!(?handle, "update_material");
                     on_update(&mut synced_managers.material_manager, handle);
                 }
-                Instruction::DeleteMaterial { handle } => {
-                    tracing::debug!(?handle, "delete_material");
+                Instruction::RemoveMaterial { handle } => {
+                    tracing::debug!(?handle, "remove_material");
                     self.handles.material_handle_allocator.dealloc(handle);
                     synced_managers.material_manager.remove(handle);
                 }
@@ -331,7 +339,13 @@ impl RendererState {
                         &mut synced_managers.material_manager,
                     );
                 }
-                Instruction::DeleteStaticObject { handle } => {
+                Instruction::UpdateStaticObject { handle, transform } => {
+                    tracing::debug!(?handle, "update_static_object");
+                    synced_managers
+                        .object_manager
+                        .update_static(handle, transform.as_ref());
+                }
+                Instruction::RemoveStatisObject { handle } => {
                     tracing::debug!(?handle, "delete_static_object");
                     self.handles.static_object_handle_allocator.dealloc(handle);
                     synced_managers.object_manager.remove_static(handle);
@@ -394,7 +408,7 @@ impl InstructionQueue {
 }
 
 enum Instruction {
-    DeleteMesh {
+    RemoveMesh {
         handle: RawMeshHandle,
     },
     AddMaterial {
@@ -405,14 +419,18 @@ enum Instruction {
         handle: RawMaterialHandle,
         on_update: Box<FnOnUpdateMaterial>,
     },
-    DeleteMaterial {
+    RemoveMaterial {
         handle: RawMaterialHandle,
     },
     AddStaticObject {
         handle: RawStaticObjectHandle,
-        object: StaticObject,
+        object: Box<StaticObject>,
     },
-    DeleteStaticObject {
+    UpdateStaticObject {
+        handle: RawStaticObjectHandle,
+        transform: Box<Mat4>,
+    },
+    RemoveStatisObject {
         handle: RawStaticObjectHandle,
     },
 }

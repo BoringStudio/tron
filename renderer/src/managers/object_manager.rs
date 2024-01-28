@@ -24,7 +24,7 @@ impl ObjectManager {
     pub fn insert_static(
         &mut self,
         handle: RawStaticObjectHandle,
-        object: StaticObject,
+        object: Box<StaticObject>,
         mesh_manager_data: &MeshManagerDataGuard,
         material_manager: &mut MaterialManager,
     ) {
@@ -41,6 +41,18 @@ impl ObjectManager {
                 object_manager: Some(self),
             },
         );
+    }
+
+    #[tracing::instrument(level = "debug", name = "update_object", skip_all)]
+    pub fn update_static(&mut self, handle: RawStaticObjectHandle, transform: &Mat4) {
+        let HandleData { archetype, slot } = &self.static_handles[&handle];
+
+        let archetype = self
+            .archetypes
+            .get_mut(archetype)
+            .expect("invalid handle archetype");
+
+        (archetype.update_transform)(archetype, *slot, transform);
     }
 
     #[tracing::instrument(level = "debug", name = "remove_object", skip_all)]
@@ -88,6 +100,7 @@ impl ObjectManager {
                 free_slots: Vec::new(),
                 retired_slots: Vec::new(),
                 flush: flush::<<M as Material>::SupportedAttributes>,
+                update_transform: update_transform::<<M as Material>::SupportedAttributes>,
                 remove: remove::<<M as Material>::SupportedAttributes>,
             }),
         }
@@ -108,6 +121,7 @@ struct ObjectArchetype {
     free_slots: Vec<u32>,
     retired_slots: Vec<u32>,
     flush: fn(&mut ObjectArchetype, FlushObject) -> Result<()>,
+    update_transform: fn(&mut ObjectArchetype, u32, &Mat4),
     remove: fn(&mut ObjectArchetype, u32),
 }
 
@@ -116,9 +130,10 @@ type SlotData<A> = Option<GpuObject<<A as MaterialArray<VertexAttributeKind>>::U
 pub struct GpuObject<A> {
     pub mesh_handle: MeshHandle,
     pub material_handle: MaterialHandle,
+    pub mesh_bounding_sphere: BoundingSphere,
 
     pub transform: Mat4,
-    pub bounding_sphere: BoundingSphere,
+    pub global_bounding_sphere: BoundingSphere,
     pub vertex_attribute_offsets: A,
     pub first_index: u32,
     pub index_count: u32,
@@ -146,7 +161,7 @@ where
     fn as_std430(&self) -> Self::Output {
         Std430GpuObject {
             transform: self.transform,
-            bounding_sphere: self.bounding_sphere.into(),
+            bounding_sphere: self.global_bounding_sphere.into(),
             data: self.make_data(),
             vertex_attribute_offsets: self.vertex_attribute_offsets,
         }
@@ -154,7 +169,7 @@ where
 
     fn write_as_std430(&self, dst: &mut Self::Output) {
         dst.transform = self.transform;
-        dst.bounding_sphere = self.bounding_sphere.into();
+        dst.bounding_sphere = self.global_bounding_sphere.into();
         dst.data = self.make_data();
         dst.vertex_attribute_offsets = self.vertex_attribute_offsets;
     }
@@ -181,7 +196,7 @@ unsafe impl<A: gfx::Std430> gfx::Std430 for Std430GpuObject<A> {
 pub(crate) struct WriteStaticObject<'a> {
     mesh: &'a GpuMesh,
     handle: RawStaticObjectHandle,
-    object: StaticObject,
+    object: Box<StaticObject>,
     object_manager: Option<&'a mut ObjectManager>,
 }
 
@@ -241,11 +256,16 @@ impl WriteStaticObject<'_> {
         let first_index = indices.start;
         let index_count = indices.end - indices.start;
 
+        // Compute bounding sphere in global space
+        let mesh_bounding_sphere = *self.mesh.bounding_sphere();
+        let global_bounding_sphere = mesh_bounding_sphere.transformed(&self.object.transform);
+
         let gpu_object = GpuObject::<A::U32Array> {
             mesh_handle: self.object.mesh,
             material_handle: self.object.material,
+            mesh_bounding_sphere,
             transform: self.object.transform,
-            bounding_sphere: *self.mesh.bounding_sphere(),
+            global_bounding_sphere,
             vertex_attribute_offsets,
             first_index,
             index_count,
@@ -288,9 +308,10 @@ fn flush<A: MaterialArray<VertexAttributeKind>>(
 ) -> Result<()> {
     // SAFETY: `typed_data` template parameter is the same as the one used to
     // construct `archetype`.
-    unsafe {
-        let mut data = archetype.data.downcast_mut::<SlotData<A>>();
+    let mut data = unsafe { archetype.data.downcast_mut::<SlotData<A>>() };
 
+    // SAFETY: `flush` is called with the same template parameter all the time.
+    unsafe {
         archetype
             .buffer
             .flush::<<GpuObject<A::U32Array> as gfx::AsStd430>::Output, _>(
@@ -303,18 +324,35 @@ fn flush<A: MaterialArray<VertexAttributeKind>>(
                     material.as_std430()
                 },
             )?;
-
-        // Restore free slots
-        for &slot in &archetype.retired_slots {
-            // Clear all retired slots
-            data.get_mut(slot as usize)
-                .expect("invalid retired slot")
-                .take();
-        }
-        archetype.free_slots.append(&mut archetype.retired_slots);
     }
 
+    // Restore free slots
+    for &slot in &archetype.retired_slots {
+        // Clear all retired slots
+        data.get_mut(slot as usize)
+            .expect("invalid retired slot")
+            .take();
+    }
+    archetype.free_slots.append(&mut archetype.retired_slots);
+
     Ok(())
+}
+
+fn update_transform<A: MaterialArray<VertexAttributeKind>>(
+    archetype: &mut ObjectArchetype,
+    slot: u32,
+    transform: &Mat4,
+) {
+    // SAFETY: `downcast_mut` template parameter is the same as the one used to
+    // construct `data`.
+    let mut data = unsafe { archetype.data.downcast_mut::<SlotData<A>>() };
+    let item = data.get_mut(slot as usize).expect("invalid handle slot");
+    let item = item.as_mut().expect("value was not initialized");
+
+    item.transform = *transform;
+    item.global_bounding_sphere = item.mesh_bounding_sphere.transformed(transform);
+
+    archetype.buffer.update_slot(slot);
 }
 
 fn remove<A: MaterialArray<VertexAttributeKind>>(archetype: &mut ObjectArchetype, slot: u32) {
