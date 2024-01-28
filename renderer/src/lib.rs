@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 
 use anyhow::{Context, Result};
 use bevy_ecs::entity::Entity;
@@ -18,8 +18,8 @@ pub use crate::types::{
 use crate::managers::{MaterialManager, MeshManager, ObjectManager};
 use crate::types::{RawMaterialHandle, RawMeshHandle, RawStaticObjectHandle};
 use crate::util::{
-    BindlessResources, FrameResources, FreelistHandleAllocator, HandleAllocator, ScatterCopy,
-    ShaderPreprocessor, SimpleHandleAllocator,
+    BindlessResources, FrameResources, FreelistHandleAllocator, HandleAllocator, HandleData,
+    HandleDeleter, RawResourceHandle, ScatterCopy, ShaderPreprocessor, SimpleHandleAllocator,
 };
 use crate::worker::RendererWorker;
 
@@ -230,11 +230,7 @@ impl RendererState {
         let handle = self
             .handles
             .mesh_handle_allocator
-            .alloc(Arc::new(move |handle| {
-                if let Some(state) = state.upgrade() {
-                    state.instructions.send(Instruction::RemoveMesh { handle });
-                }
-            }));
+            .alloc(Arc::new(InstructedHandleDeleter(state)));
 
         self.mesh_manager.insert(handle.raw(), mesh);
         Ok(handle)
@@ -245,13 +241,7 @@ impl RendererState {
         let handle = self
             .handles
             .material_handle_allocator
-            .alloc(Arc::new(move |handle| {
-                if let Some(state) = state.upgrade() {
-                    state
-                        .instructions
-                        .send(Instruction::RemoveMaterial { handle });
-                }
-            }));
+            .alloc(Arc::new(InstructedHandleDeleter(state)));
 
         self.instructions.send(Instruction::AddMaterial {
             handle: handle.raw(),
@@ -272,13 +262,7 @@ impl RendererState {
         let handle = self
             .handles
             .static_object_handle_allocator
-            .alloc(Arc::new(move |handle| {
-                if let Some(state) = state.upgrade() {
-                    state
-                        .instructions
-                        .send(Instruction::RemoveStatisObject { handle });
-                }
-            }));
+            .alloc(Arc::new(InstructedHandleDeleter(state)));
 
         self.instructions.send(Instruction::AddStaticObject {
             handle: handle.raw(),
@@ -437,6 +421,57 @@ enum Instruction {
 
 type FnOnAddMaterial = dyn FnOnce(&mut MaterialManager, RawMaterialHandle) + Send + Sync;
 type FnOnUpdateMaterial = dyn FnOnce(&mut MaterialManager, RawMaterialHandle) + Send + Sync;
+
+trait IntoRemoveInstruction {
+    fn into_remove_instruction(self) -> Instruction;
+}
+
+impl IntoRemoveInstruction for RawMeshHandle {
+    #[inline]
+    fn into_remove_instruction(self) -> Instruction {
+        Instruction::RemoveMesh { handle: self }
+    }
+}
+
+impl IntoRemoveInstruction for RawMaterialHandle {
+    #[inline]
+    fn into_remove_instruction(self) -> Instruction {
+        Instruction::RemoveMaterial { handle: self }
+    }
+}
+
+impl IntoRemoveInstruction for RawStaticObjectHandle {
+    #[inline]
+    fn into_remove_instruction(self) -> Instruction {
+        Instruction::RemoveStatisObject { handle: self }
+    }
+}
+
+#[doc(hidden)]
+pub struct InstructedHandleDeleter(Weak<RendererState>);
+
+impl<T> HandleDeleter<T> for InstructedHandleDeleter
+where
+    RawResourceHandle<T>: IntoRemoveInstruction,
+{
+    fn delete(&self, handle: RawResourceHandle<T>) {
+        if let Some(state) = self.0.upgrade() {
+            state.instructions.send(handle.into_remove_instruction());
+        }
+    }
+}
+
+impl HandleData for Mesh {
+    type Deleter = InstructedHandleDeleter;
+}
+
+impl HandleData for MaterialTag {
+    type Deleter = InstructedHandleDeleter;
+}
+
+impl HandleData for StaticObject {
+    type Deleter = InstructedHandleDeleter;
+}
 
 #[derive(Default)]
 struct LoopBarrier {

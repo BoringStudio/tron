@@ -2,17 +2,25 @@ use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-pub trait HandleAllocator<T: ?Sized> {
-    fn alloc(&self, deleter: Arc<dyn Fn(RawResourceHandle<T>) + Send + Sync>) -> ResourceHandle<T>;
+pub trait HandleAllocator<T: HandleData> {
+    fn alloc(&self, deleter: Arc<T::Deleter>) -> ResourceHandle<T>;
     fn dealloc(&self, handle: RawResourceHandle<T>);
 }
 
-pub struct SimpleHandleAllocator<T: ?Sized> {
+pub trait HandleData: Send + Sync + 'static {
+    type Deleter: HandleDeleter<Self>;
+}
+
+pub trait HandleDeleter<T: ?Sized>: Send + Sync + 'static {
+    fn delete(&self, handle: RawResourceHandle<T>);
+}
+
+pub struct SimpleHandleAllocator<T> {
     next: AtomicUsize,
     _phantom: PhantomData<T>,
 }
 
-impl<T: ?Sized> Default for SimpleHandleAllocator<T> {
+impl<T> Default for SimpleHandleAllocator<T> {
     fn default() -> Self {
         Self {
             next: AtomicUsize::new(0),
@@ -21,8 +29,8 @@ impl<T: ?Sized> Default for SimpleHandleAllocator<T> {
     }
 }
 
-impl<T: ?Sized> HandleAllocator<T> for SimpleHandleAllocator<T> {
-    fn alloc(&self, deleter: Arc<dyn Fn(RawResourceHandle<T>) + Send + Sync>) -> ResourceHandle<T> {
+impl<T: HandleData> HandleAllocator<T> for SimpleHandleAllocator<T> {
+    fn alloc(&self, deleter: Arc<T::Deleter>) -> ResourceHandle<T> {
         ResourceHandle {
             index: self.next.fetch_add(1, Ordering::Relaxed),
             refcount: deleter,
@@ -32,13 +40,13 @@ impl<T: ?Sized> HandleAllocator<T> for SimpleHandleAllocator<T> {
     fn dealloc(&self, _handle: RawResourceHandle<T>) {}
 }
 
-pub struct FreelistHandleAllocator<T: ?Sized> {
+pub struct FreelistHandleAllocator<T> {
     next: AtomicUsize,
     free_list: Mutex<Vec<usize>>,
     _phantom: PhantomData<T>,
 }
 
-impl<T: ?Sized> Default for FreelistHandleAllocator<T> {
+impl<T> Default for FreelistHandleAllocator<T> {
     fn default() -> Self {
         Self {
             next: AtomicUsize::new(0),
@@ -48,8 +56,8 @@ impl<T: ?Sized> Default for FreelistHandleAllocator<T> {
     }
 }
 
-impl<T: ?Sized> HandleAllocator<T> for FreelistHandleAllocator<T> {
-    fn alloc(&self, deleter: Arc<dyn Fn(RawResourceHandle<T>) + Send + Sync>) -> ResourceHandle<T> {
+impl<T: HandleData> HandleAllocator<T> for FreelistHandleAllocator<T> {
+    fn alloc(&self, deleter: Arc<T::Deleter>) -> ResourceHandle<T> {
         let index = self
             .free_list
             .lock()
@@ -68,12 +76,12 @@ impl<T: ?Sized> HandleAllocator<T> for FreelistHandleAllocator<T> {
     }
 }
 
-pub struct ResourceHandle<T: ?Sized> {
+pub struct ResourceHandle<T: HandleData> {
     index: usize,
-    refcount: Arc<dyn Fn(RawResourceHandle<T>) + Send + Sync>,
+    refcount: Arc<T::Deleter>,
 }
 
-impl<T: ?Sized> ResourceHandle<T> {
+impl<T: HandleData> ResourceHandle<T> {
     pub fn index(&self) -> usize {
         self.index
     }
@@ -86,15 +94,15 @@ impl<T: ?Sized> ResourceHandle<T> {
     }
 }
 
-impl<T: ?Sized> Drop for ResourceHandle<T> {
+impl<T: HandleData> Drop for ResourceHandle<T> {
     fn drop(&mut self) {
         if Arc::strong_count(&self.refcount) == 1 {
-            (self.refcount)(self.raw());
+            self.refcount.delete(self.raw());
         }
     }
 }
 
-impl<T: ?Sized> Clone for ResourceHandle<T> {
+impl<T: HandleData> Clone for ResourceHandle<T> {
     fn clone(&self) -> Self {
         Self {
             index: self.index,
@@ -103,20 +111,20 @@ impl<T: ?Sized> Clone for ResourceHandle<T> {
     }
 }
 
-impl<T: ?Sized> Eq for ResourceHandle<T> {}
-impl<T: ?Sized> PartialEq for ResourceHandle<T> {
+impl<T: HandleData> Eq for ResourceHandle<T> {}
+impl<T: HandleData> PartialEq for ResourceHandle<T> {
     fn eq(&self, other: &Self) -> bool {
         self.index == other.index
     }
 }
 
-impl<T: ?Sized> std::hash::Hash for ResourceHandle<T> {
+impl<T: HandleData> std::hash::Hash for ResourceHandle<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.index.hash(state)
     }
 }
 
-impl<T: ?Sized> std::fmt::Debug for ResourceHandle<T> {
+impl<T: HandleData> std::fmt::Debug for ResourceHandle<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ResourceHandle")
             .field("id", &self.index)

@@ -3,8 +3,8 @@ pub use self::frame_resources::FrameResources;
 pub use self::freelist_double_buffer::FreelistDoubleBuffer;
 pub use self::frustum::BoundingSphere;
 pub use self::resource_handle::{
-    FreelistHandleAllocator, HandleAllocator, RawResourceHandle, ResourceHandle,
-    SimpleHandleAllocator,
+    FreelistHandleAllocator, HandleAllocator, HandleData, HandleDeleter, RawResourceHandle,
+    ResourceHandle, SimpleHandleAllocator,
 };
 pub use self::scatter_copy::{ScatterCopy, ScatterData};
 pub use self::shader_preprocessor::ShaderPreprocessor;
