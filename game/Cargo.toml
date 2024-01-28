@@ -8,8 +8,10 @@ build = "../build.rs"
 [dependencies]
 anyhow = { workspace = true }
 argh = { workspace = true }
+bevy_ecs = { workspace = true }
 bytemuck = { workspace = true }
 glam = { workspace = true }
+gltf = { workspace = true }
 profiling = { workspace = true, features = ["profile-with-puffin"] }
 puffin_http = { workspace = true }
 rand = { workspace = true }
@@ -17,6 +19,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 winit = { workspace = true, features = ["x11"] }
 
+ecs = { path = "../ecs" }
 renderer = { path = "../renderer" }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]

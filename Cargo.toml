@@ -21,6 +21,7 @@ bumpalo = "3.14"
 bytemuck = { version = "1.14", features = ["derive", "align_offset", "min_const_generics", "aarch64_simd"] }
 dashmap = "5.5"
 glam = { version = "0.25", features = ["bytemuck"] }
+gltf = "1.0"
 gpu-alloc = { version = "0.6", features = ["tracing"] }
 gpu-alloc-vulkanalia = { version = "0.1", features = ["tracing"] }
 once_cell = "1.19"

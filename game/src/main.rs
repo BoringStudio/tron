@@ -14,6 +14,10 @@ use winit::window::WindowBuilder;
 
 use renderer::Renderer;
 
+use self::scene::Scene;
+
+mod scene;
+
 #[cfg(not(any(target_env = "msvc", miri)))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
@@ -26,6 +30,11 @@ fn main() -> Result<()> {
 /// Vulkan rendering experiments
 #[derive(FromArgs)]
 struct App {
+    // TEMP
+    /// glTF file to load
+    #[argh(positional)]
+    gltf_scene: Option<String>,
+
     /// enable profiling server
     #[argh(switch)]
     profiling: bool,
@@ -115,35 +124,11 @@ impl App {
             .shaders_debug_info_enabled(self.vk_debug_shaders)
             .build()?;
 
-        // TEMP
-        let mut test_objects = Vec::new();
-        let add_object = {
-            let renderer_state = renderer.state().clone();
+        let mut scene = Scene::default();
 
-            let mesh = renderer::Mesh::builder(renderer::CubeMeshGenerator::from_size(1.0))
-                .with_computed_normals()
-                .with_computed_tangents()
-                .build()?;
-            let mesh = renderer_state.add_mesh(&mesh)?;
-
-            move |objects: &mut Vec<TestObject>| -> Result<()> {
-                let material = renderer_state.add_material(renderer::DebugMaterial {
-                    color: glam::vec3(1.0, 0.0, 1.0),
-                });
-
-                let static_object = renderer_state.add_static_object(renderer::StaticObject {
-                    mesh: mesh.clone(),
-                    material: material.clone(),
-                    transform: glam::Mat4::IDENTITY,
-                });
-
-                objects.push(TestObject {
-                    material,
-                    static_object,
-                });
-                Ok(())
-            }
-        };
+        if let Some(gltf_scene_path) = self.gltf_scene {
+            scene.load_gltf(&gltf_scene_path, renderer.state())?;
+        }
 
         let mut minimized = false;
         let handle_event = {
@@ -165,51 +150,6 @@ impl App {
                             renderer_state.set_running(false);
                             elwt.exit();
                         }
-                        WindowEvent::KeyboardInput { event, .. } => {
-                            let code = match event.physical_key {
-                                PhysicalKey::Code(code) if event.state.is_pressed() => code,
-                                _ => return,
-                            };
-
-                            match code {
-                                KeyCode::ArrowLeft => {
-                                    if test_objects.pop().is_some() {
-                                        tracing::info!("removed test object");
-                                    }
-                                }
-                                KeyCode::ArrowRight => {
-                                    if let Err(e) = add_object(&mut test_objects) {
-                                        tracing::error!("failed to add test object: {}", e);
-                                    } else {
-                                        tracing::info!("added test object");
-                                    }
-                                }
-                                KeyCode::KeyC => {
-                                    for test_object in &test_objects {
-                                        let mut rng = rand::thread_rng();
-
-                                        renderer_state.update_material(
-                                            &test_object.material,
-                                            renderer::DebugMaterial {
-                                                color: glam::vec3(
-                                                    rng.gen_range(0.0..1.0),
-                                                    rng.gen_range(0.0..1.0),
-                                                    rng.gen_range(0.0..1.0),
-                                                ),
-                                            },
-                                        );
-
-                                        renderer_state.update_static_object(
-                                            &test_object.static_object,
-                                            glam::Mat4::IDENTITY,
-                                        );
-                                    }
-
-                                    tracing::info!("updated test objects");
-                                }
-                                _ => {}
-                            }
-                        }
                         _ => {}
                     },
                     _ => {}
@@ -225,9 +165,4 @@ impl App {
 
         Ok(())
     }
-}
-
-struct TestObject {
-    material: renderer::MaterialHandle,
-    static_object: renderer::StaticObjectHandle,
 }
