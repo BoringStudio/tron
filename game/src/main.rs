@@ -116,29 +116,33 @@ impl App {
             .build()?;
 
         // TEMP
-        let mut test_object = {
-            let renderer = renderer.state();
+        let mut test_objects = Vec::new();
+        let add_object = {
+            let renderer_state = renderer.state().clone();
 
             let mesh = renderer::Mesh::builder(renderer::CubeMeshGenerator::from_size(1.0))
                 .with_computed_normals()
                 .with_computed_tangents()
                 .build()?;
-            let mesh = renderer.add_mesh(&mesh)?;
+            let mesh = renderer_state.add_mesh(&mesh)?;
 
-            let material = renderer.add_material(renderer::DebugMaterial {
-                color: glam::vec3(1.0, 0.0, 1.0),
-            });
+            move |objects: &mut Vec<TestObject>| -> Result<()> {
+                let material = renderer_state.add_material(renderer::DebugMaterial {
+                    color: glam::vec3(1.0, 0.0, 1.0),
+                });
 
-            let static_object = renderer.add_static_object(renderer::StaticObject {
-                mesh,
-                material: material.clone(),
-                transform: glam::Mat4::IDENTITY,
-            });
+                let static_object = renderer_state.add_static_object(renderer::StaticObject {
+                    mesh: mesh.clone(),
+                    material: material.clone(),
+                    transform: glam::Mat4::IDENTITY,
+                });
 
-            Some(TestObject {
-                material,
-                static_object,
-            })
+                objects.push(TestObject {
+                    material,
+                    static_object,
+                });
+                Ok(())
+            }
         };
 
         let mut minimized = false;
@@ -168,13 +172,20 @@ impl App {
                             };
 
                             match code {
-                                KeyCode::KeyD => {
-                                    if test_object.take().is_some() {
-                                        tracing::info!("dropped test object");
+                                KeyCode::ArrowLeft => {
+                                    if test_objects.pop().is_some() {
+                                        tracing::info!("removed test object");
+                                    }
+                                }
+                                KeyCode::ArrowRight => {
+                                    if let Err(e) = add_object(&mut test_objects) {
+                                        tracing::error!("failed to add test object: {}", e);
+                                    } else {
+                                        tracing::info!("added test object");
                                     }
                                 }
                                 KeyCode::KeyC => {
-                                    if let Some(test_object) = &mut test_object {
+                                    for test_object in &test_objects {
                                         let mut rng = rand::thread_rng();
 
                                         renderer_state.update_material(
@@ -192,9 +203,9 @@ impl App {
                                             &test_object.static_object,
                                             glam::Mat4::IDENTITY,
                                         );
-
-                                        tracing::info!("updated test object material");
                                     }
+
+                                    tracing::info!("updated test objects");
                                 }
                                 _ => {}
                             }

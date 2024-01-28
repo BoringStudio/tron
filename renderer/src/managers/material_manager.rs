@@ -31,7 +31,7 @@ impl MaterialManager {
             let mut data = unsafe { archetype.data.downcast_mut::<SlotData<M>>() };
             if slot as usize >= data.len() {
                 let size = slot.checked_next_power_of_two().expect("too many slots");
-                data.resize_with(size as usize, || None);
+                data.resize_with(size as usize + 1, || None);
             }
             data[slot as usize] = Some(material);
         }

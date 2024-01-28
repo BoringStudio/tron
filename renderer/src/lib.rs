@@ -330,7 +330,7 @@ impl RendererState {
                         .update_static(handle, transform.as_ref());
                 }
                 Instruction::RemoveStatisObject { handle } => {
-                    tracing::debug!(?handle, "delete_static_object");
+                    tracing::debug!(?handle, "remove_static_object");
                     self.handles.static_object_handle_allocator.dealloc(handle);
                     synced_managers.object_manager.remove_static(handle);
                 }
