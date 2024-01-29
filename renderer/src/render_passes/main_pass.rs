@@ -52,7 +52,10 @@ impl MainPass {
                 None => {
                     let framebuffer = device.create_framebuffer(gfx::FramebufferInfo {
                         render_pass: render_pass.clone(),
-                        attachments: vec![input.target.make_image_view(device)?],
+                        attachments: vec![
+                            input.target.make_image_view(device)?,
+                            make_depth_attachment(device, &input.target)?,
+                        ],
                         extent: target_image_info.extent.into(),
                     })?;
 
@@ -78,18 +81,28 @@ impl MainPass {
     ) -> Result<&gfx::Framebuffer> {
         let target_image_info = input.target.info();
 
-        let attachments = vec![gfx::AttachmentInfo {
-            format: target_image_info.format,
-            samples: target_image_info.samples,
-            load_op: gfx::LoadOp::Clear(()),
-            store_op: gfx::StoreOp::Store,
-            initial_layout: None,
-            final_layout: gfx::ImageLayout::Present,
-        }];
+        let attachments = vec![
+            gfx::AttachmentInfo {
+                format: target_image_info.format,
+                samples: target_image_info.samples,
+                load_op: gfx::LoadOp::Clear(()),
+                store_op: gfx::StoreOp::Store,
+                initial_layout: None,
+                final_layout: gfx::ImageLayout::Present,
+            },
+            gfx::AttachmentInfo {
+                format: gfx::Format::D32Sfloat,
+                samples: gfx::Samples::_1,
+                load_op: gfx::LoadOp::Clear(()),
+                store_op: gfx::StoreOp::Store,
+                initial_layout: None,
+                final_layout: gfx::ImageLayout::DepthStencilAttachmentOptimal,
+            },
+        ];
 
         let subpasses = vec![gfx::Subpass {
             colors: vec![(0, gfx::ImageLayout::ColorAttachmentOptimal)],
-            depth: None,
+            depth: Some((1, gfx::ImageLayout::DepthStencilAttachmentOptimal)),
         }];
 
         let dependencies = vec![gfx::SubpassDependency {
@@ -125,7 +138,10 @@ impl MainPass {
             },
             None => gfx::FramebufferInfo {
                 render_pass: render_pass.clone(),
-                attachments: vec![input.target.make_image_view(device)?],
+                attachments: vec![
+                    input.target.make_image_view(device)?,
+                    make_depth_attachment(device, &input.target)?,
+                ],
                 extent: target_image_info.extent.into(),
             },
         };
@@ -135,6 +151,22 @@ impl MainPass {
 
         Ok(self.framebuffers.last().unwrap())
     }
+}
+
+fn make_depth_attachment(
+    device: &gfx::Device,
+    target: &gfx::Image,
+) -> Result<gfx::ImageView, gfx::OutOfDeviceMemory> {
+    device
+        .create_image(gfx::ImageInfo {
+            extent: target.info().extent,
+            format: gfx::Format::D32Sfloat,
+            mip_levels: 1,
+            samples: gfx::Samples::_1,
+            array_layers: 1,
+            usage: gfx::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+        })?
+        .make_image_view(device)
 }
 
 impl Pass for MainPass {
@@ -149,7 +181,10 @@ impl Pass for MainPass {
         let framebuffer = self.get_or_init_framebuffer(device, input)?;
         Ok(encoder.with_framebuffer(
             framebuffer,
-            &[gfx::ClearColor(0.02, 0.02, 0.02, 1.0).into()],
+            &[
+                gfx::ClearColor(0.02, 0.02, 0.02, 1.0).into(),
+                gfx::ClearDepth(1.0).into(),
+            ],
         ))
     }
 }

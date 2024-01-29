@@ -99,7 +99,7 @@ impl RendererWorker {
             .as_secs_f32();
 
         // TEMP
-        let camera_transform = Mat4::from_translation(-Vec3::Z * 10.0);
+        let camera_transform = Mat4::from_translation(Vec3::new(0.0, 2.0, -10.0));
         self.state
             .frame_resources
             .set_camera(&camera_transform, &CameraProjection::default());

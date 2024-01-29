@@ -111,7 +111,7 @@ fn process_gltf_node(
                         .collect::<Vec<_>>(),
                 );
             } else {
-                builder = builder.with_computed_normals();
+                //builder = builder.with_computed_normals();
             }
             if let Some(tangents) = tangents {
                 builder = builder.with_tangents(

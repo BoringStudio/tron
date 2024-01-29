@@ -65,7 +65,7 @@ impl FromGfx<ImageExtent> for vk::Extent2D {
     fn from_gfx(value: ImageExtent) -> Self {
         let e = vk::Extent2D::builder();
         match value {
-            ImageExtent::D1 { width } => e.width(width),
+            ImageExtent::D1 { width } => e.width(width).height(1),
             ImageExtent::D2 { width, height } => e.width(width).height(height),
             ImageExtent::D3 { width, height, .. } => e.width(width).height(height),
         }
@@ -87,8 +87,8 @@ impl FromGfx<ImageExtent> for vk::Extent3D {
     fn from_gfx(value: ImageExtent) -> Self {
         let e = vk::Extent3D::builder();
         match value {
-            ImageExtent::D1 { width } => e.width(width),
-            ImageExtent::D2 { width, height } => e.width(width).height(height),
+            ImageExtent::D1 { width } => e.width(width).height(1).depth(1),
+            ImageExtent::D2 { width, height } => e.width(width).height(height).depth(1),
             ImageExtent::D3 {
                 width,
                 height,

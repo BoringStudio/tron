@@ -35,7 +35,8 @@ layout (push_constant) uniform PushConstant {
     uint material_buffer_index;
 } push_constant;
 
-layout (location = 0) out vec3 outColor;
+layout (location = 0) out vec3 out_color;
+layout (location = 1) out vec3 out_normal;
 
 vec3 vertex_data_read_vec3(uint buffer_index, uint byte_offset) {
     uint offset = byte_offset / 4 + gl_VertexIndex * 3;
@@ -68,7 +69,9 @@ void main() {
     vec3 color = u_material_buffer[push_constant.material_buffer_index].colors[object_data.data.z];
 
     vec3 position = vertex_data_read_vec3(push_constant.mesh_buffer_index, object_data.offsets[0]);
+    vec3 normal = vertex_data_read_vec3(push_constant.mesh_buffer_index, object_data.offsets[1]);
 
     gl_Position = CAMERA_PROJECTION * CAMERA_VIEW * vec4(position, 1.0f);
-    outColor = color;
+    out_color = color;
+    out_normal = normal; // TODO: mul transpose(inverse(object_data.transform))
 }
