@@ -12,7 +12,7 @@ use renderer::RendererState;
 
 #[derive(Default)]
 pub struct Scene {
-    ecs: World,
+    pub ecs: World,
 }
 
 impl Scene {
@@ -101,9 +101,10 @@ fn process_gltf_node(
         let mesh = {
             let mut builder = renderer::Mesh::builder(
                 positions
-                    .map(|[x, y, z]| renderer::Position(Vec3::new(x, z, y)))
+                    .map(|[x, y, z]| renderer::Position(Vec3::new(z, -y, x)))
                     .collect::<Vec<_>>(),
             );
+
             if let Some(normals) = normals {
                 builder = builder.with_normals(
                     normals
@@ -111,12 +112,13 @@ fn process_gltf_node(
                         .collect::<Vec<_>>(),
                 );
             } else {
-                //builder = builder.with_computed_normals();
+                builder = builder.with_computed_normals();
             }
+
             if let Some(tangents) = tangents {
                 builder = builder.with_tangents(
                     tangents
-                        .map(|[x, y, z, _]| renderer::Tangent(Vec3::new(x, y, z)))
+                        .map(|[x, y, z, _]| renderer::Tangent(Vec3::new(x, z, y)))
                         .collect::<Vec<_>>(),
                 );
             }

@@ -71,7 +71,7 @@ void main() {
     vec3 position = vertex_data_read_vec3(push_constant.mesh_buffer_index, object_data.offsets[0]);
     vec3 normal = vertex_data_read_vec3(push_constant.mesh_buffer_index, object_data.offsets[1]);
 
-    gl_Position = CAMERA_PROJECTION * CAMERA_VIEW * vec4(position, 1.0f);
+    gl_Position = CAMERA_PROJECTION * CAMERA_VIEW * object_data.transform * vec4(position, 1.0f);
     out_color = color;
     out_normal = normal; // TODO: mul transpose(inverse(object_data.transform))
 }

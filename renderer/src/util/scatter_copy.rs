@@ -152,6 +152,13 @@ impl ScatterCopy {
             &[&descriptor_set],
             &[],
         );
+
+        encoder.memory_barrier(
+            gfx::PipelineStageFlags::TRANSFER,
+            gfx::AccessFlags::TRANSFER_WRITE,
+            gfx::PipelineStageFlags::COMPUTE_SHADER,
+            gfx::AccessFlags::SHADER_READ,
+        );
         encoder.dispatch((count + 63) / 64, 1, 1);
 
         Ok(())

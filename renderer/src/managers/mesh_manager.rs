@@ -20,7 +20,7 @@ impl MeshManager {
         const INITIAL_VERTICES_CAPACITY: u32 = 1 << 16;
         const INITIAL_INDEX_COUNT: u32 = 1 << 16;
 
-        let buffers = MeshBuffers::new(device, INITIAL_INDEX_COUNT, INITIAL_INDEX_COUNT)?;
+        let buffers = MeshBuffers::new(device, INITIAL_VERTICES_CAPACITY, INITIAL_INDEX_COUNT)?;
         let vertex_alloc = RangeAllocator::new(0..INITIAL_VERTICES_CAPACITY);
         let index_alloc = RangeAllocator::new(0..INITIAL_INDEX_COUNT);
 
@@ -129,7 +129,7 @@ impl MeshManager {
                 }
 
                 let range = state.alloc_range_for_vertices(queue, len as _)?;
-                tracing::debug!(?range, "allocated vertex attribute range");
+                tracing::debug!(?range, len, "allocated vertex attribute range");
 
                 vertex_attribute_copies.push(gfx::BufferCopy {
                     src_offset: staging_buffer_offset as u64,
@@ -277,6 +277,7 @@ impl MeshManagerState {
         }
     }
 
+    #[tracing::instrument(level = "debug", name = "realloc", skip(self, queue))]
     fn realloc(
         &mut self,
         queue: &gfx::Queue,
@@ -367,6 +368,14 @@ impl MeshManagerState {
                 }],
             );
         }
+
+        // Sync other copies
+        make_encoder(queue, &mut self.encoder)?.memory_barrier(
+            gfx::PipelineStageFlags::TRANSFER,
+            gfx::AccessFlags::TRANSFER_WRITE,
+            gfx::PipelineStageFlags::TRANSFER,
+            gfx::AccessFlags::TRANSFER_READ,
+        );
 
         Ok(())
     }

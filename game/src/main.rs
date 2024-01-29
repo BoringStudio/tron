@@ -1,7 +1,11 @@
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use argh::FromArgs;
+use bevy_ecs::prelude::*;
+use ecs::components::Transform;
+use renderer::components::StaticMeshInstance;
 use winit::event::*;
 use winit::event_loop::EventLoopBuilder;
 #[cfg(wayland_platform)]
@@ -123,20 +127,41 @@ impl App {
             .build()?;
 
         let mut scene = Scene::default();
+        scene.ecs.insert_resource(Time::default());
+        scene.ecs.insert_resource(RendererResources {
+            state: renderer.state().clone(),
+        });
 
         if let Some(gltf_scene_path) = self.gltf_scene {
             scene.load_gltf(&gltf_scene_path, renderer.state())?;
         }
 
+        let mut schedule = Schedule::default();
+        schedule.add_systems((rotation_system, apply_static_objects_transform_system).chain());
+
+        let update_interval = Duration::from_secs(1) / 60;
+
+        let mut prev_update_at = Instant::now();
         let mut minimized = false;
         let handle_event = {
             let renderer_state = renderer.state().clone();
             move |event, elwt: &winit::event_loop::EventLoopWindowTarget<_>| {
                 elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
+                {
+                    let now = Instant::now();
+                    if now.duration_since(prev_update_at) > update_interval {
+                        let prev_update_at = std::mem::replace(&mut prev_update_at, now);
+                        scene.ecs.resource_mut::<Time>().delta =
+                            prev_update_at.elapsed().as_secs_f32();
+
+                        schedule.run(&mut scene.ecs);
+                    }
+                }
+
                 match event {
-                    Event::AboutToWait => window.request_redraw(),
-                    Event::WindowEvent { event, .. } => match event {
+                    winit::event::Event::AboutToWait => window.request_redraw(),
+                    winit::event::Event::WindowEvent { event, .. } => match event {
                         WindowEvent::RedrawRequested if !elwt.exiting() && !minimized => {
                             renderer_state.notify_draw();
                         }
@@ -162,5 +187,31 @@ impl App {
         renderer.cleanup()?;
 
         Ok(())
+    }
+}
+
+#[derive(Default, Resource)]
+struct Time {
+    delta: f32,
+}
+
+#[derive(Resource)]
+struct RendererResources {
+    state: Arc<renderer::RendererState>,
+}
+
+fn rotation_system(res: Res<Time>, mut query: Query<&mut Transform>) {
+    for mut transform in &mut query {
+        transform.rotate_y(1.0 * res.delta);
+    }
+}
+
+fn apply_static_objects_transform_system(
+    res: Res<RendererResources>,
+    query: Query<(&Transform, &StaticMeshInstance)>,
+) {
+    for (transform, object) in &query {
+        res.state
+            .update_static_object(&object.handle, transform.to_matrix());
     }
 }

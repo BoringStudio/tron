@@ -88,13 +88,13 @@ impl MainPass {
                 load_op: gfx::LoadOp::Clear(()),
                 store_op: gfx::StoreOp::Store,
                 initial_layout: None,
-                final_layout: gfx::ImageLayout::Present,
+                final_layout: gfx::ImageLayout::ColorAttachmentOptimal,
             },
             gfx::AttachmentInfo {
                 format: gfx::Format::D32Sfloat,
                 samples: gfx::Samples::_1,
                 load_op: gfx::LoadOp::Clear(()),
-                store_op: gfx::StoreOp::Store,
+                store_op: gfx::StoreOp::DontCare,
                 initial_layout: None,
                 final_layout: gfx::ImageLayout::DepthStencilAttachmentOptimal,
             },
@@ -107,9 +107,11 @@ impl MainPass {
 
         let dependencies = vec![gfx::SubpassDependency {
             src: None,
-            src_stages: gfx::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            src_stages: gfx::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+                | gfx::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
             dst: Some(0),
-            dst_stages: gfx::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            dst_stages: gfx::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+                | gfx::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
         }];
 
         let render_pass =

@@ -36,7 +36,7 @@ impl OpaqueMeshPipeline {
             vertex_shader,
             rasterizer: Some(gfx::Rasterizer {
                 fragment_shader: Some(fragment_shader),
-                front_face: gfx::FrontFace::CCW,
+                front_face: gfx::FrontFace::CW,
                 cull_mode: Some(gfx::CullMode::Back),
                 depth_test: Some(gfx::DepthTest {
                     compare: gfx::CompareOp::Less,

@@ -99,7 +99,7 @@ impl RendererWorker {
             .as_secs_f32();
 
         // TEMP
-        let camera_transform = Mat4::from_translation(Vec3::new(0.0, 2.0, -10.0));
+        let camera_transform = Mat4::from_translation(Vec3::new(0.0, 0.0, -1.0));
         self.state
             .frame_resources
             .set_camera(&camera_transform, &CameraProjection::default());
@@ -120,6 +120,13 @@ impl RendererWorker {
         );
 
         self.state.mesh_manager.bind_index_buffer(&mut encoder);
+
+        encoder.memory_barrier(
+            gfx::PipelineStageFlags::COMPUTE_SHADER | gfx::PipelineStageFlags::TRANSFER,
+            gfx::AccessFlags::SHADER_WRITE | gfx::AccessFlags::TRANSFER_WRITE,
+            gfx::PipelineStageFlags::VERTEX_SHADER,
+            gfx::AccessFlags::SHADER_READ,
+        );
 
         {
             profiling::scope!("opaque_mesh_render_pass");
@@ -170,6 +177,20 @@ impl RendererWorker {
                 }
             }
         }
+
+        encoder.image_barriers(
+            gfx::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            gfx::PipelineStageFlags::BOTTOM_OF_PIPE,
+            &[gfx::ImageMemoryBarrier {
+                image: surface_image.image(),
+                src_access: gfx::AccessFlags::COLOR_ATTACHMENT_WRITE,
+                dst_access: gfx::AccessFlags::empty(),
+                old_layout: Some(gfx::ImageLayout::ColorAttachmentOptimal),
+                new_layout: gfx::ImageLayout::Present,
+                family_transfer: None,
+                subresource_range: gfx::ImageSubresourceRange::whole(surface_image.image().info()),
+            }],
+        );
 
         let [wait, signal] = surface_image.wait_signal();
 

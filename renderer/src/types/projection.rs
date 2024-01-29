@@ -23,7 +23,7 @@ impl CameraProjection {
                 Mat4::orthographic_rh(-half.x, half.x, -half.y, half.y, -half.z, half.z)
             }
             Self::Perspective { fovy, near } => {
-                Mat4::perspective_infinite_reverse_rh(*fovy, aspect_ratio, *near)
+                Mat4::perspective_infinite_rh(*fovy, aspect_ratio, *near)
             }
             Self::Custom(mat) => *mat,
         }
