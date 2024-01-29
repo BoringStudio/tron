@@ -97,7 +97,7 @@ impl PhysicalDevice {
         let mut requested_features = features.iter().copied().collect::<FastHashSet<_>>();
 
         let mut extensions = Vec::new();
-        let require_extension = {
+        let mut require_extension = {
             let supported_extensions = &self.properties.extensions;
             |ext: &vk::Extension| -> bool {
                 let ext = &ext.name;
@@ -114,6 +114,14 @@ impl PhysicalDevice {
 
         // Fill extension features
         let mut min_api_version = vk::make_version(1, 0, 0);
+        if api_version == min_api_version {
+            let supported = require_extension(&vk::KHR_MAINTENANCE1_EXTENSION);
+            assert!(
+                supported,
+                "`VK_KHR_maintenance1` extension must be supported"
+            );
+        }
+
         device_create_info = AllExtensions::process_features(
             api_version,
             &mut min_api_version,

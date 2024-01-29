@@ -126,7 +126,7 @@ impl App {
             .shaders_debug_info_enabled(self.vk_debug_shaders)
             .build()?;
 
-        let mut scene = Scene::default();
+        let mut scene = Scene::new(renderer.state())?;
         scene.ecs.insert_resource(Time::default());
         scene.ecs.insert_resource(RendererResources {
             state: renderer.state().clone(),
@@ -172,6 +172,25 @@ impl App {
                         WindowEvent::CloseRequested => {
                             renderer_state.set_running(false);
                             elwt.exit();
+                        }
+                        WindowEvent::KeyboardInput { event, .. } => {
+                            use winit::keyboard::{KeyCode, PhysicalKey};
+
+                            let code = match event.physical_key {
+                                PhysicalKey::Code(code) if event.state.is_pressed() => code,
+                                _ => return,
+                            };
+
+                            match code {
+                                KeyCode::ArrowRight => {
+                                    if let Err(e) = scene.spawn_cube(&renderer_state) {
+                                        tracing::error!("failed to add test object: {}", e);
+                                    } else {
+                                        tracing::info!("added test object");
+                                    }
+                                }
+                                _ => {}
+                            }
                         }
                         _ => {}
                     },

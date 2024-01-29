@@ -12,7 +12,7 @@ bevy_ecs = { workspace = true }
 bytemuck = { workspace = true }
 glam = { workspace = true }
 gltf = { workspace = true }
-profiling = { workspace = true, features = ["profile-with-puffin"] }
+profiling = { version = "1.0", features = ["profile-with-puffin"] }
 puffin_http = { workspace = true }
 rand = { workspace = true }
 tracing = { workspace = true }

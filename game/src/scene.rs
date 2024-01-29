@@ -5,17 +5,25 @@ use anyhow::{Context, Result};
 use bevy_ecs::bundle::Bundle;
 use bevy_ecs::world::World;
 use glam::{Mat4, Vec2, Vec3};
+use rand::Rng;
 
 use ecs::components::Transform;
 use renderer::components::StaticMeshInstance;
-use renderer::RendererState;
+use renderer::{MeshHandle, RendererState};
 
-#[derive(Default)]
 pub struct Scene {
     pub ecs: World,
+    pub primitive_meshes: PrimitiveMeshes,
 }
 
 impl Scene {
+    pub fn new(renderer: &Arc<RendererState>) -> Result<Self> {
+        Ok(Self {
+            ecs: World::default(),
+            primitive_meshes: PrimitiveMeshes::new(renderer)?,
+        })
+    }
+
     pub fn load_gltf<P: AsRef<Path>>(
         &mut self,
         path: P,
@@ -54,6 +62,65 @@ impl Scene {
         }
 
         load_gltf_impl(path.as_ref(), &mut self.ecs, renderer)
+    }
+
+    pub fn spawn_cube(&mut self, renderer: &Arc<RendererState>) -> Result<()> {
+        let mut rng = rand::thread_rng();
+
+        let material = renderer.add_material(renderer::DebugMaterial {
+            color: glam::vec3(
+                rng.gen_range(0.0..1.0),
+                rng.gen_range(0.0..1.0),
+                rng.gen_range(0.0..1.0),
+            ),
+        });
+
+        let transform = Transform::from_translation(glam::vec3(
+            rng.gen_range(-5.0..5.0),
+            -1.0,
+            rng.gen_range(-5.0..5.0),
+        ))
+        .with_scale(Vec3::splat(rng.gen_range(0.1..0.5)));
+
+        let handle = renderer.add_static_object(renderer::StaticObject {
+            mesh: self.primitive_meshes.cube.clone(),
+            material: material.clone(),
+            transform: transform.to_matrix(),
+        });
+
+        self.ecs.spawn(SceneObjectBundle {
+            transform,
+            mesh_instance: StaticMeshInstance {
+                mesh: self.primitive_meshes.cube.clone(),
+                material,
+                handle,
+            },
+        });
+
+        Ok(())
+    }
+}
+
+pub struct PrimitiveMeshes {
+    pub cube: MeshHandle,
+    pub plane: MeshHandle,
+}
+
+impl PrimitiveMeshes {
+    pub fn new(state: &Arc<RendererState>) -> Result<Self> {
+        let cube = state.add_mesh(
+            &renderer::Mesh::builder(renderer::CubeMeshGenerator::from_size(1.0))
+                .with_computed_normals()
+                .build()?,
+        )?;
+
+        let plane = state.add_mesh(
+            &renderer::Mesh::builder(renderer::PlaneMeshGenerator::from_size(1.0))
+                .with_computed_normals()
+                .build()?,
+        )?;
+
+        Ok(Self { cube, plane })
     }
 }
 
@@ -101,7 +168,7 @@ fn process_gltf_node(
         let mesh = {
             let mut builder = renderer::Mesh::builder(
                 positions
-                    .map(|[x, y, z]| renderer::Position(Vec3::new(z, -y, x)))
+                    .map(|[x, y, z]| renderer::Position(Vec3::new(x, y, z)))
                     .collect::<Vec<_>>(),
             );
 
@@ -118,7 +185,7 @@ fn process_gltf_node(
             if let Some(tangents) = tangents {
                 builder = builder.with_tangents(
                     tangents
-                        .map(|[x, y, z, _]| renderer::Tangent(Vec3::new(x, z, y)))
+                        .map(|[x, y, z, _]| renderer::Tangent(Vec3::new(x, y, z)))
                         .collect::<Vec<_>>(),
                 );
             }

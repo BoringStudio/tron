@@ -186,6 +186,7 @@ where
     fn as_std430(&self) -> Self::Output {
         Std430GpuObject {
             transform: self.transform,
+            transform_inverse_transpose: self.transform.inverse().transpose(),
             bounding_sphere: self.global_bounding_sphere.into(),
             data: self.make_data(),
             vertex_attribute_offsets: self.vertex_attribute_offsets,
@@ -194,6 +195,7 @@ where
 
     fn write_as_std430(&self, dst: &mut Self::Output) {
         dst.transform = self.transform;
+        dst.transform_inverse_transpose = self.transform.inverse().transpose();
         dst.bounding_sphere = self.global_bounding_sphere.into();
         dst.data = self.make_data();
         dst.vertex_attribute_offsets = self.vertex_attribute_offsets;
@@ -203,6 +205,7 @@ where
 #[derive(Clone, Copy)]
 pub struct Std430GpuObject<A> {
     transform: Mat4,
+    transform_inverse_transpose: Mat4,
     bounding_sphere: Vec4,
     data: UVec4,
     vertex_attribute_offsets: A,

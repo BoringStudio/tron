@@ -137,92 +137,65 @@ impl Default for CubeMeshGenerator {
 
 impl MeshGenerator for CubeMeshGenerator {
     fn generate_mesh(self) -> MeshBuilder {
-        //  ^y
-        //  |/z
-        //  -> x
-        //
-        //     6----7 b
-        //    /|   /|
-        //   2----3 |
-        //   | 4--|-5
-        //   |/   |/
-        // a 0----1
-        //
         let positions = vec![
-            // Front
-            Position(Vec3::new(self.a.x, self.a.y, self.b.z)), // 0
-            Position(Vec3::new(self.b.x, self.a.y, self.a.z)), // 1
-            Position(Vec3::new(self.a.x, self.b.y, self.a.z)), // 2
-            Position(Vec3::new(self.b.x, self.b.y, self.a.z)), // 3
-            // Right
-            Position(Vec3::new(self.b.x, self.a.y, self.a.z)), // 1
-            Position(Vec3::new(self.b.x, self.a.y, self.b.z)), // 5
-            Position(Vec3::new(self.b.x, self.b.y, self.a.z)), // 3
-            Position(Vec3::new(self.b.x, self.b.y, self.b.z)), // 7
-            // Back
-            Position(Vec3::new(self.b.x, self.a.y, self.b.z)), // 5
-            Position(Vec3::new(self.a.x, self.a.y, self.b.z)), // 4
-            Position(Vec3::new(self.b.x, self.b.y, self.b.z)), // 7
-            Position(Vec3::new(self.a.x, self.b.y, self.b.z)), // 6
-            // Left
-            Position(Vec3::new(self.a.x, self.a.y, self.b.z)), // 4
-            Position(Vec3::new(self.a.x, self.a.y, self.a.z)), // 0
-            Position(Vec3::new(self.a.x, self.b.y, self.b.z)), // 6
-            Position(Vec3::new(self.a.x, self.b.y, self.a.z)), // 2
-            // Top
-            Position(Vec3::new(self.a.x, self.b.y, self.a.z)), // 2
-            Position(Vec3::new(self.b.x, self.b.y, self.a.z)), // 3
-            Position(Vec3::new(self.a.x, self.b.y, self.b.z)), // 6
-            Position(Vec3::new(self.b.x, self.b.y, self.b.z)), // 7
-            // Bottom
-            Position(Vec3::new(self.a.x, self.a.y, self.a.z)), // 0
-            Position(Vec3::new(self.b.x, self.a.y, self.a.z)), // 1
-            Position(Vec3::new(self.a.x, self.a.y, self.b.z)), // 4
-            Position(Vec3::new(self.b.x, self.a.y, self.b.z)), // 5
+            Position(Vec3::new(self.a.x, self.b.y, self.b.z)),
+            Position(Vec3::new(self.a.x, self.a.y, self.a.z)),
+            Position(Vec3::new(self.a.x, self.a.y, self.b.z)),
+            Position(Vec3::new(self.a.x, self.b.y, self.a.z)),
+            Position(Vec3::new(self.b.x, self.a.y, self.a.z)),
+            Position(Vec3::new(self.a.x, self.a.y, self.a.z)),
+            Position(Vec3::new(self.b.x, self.b.y, self.a.z)),
+            Position(Vec3::new(self.b.x, self.a.y, self.b.z)),
+            Position(Vec3::new(self.b.x, self.a.y, self.a.z)),
+            Position(Vec3::new(self.b.x, self.b.y, self.b.z)),
+            Position(Vec3::new(self.a.x, self.a.y, self.b.z)),
+            Position(Vec3::new(self.b.x, self.a.y, self.b.z)),
+            Position(Vec3::new(self.b.x, self.a.y, self.a.z)),
+            Position(Vec3::new(self.a.x, self.a.y, self.b.z)),
+            Position(Vec3::new(self.a.x, self.a.y, self.a.z)),
+            Position(Vec3::new(self.a.x, self.b.y, self.a.z)),
+            Position(Vec3::new(self.b.x, self.b.y, self.b.z)),
+            Position(Vec3::new(self.b.x, self.b.y, self.a.z)),
+            Position(Vec3::new(self.a.x, self.b.y, self.a.z)),
+            Position(Vec3::new(self.b.x, self.b.y, self.a.z)),
+            Position(Vec3::new(self.b.x, self.b.y, self.b.z)),
+            Position(Vec3::new(self.a.x, self.b.y, self.b.z)),
+            Position(Vec3::new(self.b.x, self.a.y, self.b.z)),
+            Position(Vec3::new(self.a.x, self.b.y, self.b.z)),
         ];
 
         // List of cube UVs:
         let uv0 = vec![
-            // Front
-            UV0(Vec2::new(0.0, 0.0)), // 0
-            UV0(Vec2::new(1.0, 0.0)), // 1
-            UV0(Vec2::new(0.0, 1.0)), // 2
-            UV0(Vec2::new(1.0, 1.0)), // 3
-            // Right
-            UV0(Vec2::new(0.0, 0.0)), // 1
-            UV0(Vec2::new(1.0, 0.0)), // 5
-            UV0(Vec2::new(0.0, 1.0)), // 3
-            UV0(Vec2::new(1.0, 1.0)), // 7
-            // Back
-            UV0(Vec2::new(0.0, 0.0)), // 5
-            UV0(Vec2::new(1.0, 0.0)), // 4
-            UV0(Vec2::new(0.0, 1.0)), // 7
-            UV0(Vec2::new(1.0, 1.0)), // 6
-            // Left
-            UV0(Vec2::new(0.0, 0.0)), // 4
-            UV0(Vec2::new(1.0, 0.0)), // 0
-            UV0(Vec2::new(0.0, 1.0)), // 6
-            UV0(Vec2::new(1.0, 1.0)), // 2
-            // Top
-            UV0(Vec2::new(0.0, 0.0)), // 2
-            UV0(Vec2::new(1.0, 0.0)), // 3
-            UV0(Vec2::new(0.0, 1.0)), // 6
-            UV0(Vec2::new(1.0, 1.0)), // 7
-            // Bottom
-            UV0(Vec2::new(0.0, 0.0)), // 0
-            UV0(Vec2::new(1.0, 0.0)), // 1
-            UV0(Vec2::new(0.0, 1.0)), // 4
-            UV0(Vec2::new(1.0, 1.0)), // 5
+            UV0(Vec2::new(0.0, 1.0)),
+            UV0(Vec2::new(1.0, 0.0)),
+            UV0(Vec2::new(0.0, 0.0)),
+            UV0(Vec2::new(0.0, 1.0)),
+            UV0(Vec2::new(1.0, 0.0)),
+            UV0(Vec2::new(0.0, 0.0)),
+            UV0(Vec2::new(1.0, 1.0)),
+            UV0(Vec2::new(0.0, 0.0)),
+            UV0(Vec2::new(1.0, 0.0)),
+            UV0(Vec2::new(1.0, 1.0)),
+            UV0(Vec2::new(0.0, 0.0)),
+            UV0(Vec2::new(1.0, 0.0)),
+            UV0(Vec2::new(1.0, 1.0)),
+            UV0(Vec2::new(0.0, 0.0)),
+            UV0(Vec2::new(0.0, 1.0)),
+            UV0(Vec2::new(0.0, 1.0)),
+            UV0(Vec2::new(1.0, 0.0)),
+            UV0(Vec2::new(1.0, 1.0)),
+            UV0(Vec2::new(1.0, 1.0)),
+            UV0(Vec2::new(1.0, 1.0)),
+            UV0(Vec2::new(0.0, 1.0)),
+            UV0(Vec2::new(0.0, 1.0)),
+            UV0(Vec2::new(1.0, 0.0)),
+            UV0(Vec2::new(0.0, 0.0)),
         ];
 
         // List of cube indices:
         let indices = vec![
-            0, 2, 3, 0, 3, 1, // front
-            4, 6, 7, 4, 7, 5, // right
-            8, 10, 11, 8, 11, 9, // back
-            12, 14, 15, 12, 15, 13, // left
-            16, 18, 19, 16, 19, 17, // top
-            20, 22, 23, 20, 23, 21, // bottom
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 0, 18, 1, 3, 19, 4, 6,
+            20, 7, 9, 21, 10, 12, 22, 13, 15, 23, 16,
         ];
 
         MeshBuilder::new(positions)
@@ -505,4 +478,118 @@ unsafe fn compute_tangents(
     }
 
     tangents
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::str::FromStr;
+
+    const OBJ: &'static str = r#"v -1.000000 -1.000000 1.000000
+v -1.000000 1.000000 1.000000
+v -1.000000 -1.000000 -1.000000
+v -1.000000 1.000000 -1.000000
+v 1.000000 -1.000000 1.000000
+v 1.000000 1.000000 1.000000
+v 1.000000 -1.000000 -1.000000
+v 1.000000 1.000000 -1.000000
+vn -1.0000 -0.0000 -0.0000
+vn -0.0000 -0.0000 -1.0000
+vn 1.0000 -0.0000 -0.0000
+vn -0.0000 -0.0000 1.0000
+vn -0.0000 -1.0000 -0.0000
+vn -0.0000 1.0000 -0.0000
+vt 0.000000 1.000000
+vt 1.000000 0.000000
+vt 0.000000 0.000000
+vt 1.000000 1.000000
+s 0
+f 2/1/1 3/2/1 1/3/1
+f 4/1/2 7/2/2 3/3/2
+f 8/4/3 5/3/3 7/2/3
+f 6/4/4 1/3/4 5/2/4
+f 7/4/5 1/3/5 3/1/5
+f 4/1/6 6/2/6 8/4/6
+f 2/1/1 4/4/1 3/2/1
+f 4/1/2 8/4/2 7/2/2
+f 8/4/3 6/1/3 5/3/3
+f 6/4/4 2/1/4 1/3/4
+f 7/4/5 5/2/5 1/3/5
+f 4/1/6 2/3/6 6/2/6"#;
+
+    #[test]
+    fn generate_indices() {
+        let mut positions = Vec::new();
+        let mut tex_coords = Vec::new();
+        let mut normals = Vec::new();
+        let mut indices = Vec::new();
+
+        let mut vertices = Vec::new();
+        let mut vertex_to_index = HashMap::new();
+
+        let mut add_vertex = |v| -> usize {
+            *vertex_to_index.entry(v).or_insert_with(|| {
+                let index = vertices.len();
+                vertices.push(v);
+                index
+            })
+        };
+
+        for line in OBJ.lines() {
+            let line = line.trim();
+            if let Some(v) = line.strip_prefix("v ") {
+                let v = parse_floats(v);
+                positions.push((v[0], v[1], v[2]));
+            } else if let Some(vn) = line.strip_prefix("vn ") {
+                let vn = parse_floats(vn);
+                normals.push((vn[0], vn[1], vn[2]));
+            } else if let Some(vt) = line.strip_prefix("vt ") {
+                let vt = parse_floats(vt);
+                tex_coords.push((vt[0], vt[1]));
+            } else if let Some(f) = line.strip_prefix("f ") {
+                for f in parse_indices(f) {
+                    indices.push(add_vertex(f));
+                }
+            }
+        }
+
+        println!("Indices: {indices:?}");
+
+        let positions = vertices
+            .iter()
+            .map(|(i, _, _)| positions[*i as usize])
+            .map(|(x, y, z)| format!("Position(Vec3::new({x:.1}, {y:.1}, {z:.1}))"))
+            .collect::<Vec<_>>()
+            .join(",\n");
+        println!("Positions: [{positions}]");
+
+        let uv0 = vertices
+            .iter()
+            .map(|(_, i, _)| tex_coords[*i as usize])
+            .map(|(x, y)| format!("UV0(Vec2::new({x:.1}, {y:.1}))"))
+            .collect::<Vec<_>>()
+            .join(",\n");
+        println!("UV0: [{uv0}]");
+    }
+
+    fn parse_floats(s: &str) -> Vec<f32> {
+        s.split(' ')
+            .map(f32::from_str)
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+
+    fn parse_indices(s: &str) -> Vec<(u32, u32, u32)> {
+        s.split(' ')
+            .map(|s| {
+                let mut iter = s.split('/').map(u32::from_str);
+                Ok::<_, std::num::ParseIntError>((
+                    iter.next().unwrap()? - 1,
+                    iter.next().unwrap()? - 1,
+                    iter.next().unwrap()? - 1,
+                ))
+            })
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
 }

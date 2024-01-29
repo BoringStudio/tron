@@ -27,7 +27,9 @@ impl RenderPassEncoderExt for gfx::RenderPassEncoder<'_, '_> {
         }
 
         if set_viewport {
-            let viewport = self.framebuffer().info().extent.into();
+            let mut viewport: gfx::Viewport = self.framebuffer().info().extent.into();
+            viewport.y.offset = viewport.y.size;
+            viewport.y.size = -viewport.y.size;
             self.set_viewport(&viewport);
         }
         if set_scissor {

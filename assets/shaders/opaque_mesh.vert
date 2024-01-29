@@ -8,6 +8,7 @@
 
 struct ObjectData {
     mat4 transform;
+    mat4 transform_inverse_transpose;
     Sphere bounding_sphere;
     uvec4 data;
     uint offsets[5];
@@ -73,5 +74,5 @@ void main() {
 
     gl_Position = CAMERA_PROJECTION * CAMERA_VIEW * object_data.transform * vec4(position, 1.0f);
     out_color = color;
-    out_normal = normal; // TODO: mul transpose(inverse(object_data.transform))
+    out_normal = (object_data.transform_inverse_transpose * vec4(normal, 1.0)).xyz;
 }

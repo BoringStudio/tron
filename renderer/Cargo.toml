@@ -16,7 +16,7 @@ range-alloc = { workspace = true }
 shaderc = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-winit = { workspace = true, features = ["rwh_06"] }
+winit = { workspace = true, features = ["rwh_06", "x11"] }
 
 ecs = { path = "../ecs" }
 gfx = { path = "../gfx", features = ["winit"] }
