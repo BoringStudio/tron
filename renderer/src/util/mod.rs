@@ -1,4 +1,6 @@
-pub use self::bindless_resources::{BindlessResources, StorageBufferHandle};
+pub use self::bindless_resources::{
+    AtomicStorageBufferHandle, BindlessResources, StorageBufferHandle,
+};
 pub use self::frame_resources::FrameResources;
 pub use self::freelist_double_buffer::FreelistDoubleBuffer;
 pub use self::frustum::BoundingSphere;

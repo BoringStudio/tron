@@ -5,15 +5,18 @@ use anyhow::Result;
 use range_alloc::RangeAllocator;
 
 use crate::types::{Mesh, RawMeshHandle, VertexAttributeKind};
-use crate::util::BoundingSphere;
+use crate::util::{
+    AtomicStorageBufferHandle, BindlessResources, BoundingSphere, StorageBufferHandle,
+};
 
 pub struct MeshManager {
     state: Mutex<MeshManagerState>,
     registry: Mutex<Vec<Option<GpuMesh>>>,
+    vertex_buffer_handle: AtomicStorageBufferHandle,
 }
 
 impl MeshManager {
-    pub fn new(device: &gfx::Device) -> Result<Self> {
+    pub fn new(device: &gfx::Device, bindless_resources: &BindlessResources) -> Result<Self> {
         const INITIAL_VERTICES_CAPACITY: u32 = 1 << 16;
         const INITIAL_INDEX_COUNT: u32 = 1 << 16;
 
@@ -21,14 +24,19 @@ impl MeshManager {
         let vertex_alloc = RangeAllocator::new(0..INITIAL_VERTICES_CAPACITY);
         let index_alloc = RangeAllocator::new(0..INITIAL_INDEX_COUNT);
 
+        let vertex_buffer_handle =
+            bindless_resources.alloc_storage_buffer(device, buffers.vertices.clone());
+
         Ok(Self {
             state: Mutex::new(MeshManagerState {
                 buffers,
+                new_vertex_buffer: false,
                 vertex_alloc,
                 index_alloc,
                 encoder: None,
             }),
             registry: Mutex::default(),
+            vertex_buffer_handle: AtomicStorageBufferHandle::new(vertex_buffer_handle),
         })
     }
 
@@ -38,8 +46,22 @@ impl MeshManager {
         }
     }
 
-    pub fn drain(&self) -> Option<gfx::Encoder> {
+    pub fn vertex_buffer_handle(&self) -> StorageBufferHandle {
+        self.vertex_buffer_handle.load()
+    }
+
+    pub fn drain(
+        &self,
+        device: &gfx::Device,
+        bindless_resources: &BindlessResources,
+    ) -> Option<gfx::Encoder> {
         let mut state = self.state.lock().unwrap();
+        if std::mem::take(&mut state.new_vertex_buffer) {
+            let old_handle = self.vertex_buffer_handle.swap(
+                bindless_resources.alloc_storage_buffer(device, state.buffers.vertices.clone()),
+            );
+            bindless_resources.free_storage_buffer(old_handle);
+        }
         state.encoder.take()
     }
 
@@ -136,8 +158,9 @@ impl MeshManager {
 
             indices_copy = gfx::BufferCopy {
                 src_offset: staging_buffer_offset as u64,
-                dst_offset: indices_range.start as u64,
-                size: (indices_range.end - indices_range.start) as u64,
+                dst_offset: (indices_range.start as u64).saturating_mul(INDEX_SIZE as _),
+                size: ((indices_range.end - indices_range.start) as u64)
+                    .saturating_mul(INDEX_SIZE as _),
             };
 
             // Unmap and freeze staging buffer
@@ -221,6 +244,7 @@ impl std::ops::DerefMut for MeshManagerDataGuard<'_> {
 
 struct MeshManagerState {
     buffers: MeshBuffers,
+    new_vertex_buffer: bool,
     vertex_alloc: RangeAllocator<u32>,
     index_alloc: RangeAllocator<u32>,
     encoder: Option<gfx::Encoder>,
@@ -314,6 +338,7 @@ impl MeshManagerState {
         // Update vertex buffer
         if let Some((new_vertices, new_vertices_size)) = new_vertices {
             let old_buffer = std::mem::replace(&mut self.buffers.vertices, new_vertices);
+            self.new_vertex_buffer = true;
             self.vertex_alloc.grow_to(new_vertices_size);
 
             make_encoder(queue, &mut self.encoder)?.copy_buffer(

@@ -4,10 +4,12 @@ use std::time::Instant;
 
 use anyhow::Result;
 use bumpalo::Bump;
+use glam::{Mat4, Vec3};
 use shared::util::DeallocOnDrop;
 
 use crate::pipelines::{CachedGraphicsPipeline, OpaqueMeshPipeline, RenderPassEncoderExt};
 use crate::render_passes::{EncoderExt, MainPass, MainPassInput};
+use crate::types::CameraProjection;
 use crate::RendererState;
 
 pub struct RendererWorker {
@@ -96,6 +98,12 @@ impl RendererWorker {
             .duration_since(prev_frame_at)
             .as_secs_f32();
 
+        // TEMP
+        let camera_transform = Mat4::from_translation(-Vec3::Z * 10.0);
+        self.state
+            .frame_resources
+            .set_camera(&camera_transform, &CameraProjection::default());
+
         let globals_dynamic_offset = self
             .state
             .frame_resources
@@ -114,6 +122,8 @@ impl RendererWorker {
         self.state.mesh_manager.bind_index_buffer(&mut encoder);
 
         {
+            profiling::scope!("opaque_mesh_render_pass");
+
             let mut render_pass = encoder.with_render_pass(
                 &mut self.pass,
                 &MainPassInput {
@@ -124,7 +134,41 @@ impl RendererWorker {
             )?;
 
             render_pass.bind_cached_graphics_pipeline(&mut self.pipeline, device)?;
-            render_pass.draw(0..3, 0..1);
+
+            // TEMP
+            let vertex_buffer_handle = self.state.mesh_manager.vertex_buffer_handle();
+
+            let managers = self.state.synced_managers.lock().unwrap();
+
+            if let Some((objects, material_buffer_handle)) = managers
+                .object_manager
+                .iter_static::<crate::DebugMaterial>()
+                .and_then(|iter| {
+                    let materials_buffer_handle = managers
+                        .material_manager
+                        .materials_data_buffer_handle::<crate::DebugMaterial>()?;
+                    Some((iter, materials_buffer_handle))
+                })
+            {
+                render_pass.push_constants(
+                    &self.pipeline.descr().layout,
+                    gfx::ShaderStageFlags::ALL,
+                    0,
+                    &[
+                        vertex_buffer_handle.index(),
+                        objects.buffer_handle().index(),
+                        material_buffer_handle.index(),
+                    ],
+                );
+
+                for (slot, object) in objects {
+                    render_pass.draw_indexed(
+                        object.first_index..object.first_index + object.index_count,
+                        0,
+                        slot..slot + 1,
+                    );
+                }
+            }
         }
 
         let [wait, signal] = surface_image.wait_signal();

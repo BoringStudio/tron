@@ -225,6 +225,42 @@ pub type UniformBufferHandle = GpuResourceHandle<{ GpuResourceKind::UniformBuffe
 pub type StorageBufferHandle = GpuResourceHandle<{ GpuResourceKind::StorageBuffer as u8 }>;
 pub type SampledImageHandle = GpuResourceHandle<{ GpuResourceKind::SampledImage as u8 }>;
 
+pub type AtomicUniformBufferHandle =
+    AtomicGpuResourceHandle<{ GpuResourceKind::UniformBuffer as u8 }>;
+pub type AtomicStorageBufferHandle =
+    AtomicGpuResourceHandle<{ GpuResourceKind::StorageBuffer as u8 }>;
+pub type AtomicSampledImageHandle =
+    AtomicGpuResourceHandle<{ GpuResourceKind::SampledImage as u8 }>;
+
+#[repr(transparent)]
+pub struct AtomicGpuResourceHandle<const KIND: u8>(AtomicU32);
+
+impl<const KIND: u8> Default for AtomicGpuResourceHandle<KIND> {
+    #[inline]
+    fn default() -> Self {
+        Self::new(GpuResourceHandle::<KIND>::INVALID)
+    }
+}
+
+impl<const KIND: u8> AtomicGpuResourceHandle<KIND> {
+    #[inline]
+    pub fn new(handle: GpuResourceHandle<KIND>) -> Self {
+        Self(AtomicU32::new(handle.0))
+    }
+
+    pub fn store(&self, handle: GpuResourceHandle<KIND>) {
+        self.0.store(handle.0, Ordering::Release);
+    }
+
+    pub fn load(&self) -> GpuResourceHandle<KIND> {
+        GpuResourceHandle(self.0.load(Ordering::Acquire))
+    }
+
+    pub fn swap(&self, handle: GpuResourceHandle<KIND>) -> GpuResourceHandle<KIND> {
+        GpuResourceHandle(self.0.swap(handle.0, Ordering::AcqRel))
+    }
+}
+
 #[derive(Clone, Copy, Hash, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(transparent)]
 pub struct GpuResourceHandle<const KIND: u8>(u32);

@@ -2,10 +2,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use argh::FromArgs;
-use rand::Rng;
 use winit::event::*;
 use winit::event_loop::EventLoopBuilder;
-use winit::keyboard::{KeyCode, PhysicalKey};
 #[cfg(wayland_platform)]
 use winit::platform::wayland::EventLoopBuilderExtWayland;
 #[cfg(x11_platform)]

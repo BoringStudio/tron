@@ -3,13 +3,12 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use bevy_ecs::bundle::Bundle;
-use bevy_ecs::component::Component;
 use bevy_ecs::world::World;
 use glam::{Mat4, Vec2, Vec3};
 
 use ecs::components::Transform;
-use renderer::components::MeshInstance3D;
-use renderer::{RendererState, StaticObjectHandle};
+use renderer::components::StaticMeshInstance;
+use renderer::RendererState;
 
 #[derive(Default)]
 pub struct Scene {
@@ -102,7 +101,7 @@ fn process_gltf_node(
         let mesh = {
             let mut builder = renderer::Mesh::builder(
                 positions
-                    .map(|[x, y, z]| renderer::Position(Vec3::new(x, y, z)))
+                    .map(|[x, y, z]| renderer::Position(Vec3::new(x, z, y)))
                     .collect::<Vec<_>>(),
             );
             if let Some(normals) = normals {
@@ -136,7 +135,7 @@ fn process_gltf_node(
             color: glam::vec3(1.0, 1.0, 1.0),
         });
 
-        let static_object = renderer.add_static_object(renderer::StaticObject {
+        let handle = renderer.add_static_object(renderer::StaticObject {
             mesh: mesh.clone(),
             material: material.clone(),
             transform: *global_transform,
@@ -144,9 +143,10 @@ fn process_gltf_node(
 
         ecs_world.spawn(SceneObjectBundle {
             transform: Transform::from_matrix(*global_transform),
-            mesh_instance: MeshInstance3D { mesh, material },
-            static_object: StaticObject {
-                static_object: static_object.clone(),
+            mesh_instance: StaticMeshInstance {
+                mesh,
+                material,
+                handle,
             },
         });
     }
@@ -157,11 +157,5 @@ fn process_gltf_node(
 #[derive(Bundle)]
 struct SceneObjectBundle {
     transform: Transform,
-    mesh_instance: MeshInstance3D,
-    static_object: StaticObject,
-}
-
-#[derive(Component)]
-struct StaticObject {
-    static_object: StaticObjectHandle,
+    mesh_instance: StaticMeshInstance,
 }

@@ -16,7 +16,11 @@ impl OpaqueMeshPipeline {
                 frame_resources.descriptor_set_layout().clone(),
                 bindless_resources.descriptor_set_layout().clone(),
             ],
-            push_constants: Default::default(),
+            push_constants: vec![gfx::PushConstant {
+                stages: gfx::ShaderStageFlags::ALL,
+                offset: 0,
+                size: 12,
+            }],
         })?;
 
         let shaders = shaders.begin();

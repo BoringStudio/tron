@@ -61,6 +61,7 @@ impl RendererBuilder {
             .get_physical_devices()?
             .with_required_features(&[
                 gfx::DeviceFeature::SurfacePresentation,
+                gfx::DeviceFeature::ShaderStorageBufferNonUniformIndexing,
                 gfx::DeviceFeature::DescriptorBindingUniformBufferUpdateAfterBind,
                 gfx::DeviceFeature::DescriptorBindingStorageBufferUpdateAfterBind,
                 gfx::DeviceFeature::DescriptorBindingSampledImageUpdateAfterBind,
@@ -68,8 +69,6 @@ impl RendererBuilder {
             ])
             .find_best()?
             .create_logical_device(gfx::SingleQueueQuery::GRAPHICS)?;
-
-        let mesh_manager = MeshManager::new(&device)?;
 
         let mut shader_preprocessor = ShaderPreprocessor::new();
         shader_preprocessor.set_optimizations_enabled(self.optimize_shaders);
@@ -83,6 +82,8 @@ impl RendererBuilder {
         let frame_resources = FrameResources::new(&device)?;
         let bindless_resources = BindlessResources::new(&device)?;
         let scatter_copy = ScatterCopy::new(&device, &shader_preprocessor)?;
+
+        let mesh_manager = MeshManager::new(&device, &bindless_resources)?;
 
         let mut surface = device.create_surface(self.window.clone())?;
         surface.configure()?;
@@ -351,7 +352,10 @@ impl RendererState {
             &self.bindless_resources,
         )?;
 
-        if let Some(secondary) = self.mesh_manager.drain() {
+        if let Some(secondary) = self
+            .mesh_manager
+            .drain(&self.device, &self.bindless_resources)
+        {
             // NOTE: MeshManager registry must not be touched
             encoder.execute_commands(std::iter::once(secondary.finish()?));
         }

@@ -6,7 +6,7 @@ use shared::{AnyVec, FastHashMap};
 
 use crate::managers::object_manager::WriteStaticObject;
 use crate::types::{Material, RawMaterialHandle};
-use crate::util::{BindlessResources, FreelistDoubleBuffer, ScatterCopy};
+use crate::util::{BindlessResources, FreelistDoubleBuffer, ScatterCopy, StorageBufferHandle};
 
 #[derive(Default)]
 pub struct MaterialManager {
@@ -15,6 +15,11 @@ pub struct MaterialManager {
 }
 
 impl MaterialManager {
+    pub fn materials_data_buffer_handle<M: Material>(&self) -> Option<StorageBufferHandle> {
+        let archetype = self.archetypes.get(&TypeId::of::<M>())?;
+        Some(archetype.buffer.handle())
+    }
+
     #[tracing::instrument(level = "debug", name = "insert_material", skip_all)]
     pub fn insert<M: Material>(&mut self, handle: RawMaterialHandle, material: M) {
         let archetype = self.get_or_create_archetype::<M>();

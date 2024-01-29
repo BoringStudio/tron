@@ -11,7 +11,9 @@ use crate::types::{
     Material, MaterialArray, MaterialHandle, MeshHandle, RawStaticObjectHandle, StaticObject,
     VertexAttributeKind,
 };
-use crate::util::{BindlessResources, BoundingSphere, FreelistDoubleBuffer, ScatterCopy};
+use crate::util::{
+    BindlessResources, BoundingSphere, FreelistDoubleBuffer, ScatterCopy, StorageBufferHandle,
+};
 
 #[derive(Default)]
 pub struct ObjectManager {
@@ -20,6 +22,27 @@ pub struct ObjectManager {
 }
 
 impl ObjectManager {
+    pub fn iter_static<M: Material>(
+        &self,
+    ) -> Option<StaticObjectsIter<'_, M::SupportedAttributes>> {
+        let archetype = self.archetypes.get(&TypeId::of::<M>())?;
+
+        // SAFETY: `typed_data` template parameter is the same as the one used to
+        // construct `archetype`.
+        let data = unsafe {
+            archetype
+                .data
+                .typed_data::<SlotData<M::SupportedAttributes>>()
+        };
+
+        Some(StaticObjectsIter {
+            inner: data.iter(),
+            buffer_handle: archetype.buffer.handle(),
+            slot: 0,
+            len: archetype.active_object_count,
+        })
+    }
+
     #[tracing::instrument(level = "debug", name = "insert_object", skip_all)]
     pub fn insert_static(
         &mut self,
@@ -94,14 +117,15 @@ impl ObjectManager {
         match self.archetypes.entry(id) {
             hash_map::Entry::Occupied(entry) => entry.into_mut(),
             hash_map::Entry::Vacant(entry) => entry.insert(ObjectArchetype {
-                data: AnyVec::new::<SlotData<<M as Material>::SupportedAttributes>>(),
+                data: AnyVec::new::<SlotData<M::SupportedAttributes>>(),
                 buffer: FreelistDoubleBuffer::with_capacity(INITIAL_BUFFER_CAPACITY),
+                active_object_count: 0,
                 next_slot: 0,
                 free_slots: Vec::new(),
                 retired_slots: Vec::new(),
-                flush: flush::<<M as Material>::SupportedAttributes>,
-                update_transform: update_transform::<<M as Material>::SupportedAttributes>,
-                remove: remove::<<M as Material>::SupportedAttributes>,
+                flush: flush::<M::SupportedAttributes>,
+                update_transform: update_transform::<M::SupportedAttributes>,
+                remove: remove::<M::SupportedAttributes>,
             }),
         }
     }
@@ -117,6 +141,7 @@ struct HandleData {
 struct ObjectArchetype {
     data: AnyVec,
     buffer: FreelistDoubleBuffer,
+    active_object_count: usize,
     next_slot: u32,
     free_slots: Vec<u32>,
     retired_slots: Vec<u32>,
@@ -191,6 +216,55 @@ unsafe impl<A: gfx::Std430> gfx::Std430 for Std430GpuObject<A> {
 
     // NOTE: may be incorrect, but `FreelistDoubleBuffer` aligns all sizes
     type ArrayPadding = [u8; 0];
+}
+
+pub struct StaticObjectsIter<'a, A: MaterialArray<VertexAttributeKind>> {
+    inner: std::slice::Iter<'a, SlotData<A>>,
+    buffer_handle: StorageBufferHandle,
+    slot: u32,
+    len: usize,
+}
+
+impl<'a, A> StaticObjectsIter<'a, A>
+where
+    A: MaterialArray<VertexAttributeKind>,
+{
+    pub fn buffer_handle(&self) -> StorageBufferHandle {
+        self.buffer_handle
+    }
+}
+
+impl<'a, A> Iterator for StaticObjectsIter<'a, A>
+where
+    A: MaterialArray<VertexAttributeKind>,
+{
+    type Item = (
+        u32,
+        &'a GpuObject<<A as MaterialArray<VertexAttributeKind>>::U32Array>,
+    );
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.inner.next()? {
+                Some(item) if item.enabled => {
+                    let slot = self.slot;
+                    self.slot += 1;
+                    break Some((slot, item));
+                }
+                _ => self.slot += 1,
+            }
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len, Some(self.len))
+    }
+}
+
+impl<'a, A> ExactSizeIterator for StaticObjectsIter<'a, A> where
+    A: MaterialArray<VertexAttributeKind>
+{
 }
 
 pub(crate) struct WriteStaticObject<'a> {
@@ -270,9 +344,10 @@ impl WriteStaticObject<'_> {
             first_index,
             index_count,
             material_slot,
-            enabled: false,
+            enabled: true,
         };
 
+        // TODO: reuse retired slots in the same frame first?
         let slot = archetype.free_slots.pop().unwrap_or_else(|| {
             let slot = archetype.next_slot;
             archetype.next_slot += 1;
@@ -291,6 +366,7 @@ impl WriteStaticObject<'_> {
         }
 
         archetype.buffer.update_slot(slot);
+        archetype.active_object_count += 1;
         slot
     }
 }
@@ -306,7 +382,7 @@ fn flush<A: MaterialArray<VertexAttributeKind>>(
     archetype: &mut ObjectArchetype,
     args: FlushObject,
 ) -> Result<()> {
-    // SAFETY: `typed_data` template parameter is the same as the one used to
+    // SAFETY: `downcast_mut` template parameter is the same as the one used to
     // construct `archetype`.
     let mut data = unsafe { archetype.data.downcast_mut::<SlotData<A>>() };
 
@@ -360,8 +436,12 @@ fn remove<A: MaterialArray<VertexAttributeKind>>(archetype: &mut ObjectArchetype
     // construct `data`.
     let mut data = unsafe { archetype.data.downcast_mut::<SlotData<A>>() };
     let item = data.get_mut(slot as usize).expect("invalid handle slot");
-    item.as_mut().expect("value was not initialized").enabled = false;
+    let item = item.as_mut().expect("value was not initialized");
+
+    item.enabled = false;
+    archetype.buffer.update_slot(slot);
 
     // NOTE: delay deletion for one flush
     archetype.retired_slots.push(slot);
+    archetype.active_object_count -= 1;
 }
