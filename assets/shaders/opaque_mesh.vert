@@ -24,9 +24,7 @@ struct MaterialData {
     vec3 color;
 };
 
-layout (set = BINDLESS_SET, binding = BINDLESS_SBO_BINDING, std430) buffer MaterialBuffer {
-    MaterialData items[];
-} u_material_buffer[BINDLESS_SBO_COUNT];
+BINDLESS_SBO_RO(std430, MaterialData, u_material_buffer);
 
 MaterialData material_data_read(uint buffer_index, uint slot) {
     return u_material_buffer[buffer_index].items[slot];

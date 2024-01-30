@@ -7,3 +7,4 @@ rust-version = "1.75.0"
 [dependencies]
 bevy_ecs = { workspace = true }
 glam = { workspace = true }
+smallvec = { workspace = true }

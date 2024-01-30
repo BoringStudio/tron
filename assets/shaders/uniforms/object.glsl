@@ -14,17 +14,13 @@ struct ObjectData {
     #endif
 };
 
-layout (set = BINDLESS_SET, binding = BINDLESS_SBO_BINDING, std430) buffer ObjectDataBuffer {
-    ObjectData items[];
-} u_object_data[BINDLESS_SBO_COUNT];
+BINDLESS_SBO_RO(std430, ObjectData, u_object_data);
 
 ObjectData object_data_read(uint buffer_index) {
     return u_object_data[buffer_index].items[gl_InstanceIndex];
 }
 
-layout (set = BINDLESS_SET, binding = BINDLESS_SBO_BINDING, std430) buffer FloatVertexBuffer {
-    float data[];
-} u_vertex_buffer_float[BINDLESS_SBO_COUNT];
+BINDLESS_SBO_RO(std430, float, u_vertex_buffer_float);
 
 #ifdef VERTEX_ATTR_COUNT
 struct Vertex {
@@ -52,27 +48,27 @@ struct Vertex {
 vec4 vertex_data_read_vec4(uint buffer_index, uint byte_offset) {
     uint offset = byte_offset / 4 + gl_VertexIndex * 4;
     return vec4(
-        u_vertex_buffer_float[buffer_index].data[offset],
-        u_vertex_buffer_float[buffer_index].data[offset + 1],
-        u_vertex_buffer_float[buffer_index].data[offset + 2],
-        u_vertex_buffer_float[buffer_index].data[offset + 3]
+        u_vertex_buffer_float[buffer_index].items[offset],
+        u_vertex_buffer_float[buffer_index].items[offset + 1],
+        u_vertex_buffer_float[buffer_index].items[offset + 2],
+        u_vertex_buffer_float[buffer_index].items[offset + 3]
     );
 }
 
 vec3 vertex_data_read_vec3(uint buffer_index, uint byte_offset) {
     uint offset = byte_offset / 4 + gl_VertexIndex * 3;
     return vec3(
-        u_vertex_buffer_float[buffer_index].data[offset],
-        u_vertex_buffer_float[buffer_index].data[offset + 1],
-        u_vertex_buffer_float[buffer_index].data[offset + 2]
+        u_vertex_buffer_float[buffer_index].items[offset],
+        u_vertex_buffer_float[buffer_index].items[offset + 1],
+        u_vertex_buffer_float[buffer_index].items[offset + 2]
     );
 }
 
 vec2 vertex_data_read_vec2(uint buffer_index, uint byte_offset) {
     uint offset = byte_offset / 4 + gl_VertexIndex * 2;
     return vec2(
-        u_vertex_buffer_float[buffer_index].data[offset],
-        u_vertex_buffer_float[buffer_index].data[offset + 1]
+        u_vertex_buffer_float[buffer_index].items[offset],
+        u_vertex_buffer_float[buffer_index].items[offset + 1]
     );
 }
 

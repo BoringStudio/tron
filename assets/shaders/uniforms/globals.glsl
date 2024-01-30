@@ -1,7 +1,10 @@
 #ifndef UNIFORMS_GLOBALS_GLSL
 #define UNIFORMS_GLOBALS_GLSL
 
-layout (set = 0, binding = 0, std140) uniform GlobalUniform {
+#define GLOBALS_SET 0
+#define GLOBALS_BINDING 0
+
+layout (set = GLOBALS_SET, binding = GLOBALS_BINDING, std140) uniform GlobalUniform {
     mat4 camera_view;
     mat4 camera_projection;
     mat4 camera_view_inverse;
