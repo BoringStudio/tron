@@ -506,6 +506,7 @@ shared::embed!(
         "math/sphere.glsl",
         "uniforms/bindless.glsl",
         "uniforms/globals.glsl",
+        "uniforms/object.glsl",
         "scatter_copy.comp",
         "opaque_mesh.vert",
         "opaque_mesh.frag"
