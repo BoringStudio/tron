@@ -122,7 +122,6 @@ impl ObjectManager {
                 active_object_count: 0,
                 next_slot: 0,
                 free_slots: Vec::new(),
-                retired_slots: Vec::new(),
                 flush: flush::<M::SupportedAttributes>,
                 update_transform: update_transform::<M::SupportedAttributes>,
                 remove: remove::<M::SupportedAttributes>,
@@ -141,10 +140,9 @@ struct HandleData {
 struct ObjectArchetype {
     data: AnyVec,
     buffer: FreelistDoubleBuffer,
-    active_object_count: usize,
+    active_object_count: u32,
     next_slot: u32,
     free_slots: Vec<u32>,
-    retired_slots: Vec<u32>,
     flush: fn(&mut ObjectArchetype, FlushObject) -> Result<()>,
     update_transform: fn(&mut ObjectArchetype, u32, &Mat4),
     remove: fn(&mut ObjectArchetype, u32),
@@ -153,8 +151,9 @@ struct ObjectArchetype {
 type SlotData<A> = Option<GpuObject<<A as MaterialArray<VertexAttributeKind>>::U32Array>>;
 
 pub struct GpuObject<A> {
-    pub mesh_handle: MeshHandle,
-    pub material_handle: MaterialHandle,
+    // NOTE: having `Some` here means that the object is enabled.
+    // This is used to drop handles when the object is removed.
+    pub enabled_object_data: Option<EnabledObjectData>,
     pub mesh_bounding_sphere: BoundingSphere,
 
     pub transform: Mat4,
@@ -163,7 +162,11 @@ pub struct GpuObject<A> {
     pub first_index: u32,
     pub index_count: u32,
     pub material_slot: u32,
-    pub enabled: bool,
+}
+
+struct EnabledObjectData {
+    pub mesh_handle: MeshHandle,
+    pub material_handle: MaterialHandle,
 }
 
 impl<A> GpuObject<A> {
@@ -172,7 +175,7 @@ impl<A> GpuObject<A> {
             self.first_index,
             self.index_count,
             self.material_slot,
-            self.enabled as _,
+            self.enabled_object_data.is_some() as _,
         )
     }
 }
@@ -187,7 +190,7 @@ where
         Std430GpuObject {
             transform: self.transform,
             transform_inverse_transpose: self.transform.inverse().transpose(),
-            bounding_sphere: self.global_bounding_sphere.into(),
+            global_bounding_sphere: self.global_bounding_sphere.into(),
             data: self.make_data(),
             vertex_attribute_offsets: self.vertex_attribute_offsets,
         }
@@ -196,7 +199,7 @@ where
     fn write_as_std430(&self, dst: &mut Self::Output) {
         dst.transform = self.transform;
         dst.transform_inverse_transpose = self.transform.inverse().transpose();
-        dst.bounding_sphere = self.global_bounding_sphere.into();
+        dst.global_bounding_sphere = self.global_bounding_sphere.into();
         dst.data = self.make_data();
         dst.vertex_attribute_offsets = self.vertex_attribute_offsets;
     }
@@ -206,7 +209,7 @@ where
 pub struct Std430GpuObject<A> {
     transform: Mat4,
     transform_inverse_transpose: Mat4,
-    bounding_sphere: Vec4,
+    global_bounding_sphere: Vec4,
     data: UVec4,
     vertex_attribute_offsets: A,
 }
@@ -225,7 +228,7 @@ pub struct StaticObjectsIter<'a, A: MaterialArray<VertexAttributeKind>> {
     inner: std::slice::Iter<'a, SlotData<A>>,
     buffer_handle: StorageBufferHandle,
     slot: u32,
-    len: usize,
+    len: u32,
 }
 
 impl<'a, A> StaticObjectsIter<'a, A>
@@ -249,7 +252,7 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.inner.next()? {
-                Some(item) if item.enabled => {
+                Some(item) if item.enabled_object_data.is_some() => {
                     let slot = self.slot;
                     self.slot += 1;
                     break Some((slot, item));
@@ -261,7 +264,7 @@ where
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.len, Some(self.len))
+        (self.len as usize, Some(self.len as usize))
     }
 }
 
@@ -338,8 +341,10 @@ impl WriteStaticObject<'_> {
         let global_bounding_sphere = mesh_bounding_sphere.transformed(&self.object.transform);
 
         let gpu_object = GpuObject::<A::U32Array> {
-            mesh_handle: self.object.mesh,
-            material_handle: self.object.material,
+            enabled_object_data: Some(EnabledObjectData {
+                mesh_handle: self.object.mesh,
+                material_handle: self.object.material,
+            }),
             mesh_bounding_sphere,
             transform: self.object.transform,
             global_bounding_sphere,
@@ -347,10 +352,8 @@ impl WriteStaticObject<'_> {
             first_index,
             index_count,
             material_slot,
-            enabled: true,
         };
 
-        // TODO: reuse retired slots in the same frame first?
         let slot = archetype.free_slots.pop().unwrap_or_else(|| {
             let slot = archetype.next_slot;
             archetype.next_slot += 1;
@@ -387,7 +390,7 @@ fn flush<A: MaterialArray<VertexAttributeKind>>(
 ) -> Result<()> {
     // SAFETY: `downcast_mut` template parameter is the same as the one used to
     // construct `archetype`.
-    let mut data = unsafe { archetype.data.downcast_mut::<SlotData<A>>() };
+    let data = unsafe { archetype.data.typed_data::<SlotData<A>>() };
 
     // SAFETY: `flush` is called with the same template parameter all the time.
     unsafe {
@@ -404,15 +407,6 @@ fn flush<A: MaterialArray<VertexAttributeKind>>(
                 },
             )?;
     }
-
-    // Restore free slots
-    for &slot in &archetype.retired_slots {
-        // Clear all retired slots
-        data.get_mut(slot as usize)
-            .expect("invalid retired slot")
-            .take();
-    }
-    archetype.free_slots.append(&mut archetype.retired_slots);
 
     Ok(())
 }
@@ -441,10 +435,13 @@ fn remove<A: MaterialArray<VertexAttributeKind>>(archetype: &mut ObjectArchetype
     let item = data.get_mut(slot as usize).expect("invalid handle slot");
     let item = item.as_mut().expect("value was not initialized");
 
-    item.enabled = false;
+    // Set item as disabled and mark it as updated to flush the data to the GPU.
+    item.enabled_object_data = None;
     archetype.buffer.update_slot(slot);
 
-    // NOTE: delay deletion for one flush
-    archetype.retired_slots.push(slot);
+    // It is ok to add this slot to available, since an inserted object will
+    // overwrite the stored value (including the `enabled`) during this frame,
+    // and this slot was already marked as updated.
+    archetype.free_slots.push(slot);
     archetype.active_object_count -= 1;
 }

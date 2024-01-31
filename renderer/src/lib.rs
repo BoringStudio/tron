@@ -295,25 +295,25 @@ impl RendererState {
         for instruction in instructions.drain(..) {
             match instruction {
                 Instruction::RemoveMesh { handle } => {
-                    tracing::debug!(?handle, "remove_mesh");
+                    tracing::trace!(?handle, "remove_mesh");
                     self.handles.mesh_handle_allocator.dealloc(handle);
                     self.mesh_manager.remove(handle);
                 }
                 Instruction::AddMaterial { handle, on_add } => {
-                    tracing::debug!(?handle, "add_material");
+                    tracing::trace!(?handle, "add_material");
                     on_add(&mut synced_managers.material_manager, handle);
                 }
                 Instruction::UpdateMaterial { handle, on_update } => {
-                    tracing::debug!(?handle, "update_material");
+                    tracing::trace!(?handle, "update_material");
                     on_update(&mut synced_managers.material_manager, handle);
                 }
                 Instruction::RemoveMaterial { handle } => {
-                    tracing::debug!(?handle, "remove_material");
+                    tracing::trace!(?handle, "remove_material");
                     self.handles.material_handle_allocator.dealloc(handle);
                     synced_managers.material_manager.remove(handle);
                 }
                 Instruction::AddStaticObject { handle, object } => {
-                    tracing::debug!(?handle, "add_static_object");
+                    tracing::trace!(?handle, "add_static_object");
                     let inner_meshes =
                         mesh_manager_data.get_or_insert_with(|| self.mesh_manager.lock_data());
 
@@ -325,13 +325,13 @@ impl RendererState {
                     );
                 }
                 Instruction::UpdateStaticObject { handle, transform } => {
-                    tracing::debug!(?handle, "update_static_object");
+                    tracing::trace!(?handle, "update_static_object");
                     synced_managers
                         .object_manager
                         .update_static(handle, transform.as_ref());
                 }
                 Instruction::RemoveStatisObject { handle } => {
-                    tracing::debug!(?handle, "remove_static_object");
+                    tracing::trace!(?handle, "remove_static_object");
                     self.handles.static_object_handle_allocator.dealloc(handle);
                     synced_managers.object_manager.remove_static(handle);
                 }

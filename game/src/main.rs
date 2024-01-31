@@ -227,9 +227,9 @@ fn rotation_system(res: Res<Time>, mut query: Query<&mut Transform>) {
 
 fn apply_static_objects_transform_system(
     res: Res<RendererResources>,
-    query: Query<(&Transform, &StaticMeshInstance)>,
+    query: Query<(&Transform, &StaticMeshInstance, Changed<Transform>)>,
 ) {
-    for (transform, object) in &query {
+    for (transform, object, _) in &query {
         res.state
             .update_static_object(&object.handle, transform.to_matrix());
     }
