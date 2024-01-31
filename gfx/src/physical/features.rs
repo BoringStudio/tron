@@ -106,6 +106,9 @@ pub enum DeviceFeature {
     /// [`DescriptorBindingFlags::PARTIALLY_BOUND`]: crate::DescriptorBindingFlags::PARTIALLY_BOUND
     DescriptorBindingPartiallyBound,
 
+    // Adds ability to declare descriptors in runtime arrays.
+    RuntimeDescriptorArray,
+
     /// Adds ability to query the frame presentation timing.
     DisplayTiming,
 
@@ -392,6 +395,7 @@ impl VulkanExtension for DescriptorIndexingExtension {
             DescriptorBindingUniformBufferUpdateAfterBind => descriptor_binding_uniform_buffer_update_after_bind,
             DescriptorBindingStorageBufferUpdateAfterBind => descriptor_binding_storage_buffer_update_after_bind,
             DescriptorBindingPartiallyBound => descriptor_binding_partially_bound,
+            RuntimeDescriptorArray => runtime_descriptor_array,
         )
     }
 }
