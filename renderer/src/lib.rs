@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -9,15 +9,16 @@ use glam::Mat4;
 use shared::Embed;
 use winit::window::Window;
 
+pub use self::render_graph::materials;
 pub use crate::types::{
-    Color, CubeMeshGenerator, Material, MaterialHandle, MaterialTag, Mesh, MeshBuilder,
-    MeshGenerator, MeshHandle, Normal, PlaneMeshGenerator, Position, Sorting, SortingOrder,
-    SortingReason, StaticObjectHandle, Tangent, VertexAttribute, VertexAttributeData,
+    Color, CubeMeshGenerator, MaterialInstance, MaterialInstanceHandle, MaterialInstanceTag, Mesh,
+    MeshBuilder, MeshGenerator, MeshHandle, Normal, PlaneMeshGenerator, Position, Sorting,
+    SortingOrder, SortingReason, StaticObjectHandle, Tangent, VertexAttribute, VertexAttributeData,
     VertexAttributeKind, UV0,
 };
 
 use crate::managers::{MaterialManager, MeshManager, ObjectManager, TimeManager};
-use crate::types::{RawMaterialHandle, RawMeshHandle, RawStaticObjectHandle};
+use crate::types::{RawMaterialInstanceHandle, RawMeshHandle, RawStaticObjectHandle};
 use crate::util::{
     BindlessResources, FrameResources, FreelistHandleAllocator, HandleAllocator, HandleData,
     HandleDeleter, RawResourceHandle, ScatterCopy, ShaderPreprocessor, SimpleHandleAllocator,
@@ -29,11 +30,9 @@ use self::types::{
 };
 
 pub mod components;
-pub mod systems;
 
 mod managers;
-mod pipelines;
-mod render_passes;
+mod render_graph;
 mod types;
 mod util;
 mod worker;
@@ -242,25 +241,34 @@ impl RendererState {
             .mesh_handle_allocator
             .alloc(Arc::new(InstructedHandleDeleter(state)));
 
-        self.mesh_manager.insert(handle.raw(), mesh);
+        self.mesh_manager.add(handle.raw(), mesh);
         Ok(handle)
     }
 
-    pub fn add_material<M: Material>(self: &Arc<Self>, material: M) -> MaterialHandle {
+    pub fn add_material_instance<M: MaterialInstance>(
+        self: &Arc<Self>,
+        material: M,
+    ) -> MaterialInstanceHandle {
         let state = Arc::downgrade(self);
         let handle = self
             .handles
             .material_handle_allocator
             .alloc(Arc::new(InstructedHandleDeleter(state)));
 
-        self.instructions.send(Instruction::AddMaterial {
+        self.instructions.send(Instruction::AddMaterialInstance {
             handle: handle.raw(),
-            on_add: Box::new(move |manager, handle| manager.insert(handle, material)),
+            on_add: Box::new(move |manager, handle| {
+                manager.insert_material_instance(handle, material)
+            }),
         });
         handle
     }
 
-    pub fn update_material<M: Material>(self: &Arc<Self>, handle: &MaterialHandle, material: M) {
+    pub fn update_material<M: MaterialInstance>(
+        self: &Arc<Self>,
+        handle: &MaterialInstanceHandle,
+        material: M,
+    ) {
         self.instructions.send(Instruction::UpdateMaterial {
             handle: handle.raw(),
             on_update: Box::new(move |manager, handle| manager.update(handle, material)),
@@ -270,7 +278,7 @@ impl RendererState {
     pub fn add_static_object(
         self: &Arc<Self>,
         mesh_handle: MeshHandle,
-        material_handle: MaterialHandle,
+        material_handle: MaterialInstanceHandle,
         global_transform: &Mat4,
     ) -> StaticObjectHandle {
         let state = Arc::downgrade(self);
@@ -293,7 +301,7 @@ impl RendererState {
     pub fn add_dynamic_object(
         self: &Arc<Self>,
         mesh_handle: MeshHandle,
-        material_handle: MaterialHandle,
+        material_handle: MaterialInstanceHandle,
         global_transform: &Mat4,
     ) -> DynamicObjectHandle {
         let state = Arc::downgrade(self);
@@ -341,7 +349,10 @@ impl RendererState {
     }
 
     #[tracing::instrument(level = "debug", name = "eval_instructions", skip_all)]
-    pub(crate) fn eval_instructions(&self, encoder: &mut gfx::PrimaryEncoder) -> Result<()> {
+    pub(crate) fn eval_instructions<'a>(
+        &'a self,
+        encoder: &mut gfx::PrimaryEncoder,
+    ) -> Result<MutexGuard<'a, RendererStateSyncedManagers>> {
         self.instructions.swap();
 
         self.bindless_resources.flush_retired();
@@ -349,18 +360,18 @@ impl RendererState {
         let mut instructions = self.instructions.consumer.lock().unwrap();
 
         let mut synced_managers = self.synced_managers.lock().unwrap();
-        let synced_managers = &mut *synced_managers;
 
         let mut mesh_manager_data = None;
 
         for instruction in instructions.drain(..) {
+            let synced_managers = &mut *synced_managers;
             match instruction {
                 Instruction::RemoveMesh { handle } => {
                     tracing::trace!(?handle, "remove_mesh");
                     self.handles.mesh_handle_allocator.dealloc(handle);
                     self.mesh_manager.remove(handle);
                 }
-                Instruction::AddMaterial { handle, on_add } => {
+                Instruction::AddMaterialInstance { handle, on_add } => {
                     tracing::trace!(?handle, "add_material");
                     on_add(&mut synced_managers.material_manager, handle);
                 }
@@ -378,7 +389,7 @@ impl RendererState {
                     let inner_meshes =
                         mesh_manager_data.get_or_insert_with(|| self.mesh_manager.lock_data());
 
-                    synced_managers.object_manager.insert_static_object(
+                    synced_managers.object_manager.add_static_object(
                         handle,
                         object,
                         inner_meshes,
@@ -390,7 +401,7 @@ impl RendererState {
                     let inner_meshes =
                         mesh_manager_data.get_or_insert_with(|| self.mesh_manager.lock_data());
 
-                    synced_managers.object_manager.insert_dynamic_object(
+                    synced_managers.object_manager.add_dynamic_object(
                         handle,
                         object,
                         inner_meshes,
@@ -464,7 +475,7 @@ impl RendererState {
             encoder.execute_commands(std::iter::once(secondary.finish()?));
         }
 
-        Ok(())
+        Ok(synced_managers)
     }
 }
 
@@ -478,7 +489,7 @@ struct RendererStateSyncedManagers {
 #[derive(Default)]
 struct RendererStateHandles {
     mesh_handle_allocator: FreelistHandleAllocator<Mesh>,
-    material_handle_allocator: SimpleHandleAllocator<MaterialTag>,
+    material_handle_allocator: SimpleHandleAllocator<MaterialInstanceTag>,
     static_object_handle_allocator: SimpleHandleAllocator<StaticObjectTag>,
     dynamic_object_handle_allocator: SimpleHandleAllocator<DynamicObjectTag>,
 }
@@ -505,16 +516,16 @@ enum Instruction {
     RemoveMesh {
         handle: RawMeshHandle,
     },
-    AddMaterial {
-        handle: RawMaterialHandle,
+    AddMaterialInstance {
+        handle: RawMaterialInstanceHandle,
         on_add: Box<FnOnAddMaterial>,
     },
     UpdateMaterial {
-        handle: RawMaterialHandle,
+        handle: RawMaterialInstanceHandle,
         on_update: Box<FnOnUpdateMaterial>,
     },
     RemoveMaterial {
-        handle: RawMaterialHandle,
+        handle: RawMaterialInstanceHandle,
     },
     AddStaticObject {
         handle: RawStaticObjectHandle,
@@ -545,8 +556,8 @@ enum Instruction {
     },
 }
 
-type FnOnAddMaterial = dyn FnOnce(&mut MaterialManager, RawMaterialHandle) + Send + Sync;
-type FnOnUpdateMaterial = dyn FnOnce(&mut MaterialManager, RawMaterialHandle) + Send + Sync;
+type FnOnAddMaterial = dyn FnOnce(&mut MaterialManager, RawMaterialInstanceHandle) + Send + Sync;
+type FnOnUpdateMaterial = dyn FnOnce(&mut MaterialManager, RawMaterialInstanceHandle) + Send + Sync;
 
 trait IntoRemoveInstruction {
     fn into_remove_instruction(self) -> Instruction;
@@ -559,7 +570,7 @@ impl IntoRemoveInstruction for RawMeshHandle {
     }
 }
 
-impl IntoRemoveInstruction for RawMaterialHandle {
+impl IntoRemoveInstruction for RawMaterialInstanceHandle {
     #[inline]
     fn into_remove_instruction(self) -> Instruction {
         Instruction::RemoveMaterial { handle: self }
@@ -598,7 +609,7 @@ impl HandleData for Mesh {
     type Deleter = InstructedHandleDeleter;
 }
 
-impl HandleData for MaterialTag {
+impl HandleData for MaterialInstanceTag {
     type Deleter = InstructedHandleDeleter;
 }
 
@@ -645,40 +656,3 @@ shared::embed!(
         "opaque_mesh.frag"
     ]
 );
-
-// TEMP!
-#[derive(Debug, Clone, Copy)]
-pub struct DebugMaterial {
-    pub color: glam::Vec3,
-}
-
-impl Material for DebugMaterial {
-    type ShaderDataType = <glam::Vec3 as gfx::AsStd430>::Output;
-    type RequiredAttributes = [VertexAttributeKind; 1];
-    type SupportedAttributes = [VertexAttributeKind; 5];
-
-    fn required_attributes() -> Self::RequiredAttributes {
-        [VertexAttributeKind::Position]
-    }
-    fn supported_attributes() -> Self::SupportedAttributes {
-        [
-            VertexAttributeKind::Position,
-            VertexAttributeKind::Normal,
-            VertexAttributeKind::Tangent,
-            VertexAttributeKind::UV0,
-            VertexAttributeKind::Color,
-        ]
-    }
-
-    fn key(&self) -> u64 {
-        0
-    }
-
-    fn sorting(&self) -> Sorting {
-        Sorting::OPAQUE
-    }
-
-    fn shader_data(&self) -> Self::ShaderDataType {
-        gfx::AsStd430::as_std430(&self.color)
-    }
-}

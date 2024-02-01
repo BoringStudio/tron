@@ -7,17 +7,14 @@ use bumpalo::Bump;
 use glam::{Mat4, Vec3};
 use shared::util::DeallocOnDrop;
 
-use crate::pipelines::{CachedGraphicsPipeline, OpaqueMeshPipeline, RenderPassEncoderExt};
-use crate::render_passes::{EncoderExt, MainPass, MainPassInput};
+use crate::render_graph::RenderGraph;
 use crate::types::CameraProjection;
 use crate::RendererState;
 
 pub struct RendererWorker {
     state: Arc<RendererState>,
 
-    pass: MainPass,
-    pipeline: CachedGraphicsPipeline,
-
+    graph: RenderGraph,
     fences: Fences,
     surface: gfx::Surface,
 
@@ -34,19 +31,11 @@ impl RendererWorker {
 
         let fences = Fences::new(&state.device, FRAMES_IN_FLIGHT)?;
 
-        let pass = MainPass::default();
-        let pipeline = OpaqueMeshPipeline::make_descr(
-            &state.device,
-            &state.shader_preprocessor,
-            &state.frame_resources,
-            &state.bindless_resources,
-        )
-        .map(CachedGraphicsPipeline::new)?;
+        let graph = RenderGraph::new(&state)?;
 
         Ok(Self {
             state,
-            pass,
-            pipeline,
+            graph,
             fences,
             surface,
             non_optimal_count: 0,
@@ -74,10 +63,10 @@ impl RendererWorker {
 
         let mut encoder = queue.create_primary_encoder()?;
 
-        {
+        let synced_managers = {
             profiling::scope!("eval_instructions");
-            self.state.eval_instructions(&mut encoder)?;
-        }
+            self.state.eval_instructions(&mut encoder)?
+        };
 
         if self
             .state
@@ -92,7 +81,6 @@ impl RendererWorker {
         }
 
         let prev_frame_at = std::mem::replace(&mut self.prev_frame_at, Instant::now());
-        let time = self.started_at.elapsed().as_secs_f32();
         let delta_time = self
             .prev_frame_at
             .duration_since(prev_frame_at)
@@ -103,30 +91,6 @@ impl RendererWorker {
         self.state
             .frame_resources
             .set_camera(&camera_transform, &CameraProjection::default());
-
-        let globals_dynamic_offset = self
-            .state
-            .frame_resources
-            .flush(time, delta_time, self.frame);
-
-        encoder.bind_graphics_descriptor_sets(
-            &self.pipeline.descr().layout,
-            0,
-            &[
-                self.state.frame_resources.descriptor_set(),
-                self.state.bindless_resources.descriptor_set(),
-            ],
-            &[globals_dynamic_offset],
-        );
-
-        self.state.mesh_manager.bind_index_buffer(&mut encoder);
-
-        encoder.memory_barrier(
-            gfx::PipelineStageFlags::COMPUTE_SHADER | gfx::PipelineStageFlags::TRANSFER,
-            gfx::AccessFlags::SHADER_WRITE | gfx::AccessFlags::TRANSFER_WRITE,
-            gfx::PipelineStageFlags::VERTEX_SHADER,
-            gfx::AccessFlags::SHADER_READ,
-        );
 
         {
             profiling::scope!("opaque_mesh_render_pass");

@@ -67,7 +67,7 @@ impl Scene {
     pub fn spawn_cube(&mut self, renderer: &Arc<RendererState>) -> Result<()> {
         let mut rng = rand::thread_rng();
 
-        let material = renderer.add_material(renderer::DebugMaterial {
+        let material = renderer.add_material_instance(renderer::DebugMaterial {
             color: glam::vec3(
                 rng.gen_range(0.0..1.0),
                 rng.gen_range(0.0..1.0),
@@ -200,7 +200,7 @@ fn process_gltf_node(
         };
 
         let mesh = renderer.add_mesh(&mesh)?;
-        let material = renderer.add_material(renderer::DebugMaterial {
+        let material = renderer.add_material_instance(renderer::materials::DebugMaterialInstance {
             color: glam::vec3(1.0, 1.0, 1.0),
         });
 

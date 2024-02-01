@@ -1,15 +1,15 @@
 use crate::types::VertexAttributeKind;
 use crate::util::{RawResourceHandle, ResourceHandle};
 
-pub type MaterialHandle = ResourceHandle<MaterialTag>;
-pub(crate) type RawMaterialHandle = RawResourceHandle<MaterialTag>;
+pub type MaterialInstanceHandle = ResourceHandle<MaterialInstanceTag>;
+pub(crate) type RawMaterialInstanceHandle = RawResourceHandle<MaterialInstanceTag>;
 
-pub struct MaterialTag;
+pub struct MaterialInstanceTag;
 
-pub trait Material: Send + Sync + 'static {
+pub trait MaterialInstance: Send + Sync + 'static {
     type ShaderDataType: gfx::Std430 + Send + Sync;
-    type RequiredAttributes: MaterialArray<VertexAttributeKind>;
-    type SupportedAttributes: MaterialArray<VertexAttributeKind>;
+    type RequiredAttributes: VertexAttributeArray;
+    type SupportedAttributes: VertexAttributeArray;
 
     fn required_attributes() -> Self::RequiredAttributes;
     fn supported_attributes() -> Self::SupportedAttributes;
@@ -20,20 +20,17 @@ pub trait Material: Send + Sync + 'static {
     fn shader_data(&self) -> Self::ShaderDataType;
 }
 
-pub trait MaterialArray<T>: AsRef<[T]> + Clone {
+pub trait VertexAttributeArray: AsRef<[VertexAttributeKind]> + Clone {
     const LEN: usize;
 
     type U32Array: gfx::Std430 + std::fmt::Debug + Send + Sync;
 
     fn map_to_u32<F>(self, f: F) -> Self::U32Array
     where
-        F: FnMut(T) -> u32;
+        F: FnMut(VertexAttributeKind) -> u32;
 }
 
-impl<T, const N: usize> MaterialArray<T> for [T; N]
-where
-    T: Clone,
-{
+impl<const N: usize> VertexAttributeArray for [VertexAttributeKind; N] {
     const LEN: usize = N;
 
     type U32Array = [u32; N];
@@ -41,7 +38,7 @@ where
     #[inline]
     fn map_to_u32<F>(self, f: F) -> Self::U32Array
     where
-        F: FnMut(T) -> u32,
+        F: FnMut(VertexAttributeKind) -> u32,
     {
         self.map(f)
     }

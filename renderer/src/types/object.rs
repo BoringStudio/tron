@@ -1,6 +1,6 @@
 use glam::Mat4;
 
-use crate::types::{MaterialHandle, MeshHandle};
+use crate::types::{MaterialInstanceHandle, MeshHandle};
 use crate::util::{RawResourceHandle, ResourceHandle};
 
 pub type StaticObjectHandle = ResourceHandle<StaticObjectTag>;
@@ -14,6 +14,6 @@ pub struct DynamicObjectTag;
 
 pub struct ObjectData {
     pub mesh: MeshHandle,
-    pub material: MaterialHandle,
+    pub material: MaterialInstanceHandle,
     pub global_transform: Mat4,
 }

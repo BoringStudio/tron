@@ -72,7 +72,6 @@ impl FrameResources {
         globals.render_resolution = glam::vec2(width as f32, height as f32);
     }
 
-    #[allow(dead_code)]
     pub fn set_camera(&self, view: &Mat4, projection: &CameraProjection) {
         let mut globals = self.globals.lock().unwrap();
 
@@ -87,9 +86,12 @@ impl FrameResources {
     }
 
     /// Update the uniform buffer and return the byte offset of the updated data
-    pub fn flush(&self, time: f32, delta_time: f32, frame: u32) -> u32 {
+    pub fn flush(&self, delta_time: f32, frame: u32) -> u32 {
+        const TIME_ROLLOVER: f32 = 3600.0;
+
         let mut globals = self.globals.lock().unwrap();
-        globals.time = time;
+
+        globals.time = (globals.time + delta_time) % TIME_ROLLOVER;
         globals.delta_time = delta_time;
         globals.frame_index = frame;
         self.buffer.lock().unwrap().write(&globals)

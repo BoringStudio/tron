@@ -1,7 +1,7 @@
 use anyhow::Result;
 use gfx::MakeImageView;
 
-use crate::render_passes::Pass;
+use crate::util::RenderPass;
 
 pub struct MainPassInput {
     pub max_image_count: usize,
@@ -155,23 +155,7 @@ impl MainPass {
     }
 }
 
-fn make_depth_attachment(
-    device: &gfx::Device,
-    target: &gfx::Image,
-) -> Result<gfx::ImageView, gfx::OutOfDeviceMemory> {
-    device
-        .create_image(gfx::ImageInfo {
-            extent: target.info().extent,
-            format: gfx::Format::D32Sfloat,
-            mip_levels: 1,
-            samples: gfx::Samples::_1,
-            array_layers: 1,
-            usage: gfx::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
-        })?
-        .make_image_view(device)
-}
-
-impl Pass for MainPass {
+impl RenderPass for MainPass {
     type Input = MainPassInput;
 
     fn begin_render_pass<'a, 'b>(
@@ -189,4 +173,20 @@ impl Pass for MainPass {
             ],
         ))
     }
+}
+
+fn make_depth_attachment(
+    device: &gfx::Device,
+    target: &gfx::Image,
+) -> Result<gfx::ImageView, gfx::OutOfDeviceMemory> {
+    device
+        .create_image(gfx::ImageInfo {
+            extent: target.info().extent,
+            format: gfx::Format::D32Sfloat,
+            mip_levels: 1,
+            samples: gfx::Samples::_1,
+            array_layers: 1,
+            usage: gfx::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+        })?
+        .make_image_view(device)
 }

@@ -6,23 +6,27 @@ use shared::any::AnyVec;
 use shared::FastHashMap;
 
 use crate::managers::object_manager::{WriteDynamicObject, WriteStaticObject};
-use crate::types::{Material, RawMaterialHandle};
+use crate::types::{MaterialInstance, RawMaterialInstanceHandle};
 use crate::util::{BindlessResources, FreelistDoubleBuffer, ScatterCopy, StorageBufferHandle};
 
 #[derive(Default)]
 pub struct MaterialManager {
-    handles: FastHashMap<RawMaterialHandle, HandleData>,
+    handles: FastHashMap<RawMaterialInstanceHandle, HandleData>,
     archetypes: FastHashMap<TypeId, MaterialArchetype>,
 }
 
 impl MaterialManager {
-    pub fn materials_data_buffer_handle<M: Material>(&self) -> Option<StorageBufferHandle> {
+    pub fn materials_data_buffer_handle<M: MaterialInstance>(&self) -> Option<StorageBufferHandle> {
         let archetype = self.archetypes.get(&TypeId::of::<M>())?;
         Some(archetype.buffer.handle())
     }
 
     #[tracing::instrument(level = "debug", name = "insert_material", skip_all)]
-    pub fn insert<M: Material>(&mut self, handle: RawMaterialHandle, material: M) {
+    pub fn insert_material_instance<M: MaterialInstance>(
+        &mut self,
+        handle: RawMaterialInstanceHandle,
+        material: M,
+    ) {
         let archetype = self.get_or_create_archetype::<M>();
 
         let slot = archetype.free_slots.pop().unwrap_or_else(|| {
@@ -53,7 +57,7 @@ impl MaterialManager {
     }
 
     #[tracing::instrument(level = "debug", name = "update_material", skip_all)]
-    pub fn update<M: Material>(&mut self, handle: RawMaterialHandle, material: M) {
+    pub fn update<M: MaterialInstance>(&mut self, handle: RawMaterialInstanceHandle, material: M) {
         let HandleData { archetype, slot } = &self.handles[&handle];
         assert_eq!(*archetype, TypeId::of::<M>());
 
@@ -72,7 +76,7 @@ impl MaterialManager {
     }
 
     #[tracing::instrument(level = "debug", name = "remove_material", skip_all)]
-    pub fn remove(&mut self, handle: RawMaterialHandle) {
+    pub fn remove(&mut self, handle: RawMaterialInstanceHandle) {
         let HandleData { archetype, slot } = &self.handles[&handle];
 
         let archetype = self
@@ -107,7 +111,7 @@ impl MaterialManager {
 
     pub(crate) fn write_static_object(
         &mut self,
-        handle: RawMaterialHandle,
+        handle: RawMaterialInstanceHandle,
         args: WriteStaticObject,
     ) {
         let HandleData { archetype, slot } = &self.handles[&handle];
@@ -122,7 +126,7 @@ impl MaterialManager {
 
     pub(crate) fn write_dynamic_object(
         &mut self,
-        handle: RawMaterialHandle,
+        handle: RawMaterialInstanceHandle,
         args: WriteDynamicObject,
     ) {
         let HandleData { archetype, slot } = &self.handles[&handle];
@@ -135,7 +139,7 @@ impl MaterialManager {
         (archetype.write_dynamic_object)(archetype, *slot, args);
     }
 
-    fn get_or_create_archetype<M: Material>(&mut self) -> &mut MaterialArchetype {
+    fn get_or_create_archetype<M: MaterialInstance>(&mut self) -> &mut MaterialArchetype {
         let id = TypeId::of::<M>();
         match self.archetypes.entry(id) {
             hash_map::Entry::Occupied(entry) => entry.into_mut(),
@@ -180,7 +184,7 @@ struct FlushMaterial<'a> {
     bindless_resources: &'a BindlessResources,
 }
 
-fn flush<M: Material>(archetype: &mut MaterialArchetype, args: FlushMaterial) -> Result<()> {
+fn flush<M: MaterialInstance>(archetype: &mut MaterialArchetype, args: FlushMaterial) -> Result<()> {
     // SAFETY: `typed_data` template parameter is the same as the one used to
     // construct `archetype`.
     unsafe {
@@ -200,7 +204,7 @@ fn flush<M: Material>(archetype: &mut MaterialArchetype, args: FlushMaterial) ->
     Ok(())
 }
 
-fn write_static_object<M: Material>(
+fn write_static_object<M: MaterialInstance>(
     _archetype: &MaterialArchetype,
     slot: u32,
     args: WriteStaticObject<'_>,
@@ -209,7 +213,7 @@ fn write_static_object<M: Material>(
     args.run::<M>(slot);
 }
 
-fn write_dynamic_object<M: Material>(
+fn write_dynamic_object<M: MaterialInstance>(
     _archetype: &MaterialArchetype,
     slot: u32,
     args: WriteDynamicObject<'_>,
@@ -218,7 +222,7 @@ fn write_dynamic_object<M: Material>(
     args.run::<M>(slot);
 }
 
-fn remove_slot<M: Material>(archetype: &mut MaterialArchetype, slot: u32) {
+fn remove_slot<M: MaterialInstance>(archetype: &mut MaterialArchetype, slot: u32) {
     // SAFETY: `typed_data_mut` template parameter is the same as the one used to
     // construct `data`.
     let mut data = unsafe { archetype.data.typed_data_mut::<SlotData<M>>() };

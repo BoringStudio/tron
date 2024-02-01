@@ -189,7 +189,7 @@ impl MeshManager {
         })
     }
 
-    pub fn insert(&self, handle: RawMeshHandle, mesh: GpuMesh) {
+    pub fn add(&self, handle: RawMeshHandle, mesh: GpuMesh) {
         let mut registry = self.registry.lock().unwrap();
         let index = handle.index;
         if index >= registry.len() {

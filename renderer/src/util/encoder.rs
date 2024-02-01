@@ -1,8 +1,40 @@
 use anyhow::Result;
 
-pub use self::opaque_mesh_pipeline::OpaqueMeshPipeline;
+pub trait EncoderExt {
+    fn with_render_pass<'a, 'b, P>(
+        &'a mut self,
+        pass: &'b mut P,
+        input: &P::Input,
+        device: &gfx::Device,
+    ) -> Result<gfx::RenderPassEncoder<'a, 'b>>
+    where
+        P: RenderPass;
+}
 
-mod opaque_mesh_pipeline;
+impl EncoderExt for gfx::Encoder {
+    fn with_render_pass<'a, 'b, P>(
+        &'a mut self,
+        pass: &'b mut P,
+        input: &P::Input,
+        device: &gfx::Device,
+    ) -> Result<gfx::RenderPassEncoder<'a, 'b>>
+    where
+        P: RenderPass,
+    {
+        pass.begin_render_pass(input, device, self)
+    }
+}
+
+pub trait RenderPass {
+    type Input;
+
+    fn begin_render_pass<'a, 'b>(
+        &'b mut self,
+        input: &Self::Input,
+        device: &gfx::Device,
+        encoder: &'a mut gfx::Encoder,
+    ) -> Result<gfx::RenderPassEncoder<'a, 'b>>;
+}
 
 pub trait RenderPassEncoderExt {
     fn bind_cached_graphics_pipeline(
