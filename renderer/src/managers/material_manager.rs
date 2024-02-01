@@ -2,7 +2,8 @@ use std::any::TypeId;
 use std::collections::hash_map;
 
 use anyhow::Result;
-use shared::{AnyVec, FastHashMap};
+use shared::any::AnyVec;
+use shared::FastHashMap;
 
 use crate::managers::object_manager::WriteStaticObject;
 use crate::types::{Material, RawMaterialHandle};

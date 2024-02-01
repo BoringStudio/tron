@@ -1,9 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-pub use self::any_vec::AnyVec;
-
-pub mod any_vec;
+pub mod any;
 pub mod hlist;
+pub mod packed;
 pub mod util;
 
 pub type FastHashSet<K> = HashSet<K, ahash::RandomState>;

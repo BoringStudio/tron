@@ -3,12 +3,17 @@ use glam::Mat4;
 use crate::types::{MaterialHandle, MeshHandle};
 use crate::util::{RawResourceHandle, ResourceHandle};
 
-pub type StaticObjectHandle = ResourceHandle<StaticObject>;
-pub(crate) type RawStaticObjectHandle = RawResourceHandle<StaticObject>;
+pub type StaticObjectHandle = ResourceHandle<StaticObjectTag>;
+pub(crate) type RawStaticObjectHandle = RawResourceHandle<StaticObjectTag>;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct StaticObject {
+pub type DynamicObjectHandle = ResourceHandle<DynamicObjectTag>;
+pub(crate) type RawDynamicObjectHandle = RawResourceHandle<DynamicObjectTag>;
+
+pub struct StaticObjectTag;
+pub struct DynamicObjectTag;
+
+pub struct ObjectData {
     pub mesh: MeshHandle,
     pub material: MaterialHandle,
-    pub transform: Mat4,
+    pub global_transform: Mat4,
 }

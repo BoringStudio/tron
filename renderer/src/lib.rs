@@ -11,7 +11,7 @@ use winit::window::Window;
 pub use crate::types::{
     Color, CubeMeshGenerator, Material, MaterialHandle, MaterialTag, Mesh, MeshBuilder,
     MeshGenerator, MeshHandle, Normal, PlaneMeshGenerator, Position, Sorting, SortingOrder,
-    SortingReason, StaticObject, StaticObjectHandle, Tangent, VertexAttribute, VertexAttributeData,
+    SortingReason, StaticObjectHandle, Tangent, VertexAttribute, VertexAttributeData,
     VertexAttributeKind, UV0,
 };
 
@@ -22,6 +22,8 @@ use crate::util::{
     HandleDeleter, RawResourceHandle, ScatterCopy, ShaderPreprocessor, SimpleHandleAllocator,
 };
 use crate::worker::RendererWorker;
+
+use self::types::{DynamicObjectTag, ObjectData, RawDynamicObjectHandle, StaticObjectTag};
 
 pub mod components;
 pub mod systems;
@@ -258,7 +260,12 @@ impl RendererState {
         });
     }
 
-    pub fn add_static_object(self: &Arc<Self>, object: StaticObject) -> StaticObjectHandle {
+    pub fn add_static_object(
+        self: &Arc<Self>,
+        mesh_handle: MeshHandle,
+        material_handle: MaterialHandle,
+        global_transform: &Mat4,
+    ) -> StaticObjectHandle {
         let state = Arc::downgrade(self);
         let handle = self
             .handles
@@ -267,7 +274,11 @@ impl RendererState {
 
         self.instructions.send(Instruction::AddStaticObject {
             handle: handle.raw(),
-            object: Box::new(object),
+            object: Box::new(ObjectData {
+                mesh: mesh_handle,
+                material: material_handle,
+                global_transform: *global_transform,
+            }),
         });
         handle
     }
@@ -330,10 +341,15 @@ impl RendererState {
                         .object_manager
                         .update_static(handle, transform.as_ref());
                 }
-                Instruction::RemoveStatisObject { handle } => {
+                Instruction::RemoveStaticObject { handle } => {
                     tracing::trace!(?handle, "remove_static_object");
                     self.handles.static_object_handle_allocator.dealloc(handle);
                     synced_managers.object_manager.remove_static(handle);
+                }
+                Instruction::RemoveDynamicObject { handle } => {
+                    tracing::trace!(?handle, "remove_dynamic_object");
+                    self.handles.dynamic_object_handle_allocator.dealloc(handle);
+                    // TODO:  synced_managers.object_manager.remove_dynamic(handle);
                 }
             }
         }
@@ -374,7 +390,8 @@ struct RendererStateSyncedManagers {
 struct RendererStateHandles {
     mesh_handle_allocator: FreelistHandleAllocator<Mesh>,
     material_handle_allocator: SimpleHandleAllocator<MaterialTag>,
-    static_object_handle_allocator: SimpleHandleAllocator<StaticObject>,
+    static_object_handle_allocator: SimpleHandleAllocator<StaticObjectTag>,
+    dynamic_object_handle_allocator: SimpleHandleAllocator<DynamicObjectTag>,
 }
 
 #[derive(Default)]
@@ -412,14 +429,17 @@ enum Instruction {
     },
     AddStaticObject {
         handle: RawStaticObjectHandle,
-        object: Box<StaticObject>,
+        object: Box<ObjectData>,
     },
     UpdateStaticObject {
         handle: RawStaticObjectHandle,
         transform: Box<Mat4>,
     },
-    RemoveStatisObject {
+    RemoveStaticObject {
         handle: RawStaticObjectHandle,
+    },
+    RemoveDynamicObject {
+        handle: RawDynamicObjectHandle,
     },
 }
 
@@ -447,7 +467,14 @@ impl IntoRemoveInstruction for RawMaterialHandle {
 impl IntoRemoveInstruction for RawStaticObjectHandle {
     #[inline]
     fn into_remove_instruction(self) -> Instruction {
-        Instruction::RemoveStatisObject { handle: self }
+        Instruction::RemoveStaticObject { handle: self }
+    }
+}
+
+impl IntoRemoveInstruction for RawDynamicObjectHandle {
+    #[inline]
+    fn into_remove_instruction(self) -> Instruction {
+        Instruction::RemoveDynamicObject { handle: self }
     }
 }
 
@@ -473,7 +500,11 @@ impl HandleData for MaterialTag {
     type Deleter = InstructedHandleDeleter;
 }
 
-impl HandleData for StaticObject {
+impl HandleData for StaticObjectTag {
+    type Deleter = InstructedHandleDeleter;
+}
+
+impl HandleData for DynamicObjectTag {
     type Deleter = InstructedHandleDeleter;
 }
 

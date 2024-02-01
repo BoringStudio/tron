@@ -82,11 +82,11 @@ impl Scene {
         ))
         .with_scale(Vec3::splat(rng.gen_range(0.1..0.5)));
 
-        let handle = renderer.add_static_object(renderer::StaticObject {
-            mesh: self.primitive_meshes.cube.clone(),
-            material: material.clone(),
-            transform: transform.to_matrix(),
-        });
+        let handle = renderer.add_static_object(
+            self.primitive_meshes.cube.clone(),
+            material.clone(),
+            &transform.to_matrix(),
+        );
 
         self.ecs.spawn(SceneObjectBundle {
             transform,
@@ -204,11 +204,7 @@ fn process_gltf_node(
             color: glam::vec3(1.0, 1.0, 1.0),
         });
 
-        let handle = renderer.add_static_object(renderer::StaticObject {
-            mesh: mesh.clone(),
-            material: material.clone(),
-            transform: *global_transform,
-        });
+        let handle = renderer.add_static_object(mesh.clone(), material.clone(), &global_transform);
 
         ecs_world.spawn(SceneObjectBundle {
             transform: Transform::from_matrix(*global_transform),
