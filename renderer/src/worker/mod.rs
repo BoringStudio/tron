@@ -7,7 +7,7 @@ use bumpalo::Bump;
 use glam::{Mat4, Vec3};
 use shared::util::DeallocOnDrop;
 
-use crate::render_graph::RenderGraph;
+use crate::render_graph::{RenderGraph, RenderGraphContext};
 use crate::types::CameraProjection;
 use crate::RendererState;
 
@@ -92,59 +92,16 @@ impl RendererWorker {
             .frame_resources
             .set_camera(&camera_transform, &CameraProjection::default());
 
-        {
-            profiling::scope!("opaque_mesh_render_pass");
-
-            let mut render_pass = encoder.with_render_pass(
-                &mut self.pass,
-                &MainPassInput {
-                    max_image_count: surface_image.total_image_count(),
-                    target: surface_image.image().clone(),
-                },
-                device,
-            )?;
-
-            render_pass.bind_cached_graphics_pipeline(&mut self.pipeline, device)?;
-
-            // TEMP
-            let vertex_buffer_handle = self.state.mesh_manager.vertex_buffer_handle();
-
-            let managers = self.state.synced_managers.lock().unwrap();
-
-            let dt = managers
-                .time_manager
-                .compute_interpolation_factor(self.prev_frame_at);
-
-            if let Some((objects, material_buffer_handle)) = managers
-                .object_manager
-                .iter_static_objects::<crate::DebugMaterial>()
-                .and_then(|iter| {
-                    let materials_buffer_handle = managers
-                        .material_manager
-                        .materials_data_buffer_handle::<crate::DebugMaterial>()?;
-                    Some((iter, materials_buffer_handle))
-                })
-            {
-                render_pass.push_constants(
-                    &self.pipeline.descr().layout,
-                    gfx::ShaderStageFlags::ALL,
-                    0,
-                    &[
-                        vertex_buffer_handle.index(),
-                        objects.buffer_handle().index(),
-                        material_buffer_handle.index(),
-                    ],
-                );
-
-                for (slot, object) in objects {
-                    render_pass.draw_indexed(
-                        object.first_index..object.first_index + object.index_count,
-                        0,
-                        slot..slot + 1,
-                    );
-                }
-            }
-        }
+        self.graph.execute(&mut RenderGraphContext {
+            state: &self.state,
+            synced_managers: &*synced_managers,
+            surface_image: &surface_image,
+            encoder: &mut encoder,
+            now: self.prev_frame_at,
+            delta_time,
+            frame: self.frame,
+        })?;
+        drop(synced_managers);
 
         encoder.image_barriers(
             gfx::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,

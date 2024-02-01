@@ -8,7 +8,7 @@ use glam::{Mat4, Vec2, Vec3};
 use rand::Rng;
 
 use ecs::components::Transform;
-use renderer::components::DynamicMeshInstance;
+use renderer::components::{DynamicMeshInstance, StaticMeshInstance};
 use renderer::{MeshHandle, RendererState};
 
 pub struct Scene {
@@ -67,7 +67,7 @@ impl Scene {
     pub fn spawn_cube(&mut self, renderer: &Arc<RendererState>) -> Result<()> {
         let mut rng = rand::thread_rng();
 
-        let material = renderer.add_material_instance(renderer::DebugMaterial {
+        let material = renderer.add_material_instance(renderer::materials::DebugMaterialInstance {
             color: glam::vec3(
                 rng.gen_range(0.0..1.0),
                 rng.gen_range(0.0..1.0),
@@ -82,7 +82,7 @@ impl Scene {
         ))
         .with_scale(Vec3::splat(rng.gen_range(0.1..0.5)));
 
-        let handle = renderer.add_dynamic_object(
+        let handle = renderer.add_static_object(
             self.primitive_meshes.cube.clone(),
             material.clone(),
             &transform.to_matrix(),
@@ -90,7 +90,7 @@ impl Scene {
 
         self.ecs.spawn(SceneObjectBundle {
             transform,
-            mesh_instance: DynamicMeshInstance {
+            mesh_instance: StaticMeshInstance {
                 mesh: self.primitive_meshes.cube.clone(),
                 material,
                 handle,
@@ -204,11 +204,11 @@ fn process_gltf_node(
             color: glam::vec3(1.0, 1.0, 1.0),
         });
 
-        let handle = renderer.add_dynamic_object(mesh.clone(), material.clone(), &global_transform);
+        let handle = renderer.add_static_object(mesh.clone(), material.clone(), &global_transform);
 
         ecs_world.spawn(SceneObjectBundle {
             transform: Transform::from_matrix(*global_transform),
-            mesh_instance: DynamicMeshInstance {
+            mesh_instance: StaticMeshInstance {
                 mesh,
                 material,
                 handle,
@@ -222,5 +222,5 @@ fn process_gltf_node(
 #[derive(Bundle)]
 struct SceneObjectBundle {
     transform: Transform,
-    mesh_instance: DynamicMeshInstance,
+    mesh_instance: StaticMeshInstance,
 }

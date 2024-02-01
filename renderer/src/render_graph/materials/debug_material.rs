@@ -2,9 +2,9 @@ use anyhow::Result;
 use glam::Vec3;
 
 use crate::render_graph::render_passes::MainPass;
-use crate::render_graph::RenderGraphNode;
+use crate::render_graph::{RenderGraphNode, RenderGraphNodeContext};
 use crate::types::{MaterialInstance, Sorting, VertexAttributeKind};
-use crate::util::{CachedGraphicsPipeline, ShaderPreprocessor};
+use crate::util::{CachedGraphicsPipeline, RenderPassEncoderExt, ShaderPreprocessor};
 
 pub struct DebugMaterial {
     pipeline: CachedGraphicsPipeline,
@@ -47,12 +47,52 @@ impl DebugMaterial {
 impl RenderGraphNode for DebugMaterial {
     type RenderPass = MainPass;
 
-    fn execute(
-        &mut self,
-        context: &mut crate::render_graph::RenderGraphContext<'_>,
-        input: &<Self::RenderPass as crate::util::RenderPass>::Input,
-    ) -> Result<()> {
-        todo!()
+    fn execute<'a, 'pass>(&mut self, ctx: &mut RenderGraphNodeContext<'a, 'pass>) -> Result<()> {
+        let Some(material_instances_buffer) =
+            ctx.synced_managers
+                .material_manager
+                .materials_data_buffer_handle::<DebugMaterialInstance>()
+        else {
+            return Ok(());
+        };
+
+        ctx.encoder
+            .bind_cached_graphics_pipeline(&mut self.pipeline, &ctx.state.device)?;
+
+        if let Some(static_objects) = ctx
+            .synced_managers
+            .object_manager
+            .iter_static_objects::<DebugMaterialInstance>()
+        {
+            ctx.encoder.push_constants(
+                ctx.graphics_pipeline_layout,
+                gfx::ShaderStageFlags::ALL,
+                0,
+                &[
+                    ctx.state.mesh_manager.vertex_buffer_handle().index(),
+                    static_objects.buffer_handle().index(),
+                    material_instances_buffer.index(),
+                ],
+            );
+
+            for (slot, object) in static_objects {
+                ctx.encoder.draw_indexed(
+                    object.first_index..object.first_index + object.index_count,
+                    0,
+                    slot..slot + 1,
+                );
+            }
+        }
+
+        if let Some(_dynamic_objects) = ctx
+            .synced_managers
+            .object_manager
+            .iter_dynamic_objects::<DebugMaterialInstance>()
+        {
+            //
+        }
+
+        Ok(())
     }
 }
 

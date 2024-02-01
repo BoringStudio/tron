@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use anyhow::Result;
 
 use crate::render_graph::render_passes::MainPassInput;
@@ -57,6 +59,13 @@ impl RenderGraph {
     }
 
     pub fn execute(&mut self, ctx: &mut RenderGraphContext<'_>) -> Result<()> {
+        profiling::scope!("render_graph");
+
+        let interpolation_factor = ctx
+            .synced_managers
+            .time_manager
+            .compute_interpolation_factor(ctx.now);
+
         let globals_dynamic_offset = ctx.state.frame_resources.flush(ctx.delta_time, ctx.frame);
 
         ctx.encoder.bind_graphics_descriptor_sets(
@@ -81,25 +90,37 @@ impl RenderGraph {
         {
             profiling::scope!("main_pass");
 
-            let mut render_pass = ctx.encoder.with_render_pass(
+            let mut encoder = ctx.encoder.with_render_pass(
                 &mut self.main_pass,
                 &MainPassInput {
                     max_image_count: ctx.surface_image.total_image_count(),
                     target: ctx.surface_image.image().clone(),
                 },
                 &ctx.state.device,
-            );
+            )?;
+
+            self.debug_material.execute(&mut RenderGraphNodeContext {
+                graphics_pipeline_layout: &self.graphics_pipeline_layout,
+                state: ctx.state,
+                synced_managers: ctx.synced_managers,
+                encoder,
+                now: ctx.now,
+                delta_time: ctx.delta_time,
+                frame: ctx.frame,
+                interpolation_factor,
+            })?;
         }
 
         Ok(())
     }
 }
 
-pub struct RenderGraphContext<'a, 's> {
+pub struct RenderGraphContext<'a> {
     pub state: &'a RendererState,
     pub synced_managers: &'a RendererStateSyncedManagers,
+    pub surface_image: &'a gfx::SurfaceImage<'a>,
     pub encoder: &'a mut gfx::Encoder,
-    pub surface_image: &'a gfx::Image,
+    pub now: Instant,
     pub delta_time: f32,
     pub frame: u32,
 }
@@ -107,9 +128,16 @@ pub struct RenderGraphContext<'a, 's> {
 trait RenderGraphNode {
     type RenderPass: RenderPass;
 
-    fn execute(
-        &mut self,
-        ctx: &mut RenderGraphContext<'_>,
-        input: &<Self::RenderPass as RenderPass>::Input,
-    ) -> Result<()>;
+    fn execute<'a, 'pass>(&mut self, ctx: &mut RenderGraphNodeContext<'a, 'pass>) -> Result<()>;
+}
+
+struct RenderGraphNodeContext<'a, 'pass> {
+    pub graphics_pipeline_layout: &'a gfx::PipelineLayout,
+    pub state: &'a RendererState,
+    pub synced_managers: &'a RendererStateSyncedManagers,
+    pub encoder: gfx::RenderPassEncoder<'a, 'pass>,
+    pub now: Instant,
+    pub delta_time: f32,
+    pub frame: u32,
+    pub interpolation_factor: f32,
 }
