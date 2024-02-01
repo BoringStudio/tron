@@ -20,6 +20,15 @@ impl AnyVec {
     /// # Safety
     /// The following must be true:
     /// - `T` must be an original type of `Vec<T>`.
+    pub unsafe fn typed_data_mut<T>(&mut self) -> &mut [T] {
+        std::slice::from_raw_parts_mut(self.ptr.cast(), self.len)
+    }
+
+    /// Downcast to a mutable reference to a `Vec<T>`.
+    ///
+    /// # Safety
+    /// The following must be true:
+    /// - `T` must be an original type of `Vec<T>`.
     pub unsafe fn downcast_mut<T>(&mut self) -> AnyVecGuard<T> {
         let vec = self.swap_vec(Vec::new());
         AnyVecGuard { vec, data: self }
@@ -46,7 +55,7 @@ impl Drop for AnyVec {
     fn drop(&mut self) {
         // SAFETY:
         // - `self.ptr` was aquired from a `Vec<T>`.
-        // - `self.byte_len` is equal to `vec.len() * std::mem::size_of::<T>()`.
+        // - `self.len` is equal to `vec.len()`.
         // - `self.capacity` is equal to an original capacity of `Vec<T>`.
         unsafe { (self.metadata.drop_fn)(self.ptr, self.len, self.capacity) }
     }
@@ -118,7 +127,7 @@ struct VecMetadata {
 /// # Safety
 /// The following must be true:
 /// - `ptr` must be aquired from a `Vec<T>`.
-/// - `bytes` must be equal to `vec.len() * std::mem::size_of::<T>()`.
+/// - `length` must be equal to `vec.len()`.
 /// - `capacity` must be equal to an original capacity of `Vec<T>`.
 unsafe fn drop_vec<T>(ptr: *mut u8, length: usize, capacity: usize) {
     Vec::<T>::from_raw_parts(ptr.cast(), length, capacity);

@@ -5,7 +5,7 @@ use anyhow::Result;
 use shared::any::AnyVec;
 use shared::FastHashMap;
 
-use crate::managers::object_manager::WriteStaticObject;
+use crate::managers::object_manager::{WriteDynamicObject, WriteStaticObject};
 use crate::types::{Material, RawMaterialHandle};
 use crate::util::{BindlessResources, FreelistDoubleBuffer, ScatterCopy, StorageBufferHandle};
 
@@ -62,9 +62,9 @@ impl MaterialManager {
             .get_mut(archetype)
             .expect("invalid handle archetype");
 
-        // SAFETY: `downcast_mut` template parameter is the same as the one used to
+        // SAFETY: `typed_data_mut` template parameter is the same as the one used to
         // construct `archetype`.
-        let mut data = unsafe { archetype.data.downcast_mut::<SlotData<M>>() };
+        let mut data = unsafe { archetype.data.typed_data_mut::<SlotData<M>>() };
         let item = data.get_mut(*slot as usize).expect("invalid handle slot");
         *item.as_mut().expect("value was not initialized") = material;
 
@@ -120,6 +120,21 @@ impl MaterialManager {
         (archetype.write_static_object)(archetype, *slot, args);
     }
 
+    pub(crate) fn write_dynamic_object(
+        &mut self,
+        handle: RawMaterialHandle,
+        args: WriteDynamicObject,
+    ) {
+        let HandleData { archetype, slot } = &self.handles[&handle];
+
+        let archetype = self
+            .archetypes
+            .get_mut(archetype)
+            .expect("invalid handle archetype");
+
+        (archetype.write_dynamic_object)(archetype, *slot, args);
+    }
+
     fn get_or_create_archetype<M: Material>(&mut self) -> &mut MaterialArchetype {
         let id = TypeId::of::<M>();
         match self.archetypes.entry(id) {
@@ -131,6 +146,7 @@ impl MaterialManager {
                 free_slots: Vec::new(),
                 flush: flush::<M>,
                 write_static_object: write_static_object::<M>,
+                write_dynamic_object: write_dynamic_object::<M>,
                 remove_slot: remove_slot::<M>,
             }),
         }
@@ -151,6 +167,7 @@ struct MaterialArchetype {
     free_slots: Vec<u32>,
     flush: fn(&mut MaterialArchetype, FlushMaterial) -> Result<()>,
     write_static_object: fn(&MaterialArchetype, u32, WriteStaticObject),
+    write_dynamic_object: fn(&MaterialArchetype, u32, WriteDynamicObject),
     remove_slot: fn(&mut MaterialArchetype, u32),
 }
 
@@ -192,10 +209,19 @@ fn write_static_object<M: Material>(
     args.run::<M>(slot);
 }
 
+fn write_dynamic_object<M: Material>(
+    _archetype: &MaterialArchetype,
+    slot: u32,
+    args: WriteDynamicObject<'_>,
+) {
+    // NOTE: read material here if needed
+    args.run::<M>(slot);
+}
+
 fn remove_slot<M: Material>(archetype: &mut MaterialArchetype, slot: u32) {
-    // SAFETY: `downcast_mut` template parameter is the same as the one used to
+    // SAFETY: `typed_data_mut` template parameter is the same as the one used to
     // construct `data`.
-    let mut data = unsafe { archetype.data.downcast_mut::<SlotData<M>>() };
+    let mut data = unsafe { archetype.data.typed_data_mut::<SlotData<M>>() };
     let item = data.get_mut(slot as usize).expect("invalid handle slot");
     std::mem::take(item).expect("value was not initialized");
 

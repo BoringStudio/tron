@@ -5,7 +5,7 @@ use anyhow::Result;
 use argh::FromArgs;
 use bevy_ecs::prelude::*;
 use ecs::components::Transform;
-use renderer::components::StaticMeshInstance;
+use renderer::components::{DynamicMeshInstance, StaticMeshInstance};
 use winit::event::*;
 use winit::event_loop::EventLoopBuilder;
 #[cfg(wayland_platform)]
@@ -120,14 +120,20 @@ impl App {
             builder.build(&event_loop).map(Arc::new)?
         };
 
-        let mut renderer = Renderer::builder(window.clone())
+        let started_at = Instant::now();
+
+        let mut renderer = Renderer::builder(window.clone(), started_at)
             .app_version((0, 0, 1))
             .validation_layer(self.vk_validation_layer)
             .shaders_debug_info_enabled(self.vk_debug_shaders)
             .build()?;
 
         let mut scene = Scene::new(renderer.state())?;
-        scene.ecs.insert_resource(Time::default());
+        scene.ecs.insert_resource(Time {
+            started_at,
+            now: started_at,
+            step: Duration::from_secs(1) / 10,
+        });
         scene.ecs.insert_resource(RendererResources {
             state: renderer.state().clone(),
         });
@@ -137,11 +143,16 @@ impl App {
         }
 
         let mut schedule = Schedule::default();
-        schedule.add_systems((rotation_system, apply_static_objects_transform_system).chain());
+        schedule.add_systems(
+            (
+                rotation_system,
+                apply_static_objects_transform_system,
+                apply_dynamic_objects_transform_system,
+                sync_fixed_update_system,
+            )
+                .chain(),
+        );
 
-        let update_interval = Duration::from_secs(1) / 60;
-
-        let mut prev_update_at = Instant::now();
         let mut minimized = false;
         let handle_event = {
             let renderer_state = renderer.state().clone();
@@ -150,11 +161,18 @@ impl App {
 
                 {
                     let now = Instant::now();
-                    if now.duration_since(prev_update_at) > update_interval {
-                        let prev_update_at = std::mem::replace(&mut prev_update_at, now);
-                        scene.ecs.resource_mut::<Time>().delta =
-                            prev_update_at.elapsed().as_secs_f32();
 
+                    let (mut updated_at, step) = {
+                        let time = scene.ecs.resource::<Time>();
+                        (time.now, time.step)
+                    };
+                    loop {
+                        updated_at += step;
+                        if updated_at > now {
+                            break;
+                        }
+
+                        scene.ecs.resource_mut::<Time>().now = updated_at;
                         schedule.run(&mut scene.ecs);
                     }
                 }
@@ -209,9 +227,12 @@ impl App {
     }
 }
 
-#[derive(Default, Resource)]
+#[derive(Resource)]
 struct Time {
-    delta: f32,
+    #[allow(unused)]
+    started_at: Instant,
+    now: Instant,
+    step: Duration,
 }
 
 #[derive(Resource)]
@@ -221,7 +242,7 @@ struct RendererResources {
 
 fn rotation_system(res: Res<Time>, mut query: Query<&mut Transform>) {
     for mut transform in &mut query {
-        transform.rotate_y(1.0 * res.delta);
+        transform.rotate_y(1.0 * res.step.as_secs_f32());
     }
 }
 
@@ -233,4 +254,18 @@ fn apply_static_objects_transform_system(
         res.state
             .update_static_object(&object.handle, transform.to_matrix());
     }
+}
+
+fn apply_dynamic_objects_transform_system(
+    res: Res<RendererResources>,
+    query: Query<(&Transform, &DynamicMeshInstance, Changed<Transform>)>,
+) {
+    for (transform, object, _) in &query {
+        res.state
+            .update_dynamic_object(&object.handle, transform.to_matrix(), false);
+    }
+}
+
+fn sync_fixed_update_system(time: Res<Time>, renderer: Res<RendererResources>) {
+    renderer.state.finish_fixed_update(time.now, time.step);
 }

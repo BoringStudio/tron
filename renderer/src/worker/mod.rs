@@ -147,9 +147,13 @@ impl RendererWorker {
 
             let managers = self.state.synced_managers.lock().unwrap();
 
+            let dt = managers
+                .time_manager
+                .compute_interpolation_factor(self.prev_frame_at);
+
             if let Some((objects, material_buffer_handle)) = managers
                 .object_manager
-                .iter_static::<crate::DebugMaterial>()
+                .iter_static_objects::<crate::DebugMaterial>()
                 .and_then(|iter| {
                     let materials_buffer_handle = managers
                         .material_manager

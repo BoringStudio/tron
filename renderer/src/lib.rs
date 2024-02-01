@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use bevy_ecs::entity::Entity;
@@ -15,7 +16,7 @@ pub use crate::types::{
     VertexAttributeKind, UV0,
 };
 
-use crate::managers::{MaterialManager, MeshManager, ObjectManager};
+use crate::managers::{MaterialManager, MeshManager, ObjectManager, TimeManager};
 use crate::types::{RawMaterialHandle, RawMeshHandle, RawStaticObjectHandle};
 use crate::util::{
     BindlessResources, FrameResources, FreelistHandleAllocator, HandleAllocator, HandleData,
@@ -23,7 +24,9 @@ use crate::util::{
 };
 use crate::worker::RendererWorker;
 
-use self::types::{DynamicObjectTag, ObjectData, RawDynamicObjectHandle, StaticObjectTag};
+use self::types::{
+    DynamicObjectHandle, DynamicObjectTag, ObjectData, RawDynamicObjectHandle, StaticObjectTag,
+};
 
 pub mod components;
 pub mod systems;
@@ -42,6 +45,7 @@ pub struct MainCamera {
 
 pub struct RendererBuilder {
     window: Arc<Window>,
+    started_at: Instant,
     app_version: (u32, u32, u32),
     validation_layer: bool,
     optimize_shaders: bool,
@@ -92,6 +96,7 @@ impl RendererBuilder {
 
         let state = Arc::new(RendererState {
             is_running: AtomicBool::new(true),
+            started_at: self.started_at,
             window_resized: AtomicBool::new(true),
             worker_barrier: LoopBarrier::default(),
             instructions: InstructionQueue::default(),
@@ -158,9 +163,10 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn builder(window: Arc<Window>) -> RendererBuilder {
+    pub fn builder(window: Arc<Window>, started_at: Instant) -> RendererBuilder {
         RendererBuilder {
             window,
+            started_at,
             app_version: (0, 0, 1),
             validation_layer: false,
             optimize_shaders: true,
@@ -192,6 +198,7 @@ impl Drop for Renderer {
 
 pub struct RendererState {
     is_running: AtomicBool,
+    started_at: Instant,
     worker_barrier: LoopBarrier,
     instructions: InstructionQueue,
 
@@ -283,10 +290,53 @@ impl RendererState {
         handle
     }
 
+    pub fn add_dynamic_object(
+        self: &Arc<Self>,
+        mesh_handle: MeshHandle,
+        material_handle: MaterialHandle,
+        global_transform: &Mat4,
+    ) -> DynamicObjectHandle {
+        let state = Arc::downgrade(self);
+        let handle = self
+            .handles
+            .dynamic_object_handle_allocator
+            .alloc(Arc::new(InstructedHandleDeleter(state)));
+
+        self.instructions.send(Instruction::AddDynamicObject {
+            handle: handle.raw(),
+            object: Box::new(ObjectData {
+                mesh: mesh_handle,
+                material: material_handle,
+                global_transform: *global_transform,
+            }),
+        });
+        handle
+    }
+
     pub fn update_static_object(self: &Arc<Self>, handle: &StaticObjectHandle, transform: Mat4) {
         self.instructions.send(Instruction::UpdateStaticObject {
             handle: handle.raw(),
             transform: Box::new(transform),
+        });
+    }
+
+    pub fn update_dynamic_object(
+        self: &Arc<Self>,
+        handle: &DynamicObjectHandle,
+        transform: Mat4,
+        teleport: bool,
+    ) {
+        self.instructions.send(Instruction::UpdateDynamicObject {
+            handle: handle.raw(),
+            transform: Box::new(transform),
+            teleport,
+        });
+    }
+
+    pub fn finish_fixed_update(self: &Arc<Self>, updated_at: Instant, duration: Duration) {
+        self.instructions.send(Instruction::FinishFixedUpdate {
+            updated_at,
+            duration,
         });
     }
 
@@ -328,7 +378,19 @@ impl RendererState {
                     let inner_meshes =
                         mesh_manager_data.get_or_insert_with(|| self.mesh_manager.lock_data());
 
-                    synced_managers.object_manager.insert_static(
+                    synced_managers.object_manager.insert_static_object(
+                        handle,
+                        object,
+                        inner_meshes,
+                        &mut synced_managers.material_manager,
+                    );
+                }
+                Instruction::AddDynamicObject { handle, object } => {
+                    tracing::trace!(?handle, "add_dynamic_object");
+                    let inner_meshes =
+                        mesh_manager_data.get_or_insert_with(|| self.mesh_manager.lock_data());
+
+                    synced_managers.object_manager.insert_dynamic_object(
                         handle,
                         object,
                         inner_meshes,
@@ -339,22 +401,48 @@ impl RendererState {
                     tracing::trace!(?handle, "update_static_object");
                     synced_managers
                         .object_manager
-                        .update_static(handle, transform.as_ref());
+                        .update_static_object(handle, transform.as_ref());
+                }
+                Instruction::UpdateDynamicObject {
+                    handle,
+                    transform,
+                    teleport,
+                } => {
+                    tracing::trace!(?handle, "update_dynamic_object");
+                    synced_managers.object_manager.update_dynamic_object(
+                        handle,
+                        transform.as_ref(),
+                        teleport,
+                    );
                 }
                 Instruction::RemoveStaticObject { handle } => {
                     tracing::trace!(?handle, "remove_static_object");
                     self.handles.static_object_handle_allocator.dealloc(handle);
-                    synced_managers.object_manager.remove_static(handle);
+                    synced_managers.object_manager.remove_static_object(handle);
                 }
                 Instruction::RemoveDynamicObject { handle } => {
                     tracing::trace!(?handle, "remove_dynamic_object");
                     self.handles.dynamic_object_handle_allocator.dealloc(handle);
-                    // TODO:  synced_managers.object_manager.remove_dynamic(handle);
+                    synced_managers.object_manager.remove_dynamic_object(handle);
+                }
+                Instruction::FinishFixedUpdate {
+                    updated_at,
+                    duration,
+                } => {
+                    tracing::trace!(?updated_at, ?duration, "finish_fixed_update");
+
+                    synced_managers
+                        .object_manager
+                        .finalize_dynamic_object_transforms();
+
+                    synced_managers
+                        .time_manager
+                        .updated_fixed_time(updated_at, duration);
                 }
             }
         }
 
-        synced_managers.object_manager.flush(
+        synced_managers.object_manager.flush_static_objects(
             &self.device,
             encoder,
             &self.scatter_copy,
@@ -384,6 +472,7 @@ impl RendererState {
 struct RendererStateSyncedManagers {
     material_manager: MaterialManager,
     object_manager: ObjectManager,
+    time_manager: TimeManager,
 }
 
 #[derive(Default)]
@@ -431,15 +520,28 @@ enum Instruction {
         handle: RawStaticObjectHandle,
         object: Box<ObjectData>,
     },
+    AddDynamicObject {
+        handle: RawDynamicObjectHandle,
+        object: Box<ObjectData>,
+    },
     UpdateStaticObject {
         handle: RawStaticObjectHandle,
         transform: Box<Mat4>,
+    },
+    UpdateDynamicObject {
+        handle: RawDynamicObjectHandle,
+        transform: Box<Mat4>,
+        teleport: bool,
     },
     RemoveStaticObject {
         handle: RawStaticObjectHandle,
     },
     RemoveDynamicObject {
         handle: RawDynamicObjectHandle,
+    },
+    FinishFixedUpdate {
+        updated_at: Instant,
+        duration: Duration,
     },
 }
 

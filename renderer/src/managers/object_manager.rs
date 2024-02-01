@@ -4,7 +4,7 @@ use std::collections::hash_map;
 use anyhow::Result;
 use gfx::AsStd430;
 use glam::{Mat4, Quat, UVec4, Vec3, Vec4};
-use shared::any::{AnyVec, AnyVecGuard};
+use shared::any::AnyVec;
 use shared::packed::U32WithBool;
 use shared::FastHashMap;
 
@@ -26,7 +26,7 @@ pub struct ObjectManager {
 }
 
 impl ObjectManager {
-    pub fn iter_static<M: Material>(
+    pub fn iter_static_objects<M: Material>(
         &self,
     ) -> Option<StaticObjectsIter<'_, M::SupportedAttributes>> {
         let archetype = self.static_archetypes.get(&TypeId::of::<M>())?;
@@ -47,8 +47,27 @@ impl ObjectManager {
         })
     }
 
-    #[tracing::instrument(level = "debug", name = "insert_object", skip_all)]
-    pub fn insert_static(
+    pub fn iter_dynamic_objects<M: Material>(
+        &self,
+    ) -> Option<DynamicObjectsIter<'_, M::SupportedAttributes>> {
+        let archetype = self.static_archetypes.get(&TypeId::of::<M>())?;
+
+        // SAFETY: `typed_data` template parameter is the same as the one used to
+        // construct `archetype`.
+        let data = unsafe {
+            archetype
+                .data
+                .typed_data::<DynamicSlotData<M::SupportedAttributes>>()
+        };
+
+        Some(DynamicObjectsIter {
+            inner: data.iter(),
+            len: archetype.active_object_count,
+        })
+    }
+
+    #[tracing::instrument(level = "debug", name = "inser_static_object", skip_all)]
+    pub fn insert_static_object(
         &mut self,
         handle: RawStaticObjectHandle,
         object: Box<ObjectData>,
@@ -70,8 +89,31 @@ impl ObjectManager {
         );
     }
 
-    #[tracing::instrument(level = "debug", name = "update_object", skip_all)]
-    pub fn update_static(&mut self, handle: RawStaticObjectHandle, transform: &Mat4) {
+    #[tracing::instrument(level = "debug", name = "insert_dynamic_object", skip_all)]
+    pub fn insert_dynamic_object(
+        &mut self,
+        handle: RawDynamicObjectHandle,
+        object: Box<ObjectData>,
+        mesh_manager_data: &MeshManagerDataGuard,
+        material_manager: &mut MaterialManager,
+    ) {
+        let mesh = mesh_manager_data[object.mesh.index()]
+            .as_ref()
+            .expect("invalid mesh handle");
+
+        material_manager.write_dynamic_object(
+            object.material.raw(),
+            WriteDynamicObject {
+                mesh,
+                handle,
+                object,
+                object_manager: Some(self),
+            },
+        );
+    }
+
+    #[tracing::instrument(level = "debug", name = "update_static_object", skip_all)]
+    pub fn update_static_object(&mut self, handle: RawStaticObjectHandle, transform: &Mat4) {
         let HandleData { archetype, slot } = &self.static_handles[&handle];
 
         let archetype = self
@@ -82,8 +124,25 @@ impl ObjectManager {
         (archetype.update_transform)(archetype, *slot, transform);
     }
 
-    #[tracing::instrument(level = "debug", name = "remove_object", skip_all)]
-    pub fn remove_static(&mut self, handle: RawStaticObjectHandle) {
+    #[tracing::instrument(level = "debug", name = "update_dynamic_object", skip_all)]
+    pub fn update_dynamic_object(
+        &mut self,
+        handle: RawDynamicObjectHandle,
+        transform: &Mat4,
+        teleport: bool,
+    ) {
+        let HandleData { archetype, slot } = &self.dynamic_handles[&handle];
+
+        let archetype = self
+            .dynamic_archetypes
+            .get_mut(archetype)
+            .expect("invalid handle archetype");
+
+        (archetype.update_transform)(archetype, *slot, transform, teleport);
+    }
+
+    #[tracing::instrument(level = "debug", name = "remove_static_object", skip_all)]
+    pub fn remove_static_object(&mut self, handle: RawStaticObjectHandle) {
         let HandleData { archetype, slot } = &self.static_handles[&handle];
 
         let archetype = self
@@ -94,8 +153,20 @@ impl ObjectManager {
         (archetype.remove)(archetype, *slot);
     }
 
-    #[tracing::instrument(level = "debug", name = "flush_objects", skip_all)]
-    pub fn flush(
+    #[tracing::instrument(level = "debug", name = "remove_dynamic_object", skip_all)]
+    pub fn remove_dynamic_object(&mut self, handle: RawDynamicObjectHandle) {
+        let HandleData { archetype, slot } = &self.dynamic_handles[&handle];
+
+        let archetype = self
+            .dynamic_archetypes
+            .get_mut(archetype)
+            .expect("invalid handle archetype");
+
+        (archetype.remove)(archetype, *slot);
+    }
+
+    #[tracing::instrument(level = "debug", name = "flush_static_objects", skip_all)]
+    pub fn flush_static_objects(
         &mut self,
         device: &gfx::Device,
         encoder: &mut gfx::Encoder,
@@ -116,7 +187,14 @@ impl ObjectManager {
         Ok(())
     }
 
-    fn get_or_create_static_archetype<M: Material>(&mut self) -> &mut StaticObjectArchetype {
+    #[tracing::instrument(level = "debug", name = "flush_dynamic_objects", skip_all)]
+    pub fn finalize_dynamic_object_transforms(&mut self) {
+        for archetype in self.dynamic_archetypes.values_mut() {
+            (archetype.finalize_transforms)(archetype)
+        }
+    }
+
+    fn get_or_create_static_object_archetype<M: Material>(&mut self) -> &mut StaticObjectArchetype {
         let id = TypeId::of::<M>();
         match self.static_archetypes.entry(id) {
             hash_map::Entry::Occupied(entry) => entry.into_mut(),
@@ -133,7 +211,9 @@ impl ObjectManager {
         }
     }
 
-    fn get_or_create_dynamic_archetype<M: Material>(&mut self) -> &mut DynamicObjectArchetype {
+    fn get_or_create_dynamic_object_archetype<M: Material>(
+        &mut self,
+    ) -> &mut DynamicObjectArchetype {
         let id = TypeId::of::<M>();
         match self.dynamic_archetypes.entry(id) {
             hash_map::Entry::Occupied(entry) => entry.into_mut(),
@@ -142,6 +222,7 @@ impl ObjectManager {
                 active_object_count: 0,
                 next_slot: 0,
                 free_slots: Vec::new(),
+                finalize_transforms: finalize_dynamic_object_transforms::<M::SupportedAttributes>,
                 update_transform: update_dynamic_object_transform::<M::SupportedAttributes>,
                 remove: remove_dynamic_object::<M::SupportedAttributes>,
             }),
@@ -172,6 +253,7 @@ struct DynamicObjectArchetype {
     active_object_count: u32,
     next_slot: u32,
     free_slots: Vec<u32>,
+    finalize_transforms: fn(&mut DynamicObjectArchetype),
     update_transform: fn(&mut DynamicObjectArchetype, u32, &Mat4, bool),
     remove: fn(&mut DynamicObjectArchetype, u32),
 }
@@ -271,13 +353,9 @@ impl<A> GpuDynamicObject<A> {
     where
         A: gfx::Std430,
     {
-        let transform = if self.index_count_and_updated.get_bool() {
-            self.prev_global_transform
-                .to_interpolated_matrix(&self.next_global_transform, t)
-        } else {
-            // Skip interpolation if the object was not updated during the last frame.
-            self.next_global_transform.to_matrix()
-        };
+        let transform = self
+            .prev_global_transform
+            .to_interpolated_matrix(&self.next_global_transform, t);
 
         Std430GpuObject {
             transform_inverse_transpose: transform.inverse().transpose(),
@@ -395,6 +473,37 @@ impl<'a, A> ExactSizeIterator for StaticObjectsIter<'a, A> where
 {
 }
 
+pub struct DynamicObjectsIter<'a, A: MaterialArray<VertexAttributeKind>> {
+    inner: std::slice::Iter<'a, DynamicSlotData<A>>,
+    len: u32,
+}
+
+impl<'a, A> Iterator for DynamicObjectsIter<'a, A>
+where
+    A: MaterialArray<VertexAttributeKind>,
+{
+    type Item = &'a GpuDynamicObject<<A as MaterialArray<VertexAttributeKind>>::U32Array>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let res = self.inner.next()?;
+            if res.is_some() {
+                break res.as_ref();
+            }
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len as usize, Some(self.len as usize))
+    }
+}
+
+impl<'a, A> ExactSizeIterator for DynamicObjectsIter<'a, A> where
+    A: MaterialArray<VertexAttributeKind>
+{
+}
+
 pub(crate) struct WriteStaticObject<'a> {
     mesh: &'a GpuMesh,
     handle: RawStaticObjectHandle,
@@ -405,7 +514,7 @@ pub(crate) struct WriteStaticObject<'a> {
 impl WriteStaticObject<'_> {
     pub fn run<M: Material>(mut self, material_slot: u32) {
         let object_manager = self.object_manager.take().expect("must always be some");
-        let archetype = object_manager.get_or_create_static_archetype::<M>();
+        let archetype = object_manager.get_or_create_static_object_archetype::<M>();
         let handle = self.handle;
 
         let slot = self.fill_slot(
@@ -434,25 +543,8 @@ impl WriteStaticObject<'_> {
     where
         A: MaterialArray<VertexAttributeKind>,
     {
-        let required_attributes_mask = required_attributes
-            .iter()
-            .fold(0u8, |mask, attribute| mask | *attribute as u8);
-        let mesh_attributes_mask = self
-            .mesh
-            .attributes()
-            .fold(0u8, |mask, attribute| mask | attribute as u8);
-
-        assert_eq!(
-            mesh_attributes_mask & required_attributes_mask,
-            required_attributes_mask
-        );
-
-        let vertex_attribute_offsets = supported_attributes.clone().map_to_u32(|attribute| {
-            match self.mesh.get_attribute_range(attribute) {
-                Some(range) => range.start,
-                None => u32::MAX,
-            }
-        });
+        let vertex_attribute_offsets =
+            make_vertex_attribute_offsets(self.mesh, required_attributes, supported_attributes);
 
         let indices = self.mesh.indices();
         let first_index = indices.start;
@@ -477,11 +569,7 @@ impl WriteStaticObject<'_> {
             material_slot,
         };
 
-        let slot = archetype.free_slots.pop().unwrap_or_else(|| {
-            let slot = archetype.next_slot;
-            archetype.next_slot += 1;
-            slot
-        });
+        let slot = alloc_slot(&mut archetype.next_slot, &mut archetype.free_slots);
 
         {
             // SAFETY: `downcast_mut` template parameter is the same as the one used to
@@ -500,6 +588,125 @@ impl WriteStaticObject<'_> {
     }
 }
 
+pub(crate) struct WriteDynamicObject<'a> {
+    mesh: &'a GpuMesh,
+    handle: RawDynamicObjectHandle,
+    object: Box<ObjectData>,
+    object_manager: Option<&'a mut ObjectManager>,
+}
+
+impl WriteDynamicObject<'_> {
+    pub fn run<M: Material>(mut self, material_slot: u32) {
+        let object_manager = self.object_manager.take().expect("must always be some");
+        let archetype = object_manager.get_or_create_dynamic_object_archetype::<M>();
+        let handle = self.handle;
+
+        let slot = self.fill_slot(
+            material_slot,
+            M::required_attributes().as_ref(),
+            &M::supported_attributes(),
+            archetype,
+        );
+
+        object_manager.dynamic_handles.insert(
+            handle,
+            HandleData {
+                archetype: TypeId::of::<M>(),
+                slot,
+            },
+        );
+    }
+
+    fn fill_slot<A>(
+        self,
+        material_slot: u32,
+        required_attributes: &[VertexAttributeKind],
+        supported_attributes: &A,
+        archetype: &mut DynamicObjectArchetype,
+    ) -> u32
+    where
+        A: MaterialArray<VertexAttributeKind>,
+    {
+        let vertex_attribute_offsets =
+            make_vertex_attribute_offsets(self.mesh, required_attributes, supported_attributes);
+
+        let indices = self.mesh.indices();
+        let first_index = indices.start;
+        let index_count = indices.end - indices.start;
+
+        // Compute bounding sphere in global space
+        let mesh_bounding_sphere = *self.mesh.bounding_sphere();
+
+        let global_transform = GlobalTransform::from(self.object.global_transform);
+
+        let gpu_object = GpuDynamicObject::<A::U32Array> {
+            enabled_object_data: EnabledObjectData {
+                _mesh_handle: self.object.mesh,
+                _material_handle: self.object.material,
+            },
+            mesh_bounding_sphere,
+            prev_global_transform: global_transform,
+            next_global_transform: global_transform,
+            vertex_attribute_offsets,
+            first_index,
+            index_count_and_updated: U32WithBool::new(index_count, false),
+            material_slot,
+        };
+
+        let slot = alloc_slot(&mut archetype.next_slot, &mut archetype.free_slots);
+
+        {
+            // SAFETY: `downcast_mut` template parameter is the same as the one used to
+            // construct `archetype`. (material -> explicit attributes)
+            let mut data = unsafe { archetype.data.downcast_mut::<DynamicSlotData<A>>() };
+            if slot as usize >= data.len() {
+                let size = slot.checked_next_power_of_two().expect("too many slots");
+                data.resize_with(size as usize + 1, || None);
+            }
+            data[slot as usize] = Some(gpu_object);
+        }
+
+        archetype.active_object_count += 1;
+        slot
+    }
+}
+
+fn make_vertex_attribute_offsets<A>(
+    mesh: &GpuMesh,
+    required_attributes: &[VertexAttributeKind],
+    supported_attributes: &A,
+) -> A::U32Array
+where
+    A: MaterialArray<VertexAttributeKind>,
+{
+    let required_attributes_mask = required_attributes
+        .iter()
+        .fold(0u8, |mask, attribute| mask | *attribute as u8);
+    let mesh_attributes_mask = mesh
+        .attributes()
+        .fold(0u8, |mask, attribute| mask | attribute as u8);
+
+    assert_eq!(
+        mesh_attributes_mask & required_attributes_mask,
+        required_attributes_mask
+    );
+
+    supported_attributes
+        .clone()
+        .map_to_u32(|attribute| match mesh.get_attribute_range(attribute) {
+            Some(range) => range.start,
+            None => u32::MAX,
+        })
+}
+
+fn alloc_slot(next_slot: &mut u32, free_slots: &mut Vec<u32>) -> u32 {
+    free_slots.pop().unwrap_or_else(|| {
+        let slot = *next_slot;
+        *next_slot += 1;
+        slot
+    })
+}
+
 struct FlushStaticObject<'a> {
     device: &'a gfx::Device,
     encoder: &'a mut gfx::Encoder,
@@ -511,7 +718,7 @@ fn flush_static_object<A: MaterialArray<VertexAttributeKind>>(
     archetype: &mut StaticObjectArchetype,
     args: FlushStaticObject,
 ) -> Result<()> {
-    // SAFETY: `downcast_mut` template parameter is the same as the one used to
+    // SAFETY: `typed_data` template parameter is the same as the one used to
     // construct `archetype`.
     let data = unsafe { archetype.data.typed_data::<StaticSlotData<A>>() };
 
@@ -534,14 +741,35 @@ fn flush_static_object<A: MaterialArray<VertexAttributeKind>>(
     Ok(())
 }
 
+fn finalize_dynamic_object_transforms<A: MaterialArray<VertexAttributeKind>>(
+    archetype: &mut DynamicObjectArchetype,
+) {
+    // SAFETY: `typed_data_mut` template parameter is the same as the one used to construct `data`.
+    let data = unsafe { archetype.data.typed_data_mut::<DynamicSlotData<A>>() };
+
+    // Reset `updated` flag on each existing object.
+    for item in data {
+        if let Some(item) = item {
+            if item.index_count_and_updated.get_bool() {
+                // Reset the flag for the next fixed update interval.
+                item.index_count_and_updated.set_bool(false);
+            } else {
+                // Objects which were not updated during the fixed update
+                // interval should have their previous transform same as the
+                // next one so that they are not interpolated.
+                item.prev_global_transform = item.next_global_transform;
+            }
+        }
+    }
+}
+
 fn update_static_object_transform<A: MaterialArray<VertexAttributeKind>>(
     archetype: &mut StaticObjectArchetype,
     slot: u32,
     transform: &Mat4,
 ) {
-    // SAFETY: `downcast_mut` template parameter is the same as the one used to construct `data`.
-    let mut data = unsafe { archetype.data.downcast_mut::<StaticSlotData<A>>() };
-    let item = expect_data_slot_mut(&mut data, slot);
+    // SAFETY: `typed_data_mut` template parameter is the same as the one used to construct `data`.
+    let item = unsafe { expect_data_slot_mut::<StaticSlotData<A>>(&mut archetype.data, slot) };
 
     item.global_transform = *transform;
     item.global_bounding_sphere = item.mesh_bounding_sphere.transformed(transform);
@@ -555,19 +783,23 @@ fn update_dynamic_object_transform<A: MaterialArray<VertexAttributeKind>>(
     transform: &Mat4,
     teleport: bool,
 ) {
-    // SAFETY: `downcast_mut` template parameter is the same as the one used to construct `data`.
-    let mut data = unsafe { archetype.data.downcast_mut::<DynamicSlotData<A>>() };
-    let item = expect_data_slot_mut(&mut data, slot);
+    // SAFETY: `typed_data_mut` template parameter is the same as the one used to construct `data`.
+    let item = unsafe { expect_data_slot_mut::<DynamicSlotData<A>>(&mut archetype.data, slot) };
 
-    // Update only the next transform. The previous will be updated
-    // during the next flush...
-    item.next_global_transform = GlobalTransform::from(*transform);
-    if teleport {
-        // ...unless the object was teleported, in which case we update
-        // the previous transform as well.
+    if !teleport && !item.is_updated() {
+        // Update the previous transform on the first update.
         item.prev_global_transform = item.next_global_transform;
     }
 
+    // Update the next transform.
+    item.next_global_transform = GlobalTransform::from(*transform);
+    if teleport {
+        // Make the previous transform equal to the next one to avoid interpolation
+        // for teleported objects.
+        item.prev_global_transform = item.next_global_transform;
+    }
+
+    // Mark object as updated.
     item.index_count_and_updated.set_bool(true);
 }
 
@@ -575,9 +807,8 @@ fn remove_static_object<A: MaterialArray<VertexAttributeKind>>(
     archetype: &mut StaticObjectArchetype,
     slot: u32,
 ) {
-    // SAFETY: `downcast_mut` template parameter is the same as the one used to construct `data`.
-    let mut data = unsafe { archetype.data.downcast_mut::<StaticSlotData<A>>() };
-    let item = expect_data_slot_mut(&mut data, slot);
+    // SAFETY: `typed_data_mut` template parameter is the same as the one used to construct `data`.
+    let item = unsafe { expect_data_slot_mut::<StaticSlotData<A>>(&mut archetype.data, slot) };
 
     // Set item as disabled and mark it as updated to flush the data to the GPU.
     item.enabled_object_data = None;
@@ -594,18 +825,20 @@ fn remove_dynamic_object<A: MaterialArray<VertexAttributeKind>>(
     archetype: &mut DynamicObjectArchetype,
     slot: u32,
 ) {
-    // SAFETY: `downcast_mut` template parameter is the same as the one used to construct `data`.
-    let mut data = unsafe { archetype.data.downcast_mut::<DynamicSlotData<A>>() };
+    // SAFETY: `typed_data_mut` template parameter is the same as the one used to construct `data`.
+    let data = unsafe { archetype.data.typed_data_mut::<DynamicSlotData<A>>() };
     let item = data.get_mut(slot as usize).expect("invalid handle slot");
     std::mem::take(item).expect("value was not initialized");
 
     archetype.free_slots.push(slot);
 }
 
-fn expect_data_slot_mut<'a, T: SlotDataExt>(
-    data: &'a mut AnyVecGuard<'_, T>,
+// SAFETY: `T` must be the same type as used to construct `data`.
+unsafe fn expect_data_slot_mut<'a, T: SlotDataExt + 'a>(
+    data: &'a mut AnyVec,
     slot: u32,
 ) -> &'a mut T::Inner {
+    let data = data.typed_data_mut::<T>();
     let item = data.get_mut(slot as usize).expect("invalid handle slot");
     item.as_mut().expect("value was not initialized")
 }
