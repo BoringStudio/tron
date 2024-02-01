@@ -90,7 +90,7 @@ impl RenderGraph {
         {
             profiling::scope!("main_pass");
 
-            let mut encoder = ctx.encoder.with_render_pass(
+            let encoder = ctx.encoder.with_render_pass(
                 &mut self.main_pass,
                 &MainPassInput {
                     max_image_count: ctx.surface_image.total_image_count(),

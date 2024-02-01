@@ -44,7 +44,6 @@ pub struct MainCamera {
 
 pub struct RendererBuilder {
     window: Arc<Window>,
-    started_at: Instant,
     app_version: (u32, u32, u32),
     validation_layer: bool,
     optimize_shaders: bool,
@@ -95,7 +94,6 @@ impl RendererBuilder {
 
         let state = Arc::new(RendererState {
             is_running: AtomicBool::new(true),
-            started_at: self.started_at,
             window_resized: AtomicBool::new(true),
             worker_barrier: LoopBarrier::default(),
             instructions: InstructionQueue::default(),
@@ -162,10 +160,9 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn builder(window: Arc<Window>, started_at: Instant) -> RendererBuilder {
+    pub fn builder(window: Arc<Window>) -> RendererBuilder {
         RendererBuilder {
             window,
-            started_at,
             app_version: (0, 0, 1),
             validation_layer: false,
             optimize_shaders: true,
@@ -197,7 +194,6 @@ impl Drop for Renderer {
 
 pub struct RendererState {
     is_running: AtomicBool,
-    started_at: Instant,
     worker_barrier: LoopBarrier,
     instructions: InstructionQueue,
 
@@ -219,6 +215,10 @@ pub struct RendererState {
 }
 
 impl RendererState {
+    pub fn window(&self) -> &Arc<Window> {
+        &self.window
+    }
+
     pub fn set_running(&self, is_running: bool) {
         self.is_running.store(is_running, Ordering::Release);
         self.worker_barrier.notify();
