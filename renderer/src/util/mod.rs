@@ -5,6 +5,7 @@ pub use self::encoder::{CachedGraphicsPipeline, EncoderExt, RenderPass, RenderPa
 pub use self::frame_resources::FrameResources;
 pub use self::freelist_double_buffer::FreelistDoubleBuffer;
 pub use self::frustum::BoundingSphere;
+pub use self::multi_buffer_arena::MultiBufferArena;
 pub use self::resource_handle::{
     FreelistHandleAllocator, HandleAllocator, HandleData, HandleDeleter, RawResourceHandle,
     ResourceHandle, SimpleHandleAllocator,
@@ -19,6 +20,7 @@ mod encoder;
 mod frame_resources;
 mod freelist_double_buffer;
 mod frustum;
+mod multi_buffer_arena;
 mod resource_handle;
 mod scatter_copy;
 mod shader_preprocessor;

@@ -21,7 +21,8 @@ use crate::managers::{MaterialManager, MeshManager, ObjectManager, TimeManager};
 use crate::types::{RawMaterialInstanceHandle, RawMeshHandle, RawStaticObjectHandle};
 use crate::util::{
     BindlessResources, FrameResources, FreelistHandleAllocator, HandleAllocator, HandleData,
-    HandleDeleter, RawResourceHandle, ScatterCopy, ShaderPreprocessor, SimpleHandleAllocator,
+    HandleDeleter, MultiBufferArena, RawResourceHandle, ScatterCopy, ShaderPreprocessor,
+    SimpleHandleAllocator,
 };
 use crate::worker::RendererWorker;
 
@@ -86,6 +87,7 @@ impl RendererBuilder {
         let frame_resources = FrameResources::new(&device)?;
         let bindless_resources = BindlessResources::new(&device)?;
         let scatter_copy = ScatterCopy::new(&device, &shader_preprocessor)?;
+        let multi_buffer_arena = MultiBufferArena::default();
 
         let mesh_manager = MeshManager::new(&device, &bindless_resources)?;
 
@@ -102,6 +104,7 @@ impl RendererBuilder {
             handles: Default::default(),
             frame_resources,
             bindless_resources,
+            multi_buffer_arena,
             scatter_copy,
             shader_preprocessor,
             window: self.window,
@@ -203,6 +206,7 @@ pub struct RendererState {
 
     frame_resources: FrameResources,
     bindless_resources: BindlessResources,
+    multi_buffer_arena: MultiBufferArena,
     shader_preprocessor: ShaderPreprocessor,
     scatter_copy: ScatterCopy,
 
@@ -474,6 +478,8 @@ impl RendererState {
             // NOTE: MeshManager registry must not be touched
             encoder.execute_commands(std::iter::once(secondary.finish()?));
         }
+
+        self.multi_buffer_arena.flush(&self.bindless_resources);
 
         Ok(synced_managers)
     }

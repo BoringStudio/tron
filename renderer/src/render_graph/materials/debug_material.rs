@@ -1,9 +1,10 @@
 use anyhow::Result;
 use glam::Vec3;
 
+use crate::managers::GpuObject;
 use crate::render_graph::render_passes::MainPass;
 use crate::render_graph::{RenderGraphNode, RenderGraphNodeContext};
-use crate::types::{MaterialInstance, Sorting, VertexAttributeKind};
+use crate::types::{MaterialInstance, Sorting, VertexAttributeArray, VertexAttributeKind};
 use crate::util::{CachedGraphicsPipeline, RenderPassEncoderExt, ShaderPreprocessor};
 
 pub struct DebugMaterial {
@@ -84,17 +85,56 @@ impl RenderGraphNode for DebugMaterial {
             }
         }
 
-        if let Some(_dynamic_objects) = ctx
+        if let Some(dynamic_objects) = ctx
             .synced_managers
             .object_manager
             .iter_dynamic_objects::<DebugMaterialInstance>()
+            .filter(|iter| iter.len() > 0)
         {
-            //
+            let mut arena = ctx.state.multi_buffer_arena.begin::<DebugGpuObject>(
+                &ctx.state.device,
+                dynamic_objects.len(),
+                gfx::BufferUsage::STORAGE,
+            )?;
+
+            // TODO: make it one iteration
+            for object in dynamic_objects.clone() {
+                arena.write(&object.as_interpolated_std430(ctx.interpolation_factor));
+            }
+
+            let objects_buffer_handle = ctx.state.multi_buffer_arena.end(
+                &ctx.state.device,
+                &ctx.state.bindless_resources,
+                arena,
+            );
+
+            ctx.encoder.push_constants(
+                ctx.graphics_pipeline_layout,
+                gfx::ShaderStageFlags::ALL,
+                0,
+                &[
+                    ctx.state.mesh_manager.vertex_buffer_handle().index(),
+                    objects_buffer_handle.index(),
+                    material_instances_buffer.index(),
+                ],
+            );
+
+            for (slot, object) in dynamic_objects.enumerate() {
+                ctx.encoder.draw_indexed(
+                    object.first_index..object.first_index + object.index_count(),
+                    0,
+                    slot as u32..slot as u32 + 1,
+                );
+            }
         }
 
         Ok(())
     }
 }
+
+type DebugGpuObject = GpuObject<
+    <<DebugMaterialInstance as MaterialInstance>::SupportedAttributes as VertexAttributeArray>::U32Array
+>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct DebugMaterialInstance {

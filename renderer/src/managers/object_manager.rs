@@ -50,7 +50,7 @@ impl ObjectManager {
     pub fn iter_dynamic_objects<M: MaterialInstance>(
         &self,
     ) -> Option<DynamicObjectsIter<'_, M::SupportedAttributes>> {
-        let archetype = self.static_archetypes.get(&TypeId::of::<M>())?;
+        let archetype = self.dynamic_archetypes.get(&TypeId::of::<M>())?;
 
         // SAFETY: `typed_data` template parameter is the same as the one used to
         // construct `archetype`.
@@ -399,10 +399,6 @@ pub struct GlobalTransform {
 }
 
 impl GlobalTransform {
-    fn to_matrix(&self) -> Mat4 {
-        Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.translation)
-    }
-
     fn to_interpolated_matrix(&self, other: &Self, t: f32) -> Mat4 {
         Mat4::from_scale_rotation_translation(
             self.scale.lerp(other.scale, t),
@@ -475,13 +471,12 @@ pub struct DynamicObjectsIter<'a, A: VertexAttributeArray> {
     len: u32,
 }
 
-impl<'a, A: VertexAttributeArray> DynamicObjectsIter<'a, A> {
-    pub fn gpu_item_align(&self) -> usize {
-        <GpuObject<A::U32Array> as gfx::Std430>::ALIGN_MASK
-    }
-
-    pub fn gpu_item_size(&self) -> usize {
-        gfx::align_offset(self.gpu_item_align(), std::mem::size_of::<GpuObject<A>>())
+impl<A: VertexAttributeArray> Clone for DynamicObjectsIter<'_, A> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            len: self.len,
+        }
     }
 }
 
