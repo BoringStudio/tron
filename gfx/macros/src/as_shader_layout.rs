@@ -89,7 +89,7 @@ pub fn impl_as_shader_layout(input: DeriveInput, layout_type: LayoutType) -> Tok
                 const fn #pad_fn() -> usize {
                     let align_mask = #next_field_or_self_align_mask;
                     let offset = #starting_offset;
-                    ::gfx::inner_proc_stuff::align_offset(align_mask, offset) as usize
+                    ::gfx::align_offset(align_mask, offset) as usize
                 }
             }
         })
@@ -162,7 +162,7 @@ pub fn impl_as_shader_layout(input: DeriveInput, layout_type: LayoutType) -> Tok
         }
 
         unsafe impl #impl_generics #trait_path for #generated_name #ty_generics #where_clause {
-            const ALIGN_MASK: u64 = #struct_alignment;
+            const ALIGN_MASK: usize = #struct_alignment;
 
             type ArrayPadding = [u8; 0];
         }
@@ -211,7 +211,7 @@ impl LayoutType {
         }
     }
 
-    fn min_align_mask(&self) -> u64 {
+    fn min_align_mask(&self) -> usize {
         match self {
             LayoutType::Std140 => 0b1111,
             LayoutType::Std430 => 0,

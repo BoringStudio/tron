@@ -4,7 +4,7 @@ use super::{AsStd140, AsStd430, Padded, Std140, Std430};
 
 unsafe impl<T: Std140, const N: usize> Std140 for [T; N] {
     // NOTE: `std140` requires arrays to be aligned to at least 16 bytes.
-    const ALIGN_MASK: u64 = <T as Std140>::ALIGN_MASK | 0b1111;
+    const ALIGN_MASK: usize = <T as Std140>::ALIGN_MASK | 0b1111;
 
     type ArrayPadding = [u8; 0];
 }
@@ -27,7 +27,7 @@ where
 
 unsafe impl<T: Std430, const N: usize> Std430 for [T; N] {
     // NOTE: `std430` arrays alignment is the same as its element alignment.
-    const ALIGN_MASK: u64 = <T as Std430>::ALIGN_MASK;
+    const ALIGN_MASK: usize = <T as Std430>::ALIGN_MASK;
 
     type ArrayPadding = [u8; 0];
 }

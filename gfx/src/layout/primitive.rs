@@ -7,7 +7,7 @@ use super::{AsStd140, AsStd430, Padding, Std140, Std430};
 
 /// A simple native shader type.
 pub trait PrimitiveShaderType: Pod {
-    const ALIGN_MASK: u64;
+    const ALIGN_MASK: usize;
 
     type ArrayPaddingStd140Type: Padding;
     type ArrayPaddingStd430Type: Padding;
@@ -16,7 +16,7 @@ pub trait PrimitiveShaderType: Pod {
 // === std140 ===
 
 unsafe impl<T: PrimitiveShaderType> Std140 for T {
-    const ALIGN_MASK: u64 = <T as PrimitiveShaderType>::ALIGN_MASK;
+    const ALIGN_MASK: usize = <T as PrimitiveShaderType>::ALIGN_MASK;
     type ArrayPadding = <T as PrimitiveShaderType>::ArrayPaddingStd140Type;
 }
 
@@ -37,7 +37,7 @@ impl<T: PrimitiveShaderType> AsStd140 for T {
 // === std430 ===
 
 unsafe impl<T: PrimitiveShaderType> Std430 for T {
-    const ALIGN_MASK: u64 = <T as PrimitiveShaderType>::ALIGN_MASK;
+    const ALIGN_MASK: usize = <T as PrimitiveShaderType>::ALIGN_MASK;
     type ArrayPadding = <T as PrimitiveShaderType>::ArrayPaddingStd430Type;
 }
 
@@ -222,7 +222,7 @@ macro_rules! impl_shader_type {
         }
     ),*$(,)?) => {$(
         impl PrimitiveShaderType for $ty {
-            const ALIGN_MASK: u64 = $align_mas;
+            const ALIGN_MASK: usize = $align_mas;
 
             type ArrayPaddingStd140Type = [u8; $array_padding_std140];
             type ArrayPaddingStd430Type = [u8; $array_padding_std430];

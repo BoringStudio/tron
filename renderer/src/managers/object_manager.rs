@@ -10,7 +10,7 @@ use shared::FastHashMap;
 
 use crate::managers::{GpuMesh, MaterialManager, MeshManagerDataGuard};
 use crate::types::{
-    MaterialInstanceHandle, MaterialInstance, MeshHandle, ObjectData, RawDynamicObjectHandle,
+    MaterialInstance, MaterialInstanceHandle, MeshHandle, ObjectData, RawDynamicObjectHandle,
     RawStaticObjectHandle, VertexAttributeArray, VertexAttributeKind,
 };
 use crate::util::{
@@ -260,10 +260,10 @@ struct DynamicObjectArchetype {
     remove: fn(&mut DynamicObjectArchetype, u32),
 }
 
-type StaticSlotData<A> = Option<GpuStaticObject<<A as VertexAttributeArray>::U32Array>>;
-type DynamicSlotData<A> = Option<GpuDynamicObject<<A as VertexAttributeArray>::U32Array>>;
+type StaticSlotData<A> = Option<InternalStaticObject<<A as VertexAttributeArray>::U32Array>>;
+type DynamicSlotData<A> = Option<InternalDynamicObject<<A as VertexAttributeArray>::U32Array>>;
 
-pub struct GpuStaticObject<A> {
+pub struct InternalStaticObject<A> {
     // NOTE: having `Some` here means that the object is enabled.
     // This is used to drop handles when the object is removed,
     // but allows to sync the GPU data with `enabled: false`.
@@ -278,7 +278,7 @@ pub struct GpuStaticObject<A> {
     pub material_slot: u32,
 }
 
-impl<A> GpuStaticObject<A> {
+impl<A> InternalStaticObject<A> {
     fn make_data(&self) -> UVec4 {
         glam::uvec4(
             self.first_index,
@@ -289,14 +289,14 @@ impl<A> GpuStaticObject<A> {
     }
 }
 
-impl<A> gfx::AsStd430 for GpuStaticObject<A>
+impl<A> gfx::AsStd430 for InternalStaticObject<A>
 where
     A: gfx::Std430,
 {
-    type Output = Std430GpuObject<A>;
+    type Output = GpuObject<A>;
 
     fn as_std430(&self) -> Self::Output {
-        Std430GpuObject {
+        GpuObject {
             transform: self.global_transform,
             transform_inverse_transpose: self.global_transform.inverse().transpose(),
             bounding_sphere: self.global_bounding_sphere.into(),
@@ -314,7 +314,7 @@ where
     }
 }
 
-pub struct GpuDynamicObject<A> {
+pub struct InternalDynamicObject<A> {
     pub enabled_object_data: EnabledObjectData,
     pub mesh_bounding_sphere: BoundingSphere,
 
@@ -329,7 +329,7 @@ pub struct GpuDynamicObject<A> {
     pub material_slot: u32,
 }
 
-impl<A> GpuDynamicObject<A> {
+impl<A> InternalDynamicObject<A> {
     #[inline]
     pub fn is_updated(&self) -> bool {
         self.index_count_and_updated.get_bool()
@@ -340,6 +340,23 @@ impl<A> GpuDynamicObject<A> {
         self.index_count_and_updated.get_u32()
     }
 
+    pub fn as_interpolated_std430(&self, t: f32) -> GpuObject<A>
+    where
+        A: gfx::Std430,
+    {
+        let transform = self
+            .prev_global_transform
+            .to_interpolated_matrix(&self.next_global_transform, t);
+
+        GpuObject {
+            transform_inverse_transpose: transform.inverse().transpose(),
+            bounding_sphere: self.mesh_bounding_sphere.transformed(&transform).into(),
+            transform,
+            data: self.make_data(),
+            vertex_attribute_offsets: self.vertex_attribute_offsets,
+        }
+    }
+
     fn make_data(&self) -> UVec4 {
         glam::uvec4(
             self.first_index,
@@ -348,27 +365,10 @@ impl<A> GpuDynamicObject<A> {
             true as _, // NOTE: dynamic objects are always enabled if they exist
         )
     }
-
-    fn as_interpolated_std430(&self, t: f32) -> Std430GpuObject<A>
-    where
-        A: gfx::Std430,
-    {
-        let transform = self
-            .prev_global_transform
-            .to_interpolated_matrix(&self.next_global_transform, t);
-
-        Std430GpuObject {
-            transform_inverse_transpose: transform.inverse().transpose(),
-            bounding_sphere: self.mesh_bounding_sphere.transformed(&transform).into(),
-            transform,
-            data: self.make_data(),
-            vertex_attribute_offsets: self.vertex_attribute_offsets,
-        }
-    }
 }
 
 #[derive(Clone, Copy)]
-pub struct Std430GpuObject<A> {
+pub struct GpuObject<A> {
     transform: Mat4,
     transform_inverse_transpose: Mat4,
     bounding_sphere: Vec4,
@@ -376,11 +376,11 @@ pub struct Std430GpuObject<A> {
     vertex_attribute_offsets: A,
 }
 
-unsafe impl<A: bytemuck::Pod> bytemuck::Pod for Std430GpuObject<A> {}
-unsafe impl<A: bytemuck::Zeroable> bytemuck::Zeroable for Std430GpuObject<A> {}
+unsafe impl<A: bytemuck::Pod> bytemuck::Pod for GpuObject<A> {}
+unsafe impl<A: bytemuck::Zeroable> bytemuck::Zeroable for GpuObject<A> {}
 
-unsafe impl<A: gfx::Std430> gfx::Std430 for Std430GpuObject<A> {
-    const ALIGN_MASK: u64 = 0b1111;
+unsafe impl<A: gfx::Std430> gfx::Std430 for GpuObject<A> {
+    const ALIGN_MASK: usize = 0b1111;
 
     // NOTE: may be incorrect, but `FreelistDoubleBuffer` aligns all sizes
     type ArrayPadding = [u8; 0];
@@ -446,7 +446,7 @@ where
 {
     type Item = (
         u32,
-        &'a GpuStaticObject<<A as VertexAttributeArray>::U32Array>,
+        &'a InternalStaticObject<<A as VertexAttributeArray>::U32Array>,
     );
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -475,11 +475,21 @@ pub struct DynamicObjectsIter<'a, A: VertexAttributeArray> {
     len: u32,
 }
 
+impl<'a, A: VertexAttributeArray> DynamicObjectsIter<'a, A> {
+    pub fn gpu_item_align(&self) -> usize {
+        <GpuObject<A::U32Array> as gfx::Std430>::ALIGN_MASK
+    }
+
+    pub fn gpu_item_size(&self) -> usize {
+        gfx::align_offset(self.gpu_item_align(), std::mem::size_of::<GpuObject<A>>())
+    }
+}
+
 impl<'a, A> Iterator for DynamicObjectsIter<'a, A>
 where
     A: VertexAttributeArray,
 {
-    type Item = &'a GpuDynamicObject<<A as VertexAttributeArray>::U32Array>;
+    type Item = &'a InternalDynamicObject<<A as VertexAttributeArray>::U32Array>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -549,7 +559,7 @@ impl WriteStaticObject<'_> {
         let global_bounding_sphere =
             mesh_bounding_sphere.transformed(&self.object.global_transform);
 
-        let gpu_object = GpuStaticObject::<A::U32Array> {
+        let gpu_object = InternalStaticObject::<A::U32Array> {
             enabled_object_data: Some(EnabledObjectData {
                 _mesh_handle: self.object.mesh,
                 _material_handle: self.object.material,
@@ -633,7 +643,7 @@ impl WriteDynamicObject<'_> {
 
         let global_transform = GlobalTransform::from(self.object.global_transform);
 
-        let gpu_object = GpuDynamicObject::<A::U32Array> {
+        let gpu_object = InternalDynamicObject::<A::U32Array> {
             enabled_object_data: EnabledObjectData {
                 _mesh_handle: self.object.mesh,
                 _material_handle: self.object.material,
@@ -720,7 +730,7 @@ fn flush_static_object<A: VertexAttributeArray>(
     unsafe {
         archetype
             .buffer
-            .flush::<<GpuStaticObject<A::U32Array> as gfx::AsStd430>::Output, _>(
+            .flush::<<InternalStaticObject<A::U32Array> as gfx::AsStd430>::Output, _>(
                 args.device,
                 args.encoder,
                 args.scatter_copy,

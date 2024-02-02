@@ -68,17 +68,21 @@ pub(crate) fn unexpected_vulkan_error(e: vk::ErrorCode) -> ! {
     panic!("unexpected Vulkan error: {e}")
 }
 
+/// Aligns `size` to the specified `align_mask`.
+pub const fn align_size(align_mask: usize, size: usize) -> usize {
+    size + align_offset(align_mask, size)
+}
+
+/// Gives the number of bytes needed to make `offset` be aligned to `align_mask`.
+pub const fn align_offset(align_mask: usize, offset: usize) -> usize {
+    if offset & align_mask == 0 {
+        0
+    } else {
+        align_mask + 1 - (offset & align_mask)
+    }
+}
+
 #[doc(hidden)]
 pub mod inner_proc_stuff {
     pub use bytemuck;
-
-    /// Gives the number of bytes needed to make `offset` be aligned to `align_mask`.
-    pub const fn align_offset(align_mask: u64, offset: usize) -> u64 {
-        let offset = offset as u64;
-        if offset & align_mask == 0 {
-            0
-        } else {
-            align_mask + 1 - (offset & align_mask)
-        }
-    }
 }

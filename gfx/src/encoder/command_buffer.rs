@@ -347,7 +347,7 @@ impl CommandBuffer {
         }
     }
 
-    pub(crate) fn update_buffer(&mut self, buffer: &Buffer, offset: u64, data: &[u8]) {
+    pub(crate) fn update_buffer(&mut self, buffer: &Buffer, offset: usize, data: &[u8]) {
         let inner = self.inner.as_mut();
         if let Some(device) = inner.state.device_from_full() {
             assert!(offset % 4 == 0, "unaligned buffer offset");
@@ -357,11 +357,13 @@ impl CommandBuffer {
             inner.references.buffers.insert(buffer.clone());
 
             let logical = device.logical();
-            unsafe { logical.cmd_update_buffer(inner.handle, buffer.handle(), offset, data) };
+            unsafe {
+                logical.cmd_update_buffer(inner.handle, buffer.handle(), offset as u64, data)
+            };
         }
     }
 
-    pub(crate) fn bind_vertex_buffers(&mut self, first_binding: u32, buffers: &[(&Buffer, u64)]) {
+    pub(crate) fn bind_vertex_buffers(&mut self, first_binding: u32, buffers: &[(&Buffer, usize)]) {
         let inner = self.inner.as_mut();
         if let Some(device) = inner.state.device_from_full() {
             for &(buffer, _) in buffers {
@@ -370,7 +372,8 @@ impl CommandBuffer {
 
             let alloc = DeallocOnDrop(&mut inner.alloc);
 
-            let offsets = alloc.alloc_slice_fill_iter(buffers.iter().map(|&(_, offset)| offset));
+            let offsets =
+                alloc.alloc_slice_fill_iter(buffers.iter().map(|&(_, offset)| offset as u64));
             let buffers =
                 alloc.alloc_slice_fill_iter(buffers.iter().map(|&(buffer, _)| buffer.handle()));
 
@@ -384,7 +387,7 @@ impl CommandBuffer {
     pub(crate) fn bind_index_buffer(
         &mut self,
         buffer: &Buffer,
-        offset: u64,
+        offset: usize,
         index_type: IndexType,
     ) {
         let inner = self.inner.as_mut();
@@ -395,7 +398,7 @@ impl CommandBuffer {
                 device.logical().cmd_bind_index_buffer(
                     inner.handle,
                     buffer.handle(),
-                    offset,
+                    offset as u64,
                     index_type.to_vk(),
                 )
             }
@@ -415,12 +418,8 @@ impl CommandBuffer {
 
             let alloc = DeallocOnDrop(&mut inner.alloc);
 
-            let regions = alloc.alloc_slice_fill_iter(regions.iter().map(|r| {
-                vk::BufferCopy::builder()
-                    .src_offset(r.src_offset)
-                    .dst_offset(r.dst_offset)
-                    .size(r.size)
-            }));
+            let regions =
+                alloc.alloc_slice_fill_iter(regions.iter().map(|r| vk::BufferCopy::from_gfx(*r)));
 
             unsafe {
                 device.logical().cmd_copy_buffer(
@@ -557,8 +556,8 @@ impl CommandBuffer {
                 alloc.alloc_slice_fill_iter(buffer_memory_barriers.iter().map(|b| {
                     vk::BufferMemoryBarrier::builder()
                         .buffer(b.buffer.handle())
-                        .offset(b.offset)
-                        .size(b.size)
+                        .offset(b.offset as u64)
+                        .size(b.size as u64)
                         .src_access_mask(b.src_access.to_vk())
                         .dst_access_mask(b.dst_access.to_vk())
                         .src_queue_family_index(
@@ -700,18 +699,18 @@ impl References {
 /// Structure specifying a buffer copy operation.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct BufferCopy {
-    pub src_offset: u64,
-    pub dst_offset: u64,
-    pub size: u64,
+    pub src_offset: usize,
+    pub dst_offset: usize,
+    pub size: usize,
 }
 
 impl FromGfx<BufferCopy> for vk::BufferCopy {
     #[inline]
     fn from_gfx(value: BufferCopy) -> Self {
         Self {
-            src_offset: value.src_offset,
-            dst_offset: value.dst_offset,
-            size: value.size,
+            src_offset: value.src_offset as u64,
+            dst_offset: value.dst_offset as u64,
+            size: value.size as u64,
         }
     }
 }
@@ -741,7 +740,7 @@ impl FromGfx<ImageCopy> for vk::ImageCopy {
 /// Structure specifying a buffer image copy operation.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct BufferImageCopy {
-    pub buffer_offset: u64,
+    pub buffer_offset: usize,
     pub buffer_row_length: u32,
     pub buffer_image_height: u32,
     pub image_subresource: ImageSubresourceLayers,
@@ -752,7 +751,7 @@ pub struct BufferImageCopy {
 impl FromGfx<BufferImageCopy> for vk::BufferImageCopy {
     fn from_gfx(value: BufferImageCopy) -> Self {
         Self {
-            buffer_offset: value.buffer_offset,
+            buffer_offset: value.buffer_offset as u64,
             buffer_row_length: value.buffer_row_length,
             buffer_image_height: value.buffer_image_height,
             image_subresource: value.image_subresource.to_vk(),
@@ -796,8 +795,8 @@ pub struct BufferMemoryBarrier<'a> {
     pub src_access: AccessFlags,
     pub dst_access: AccessFlags,
     pub family_transfer: Option<(u32, u32)>,
-    pub offset: u64,
-    pub size: u64,
+    pub offset: usize,
+    pub size: usize,
 }
 
 /// Structure specifying the parameters of an image memory barrier.

@@ -46,8 +46,8 @@ impl FromGfx<IndexType> for vk::IndexType {
 /// Structure specifying the parameters of a newly created buffer object.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct BufferInfo {
-    pub align: u64,
-    pub size: u64,
+    pub align_mask: usize,
+    pub size: usize,
     pub usage: BufferUsage,
 }
 

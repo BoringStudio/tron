@@ -98,8 +98,8 @@ impl MeshManager {
 
             let mut staging_buffer = device.create_mappable_buffer(
                 gfx::BufferInfo {
-                    align: VERTEX_ALIGN_MASK.max(INDEX_ALIGN_MASK),
-                    size: (total_attribute_size + total_index_size) as u64,
+                    align_mask: VERTEX_ALIGN_MASK.max(INDEX_ALIGN_MASK),
+                    size: total_attribute_size + total_index_size,
                     usage: gfx::BufferUsage::TRANSFER_SRC,
                 },
                 gfx::MemoryUsage::UPLOAD | gfx::MemoryUsage::TRANSIENT,
@@ -132,9 +132,9 @@ impl MeshManager {
                 tracing::debug!(?range, len, "allocated vertex attribute range");
 
                 vertex_attribute_copies.push(gfx::BufferCopy {
-                    src_offset: staging_buffer_offset as u64,
-                    dst_offset: range.start as u64,
-                    size: (range.end - range.start) as u64,
+                    src_offset: staging_buffer_offset,
+                    dst_offset: range.start as usize,
+                    size: (range.end - range.start) as usize,
                 });
                 vertex_attribute_ranges.push((attribute.kind(), range));
 
@@ -157,9 +157,9 @@ impl MeshManager {
             tracing::debug!(range = ?indices_range, "allocated indices range");
 
             indices_copy = gfx::BufferCopy {
-                src_offset: staging_buffer_offset as u64,
-                dst_offset: (indices_range.start as u64).saturating_mul(INDEX_SIZE as _),
-                size: ((indices_range.end - indices_range.start) as u64)
+                src_offset: staging_buffer_offset,
+                dst_offset: (indices_range.start as usize).saturating_mul(INDEX_SIZE as _),
+                size: ((indices_range.end - indices_range.start) as usize)
                     .saturating_mul(INDEX_SIZE as _),
             };
 
@@ -447,7 +447,7 @@ fn make_encoder<'a>(
 
 fn make_vertices(device: &gfx::Device, size: u32) -> Result<gfx::Buffer, gfx::OutOfDeviceMemory> {
     device.create_buffer(gfx::BufferInfo {
-        align: VERTEX_ALIGN_MASK,
+        align_mask: VERTEX_ALIGN_MASK,
         size: size as _,
         usage: gfx::BufferUsage::TRANSFER_DST
             | gfx::BufferUsage::TRANSFER_SRC
@@ -457,7 +457,7 @@ fn make_vertices(device: &gfx::Device, size: u32) -> Result<gfx::Buffer, gfx::Ou
 
 fn make_indices(device: &gfx::Device, size: u32) -> Result<gfx::Buffer, gfx::OutOfDeviceMemory> {
     device.create_buffer(gfx::BufferInfo {
-        align: INDEX_ALIGN_MASK,
+        align_mask: INDEX_ALIGN_MASK,
         size: size as _,
         usage: gfx::BufferUsage::TRANSFER_DST
             | gfx::BufferUsage::TRANSFER_SRC
@@ -466,7 +466,7 @@ fn make_indices(device: &gfx::Device, size: u32) -> Result<gfx::Buffer, gfx::Out
     })
 }
 
-const VERTEX_ALIGN_MASK: u64 = 0b1111;
-const INDEX_ALIGN_MASK: u64 = 0b11;
+const VERTEX_ALIGN_MASK: usize = 0b1111;
+const INDEX_ALIGN_MASK: usize = 0b11;
 const INDEX_TYPE: gfx::IndexType = gfx::IndexType::U32;
 const INDEX_SIZE: u32 = INDEX_TYPE.index_size() as _;

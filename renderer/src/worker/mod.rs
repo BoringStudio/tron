@@ -20,7 +20,6 @@ pub struct RendererWorker {
 
     alloc: Bump,
     non_optimal_count: usize,
-    started_at: Instant,
     prev_frame_at: Instant,
     frame: u32,
 }
@@ -40,7 +39,6 @@ impl RendererWorker {
             surface,
             non_optimal_count: 0,
             alloc: Bump::default(),
-            started_at: Instant::now(),
             prev_frame_at: Instant::now(),
             frame: 0,
         })

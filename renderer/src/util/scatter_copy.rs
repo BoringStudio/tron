@@ -81,24 +81,24 @@ impl ScatterCopy {
     {
         let data = data.into_iter();
 
-        let item_size = std::mem::size_of::<T>() as u32;
+        let item_size = std::mem::size_of::<T>();
         assert_eq!(item_size % 4, 0);
 
-        let count = data.len() as u32;
+        let count = data.len();
         let stride_bytes = item_size + 4;
 
         let buffer_size = 8 + count * stride_bytes;
         let mut staging_buffer = device.create_mappable_buffer(
             gfx::BufferInfo {
-                align: MIN_ALIGN_MASK,
-                size: buffer_size as u64,
+                align_mask: MIN_ALIGN_MASK,
+                size: buffer_size,
                 usage: gfx::BufferUsage::STORAGE | gfx::BufferUsage::TRANSFER_SRC,
             },
             gfx::MemoryUsage::UPLOAD,
         )?;
 
         let staging_buffer = {
-            let mapped = device.map_memory(&mut staging_buffer, 0, buffer_size as _)?;
+            let mapped = device.map_memory(&mut staging_buffer, 0, buffer_size)?;
             let ptr = mapped.as_mut_ptr();
             debug_assert_eq!(ptr.align_offset(std::mem::align_of::<u32>()), 0);
 
@@ -106,9 +106,9 @@ impl ScatterCopy {
 
             unsafe {
                 // words_to_copy
-                writer.write_u32(item_size / 4);
+                writer.write_u32((item_size / 4) as u32);
                 // count
-                writer.write_u32(count);
+                writer.write_u32(count as u32);
             }
 
             for item in data {
@@ -159,7 +159,7 @@ impl ScatterCopy {
             gfx::PipelineStageFlags::COMPUTE_SHADER,
             gfx::AccessFlags::SHADER_READ,
         );
-        encoder.dispatch((count + 63) / 64, 1, 1);
+        encoder.dispatch(((count + 63) / 64) as u32, 1, 1);
 
         Ok(())
     }
@@ -187,4 +187,4 @@ impl Writer {
     }
 }
 
-const MIN_ALIGN_MASK: u64 = 0b11;
+const MIN_ALIGN_MASK: usize = 0b11;

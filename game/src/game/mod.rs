@@ -37,6 +37,9 @@ impl Game {
         world.insert_resource(Graphics::new(renderer)?);
 
         let mut fixed_update_schedule = FixedUpdateSchedule::base_schedule();
+
+        fixed_update_schedule.add_systems(rotate_objects_system.in_set(FixedUpdateSet::OnUpdate));
+
         fixed_update_schedule.add_systems(
             (
                 (
@@ -45,7 +48,8 @@ impl Game {
                 ),
                 sync_fixed_update_system,
             )
-                .chain(),
+                .chain()
+                .in_set(FixedUpdateSet::AfterUpdate),
         );
 
         let draw_schedule = DrawSchedule::base_schedule();
@@ -345,6 +349,13 @@ fn process_gltf_node(
 struct SceneObjectBundle {
     transform: Transform,
     mesh_instance: StaticMeshInstance,
+}
+
+// TEMP
+fn rotate_objects_system(time: Res<Time>, mut query: Query<&mut Transform>) {
+    for mut transform in &mut query {
+        transform.rotate_y(time.step.as_secs_f32());
+    }
 }
 
 fn apply_static_objects_transform_system(

@@ -48,10 +48,7 @@ impl FreelistDoubleBuffer {
         T: gfx::Std430,
         F: FnMut(u32) -> T,
     {
-        let mut item_size = std::mem::size_of::<T>();
-        if item_size & T::ALIGN_MASK as usize != 0 {
-            item_size += T::ALIGN_MASK as usize + 1 - (item_size & T::ALIGN_MASK as usize);
-        }
+        let item_size = gfx::align_size(T::ALIGN_MASK, std::mem::size_of::<T>());
 
         let (current_target, prev_target) = {
             let [front, back] = &mut self.targets;
@@ -107,7 +104,7 @@ impl Target {
         bindless_resources: &BindlessResources,
         reserved_count: u32,
         item_size: usize,
-        align_mask: u64,
+        align_mask: usize,
     ) -> Result<PreparedTarget<'a>, gfx::OutOfDeviceMemory> {
         if self.buffer.is_some() && self.current_count == reserved_count {
             // SAFETY: `self.buffer` is `Some`
@@ -122,7 +119,7 @@ impl Target {
 
         let old_buffer = self.buffer.take();
         let (buffer, handle) = {
-            let buffer = make_buffer(device, align_mask, item_size as u64 * reserved_count as u64)?;
+            let buffer = make_buffer(device, align_mask, item_size * reserved_count as usize)?;
             let handle = bindless_resources.alloc_storage_buffer(device, buffer.clone());
             self.buffer.get_or_insert((buffer, handle))
         };
@@ -135,7 +132,7 @@ impl Target {
                 &[gfx::BufferCopy {
                     src_offset: 0,
                     dst_offset: 0,
-                    size: item_size as u64 * self.current_count as u64,
+                    size: item_size * self.current_count as usize,
                 }],
             );
         }
@@ -157,11 +154,11 @@ struct PreparedTarget<'a> {
 
 fn make_buffer(
     device: &gfx::Device,
-    align_mask: u64,
-    size: u64,
+    align_mask: usize,
+    size: usize,
 ) -> Result<gfx::Buffer, gfx::OutOfDeviceMemory> {
     device.create_buffer(gfx::BufferInfo {
-        align: align_mask | MIN_ALIGN_MASK,
+        align_mask: align_mask | MIN_ALIGN_MASK,
         size,
         usage: gfx::BufferUsage::STORAGE
             | gfx::BufferUsage::TRANSFER_DST
@@ -169,7 +166,7 @@ fn make_buffer(
     })
 }
 
-const MIN_ALIGN_MASK: u64 = 0b1111;
+const MIN_ALIGN_MASK: usize = 0b1111;
 
 struct UpdatedSlots {
     chunks: Vec<SlotChunk>,

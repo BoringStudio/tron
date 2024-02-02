@@ -110,19 +110,16 @@ unsafe impl Send for UniformBuffer {}
 impl UniformBuffer {
     fn new(device: &gfx::Device) -> Result<Self> {
         let limits = &device.properties().v1_0.limits;
-        let min_offset_align_mask = limits.min_uniform_buffer_offset_alignment - 1;
+        let min_offset_align_mask = limits.min_uniform_buffer_offset_alignment as usize - 1;
         let offset_align_mask = <GpuGlobals as gfx::Std140>::ALIGN_MASK | min_offset_align_mask;
 
-        let mut slot_len = std::mem::size_of::<GpuGlobals>() as u64;
-        // Round up to the nearest required alignment
-        if slot_len & offset_align_mask != 0 {
-            slot_len += offset_align_mask + 1 - (slot_len & offset_align_mask);
-        }
+        // NOTE: Round up to the nearest required alignment
+        let slot_len = gfx::align_size(offset_align_mask, std::mem::size_of::<GpuGlobals>());
 
         // Allocate uniform buffer
         let mut buffer = device.create_mappable_buffer(
             gfx::BufferInfo {
-                align: offset_align_mask,
+                align_mask: offset_align_mask,
                 size: slot_len * 2,
                 usage: gfx::BufferUsage::UNIFORM,
             },

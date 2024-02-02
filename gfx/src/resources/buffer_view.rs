@@ -10,16 +10,16 @@ use crate::resources::{Buffer, Format};
 pub struct BufferViewInfo {
     pub buffer: Buffer,
     pub format: Format,
-    pub offset: u64,
-    pub size: u64,
+    pub offset: usize,
+    pub size: usize,
 }
 
 /// A buffer subresource range.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct BufferRange {
     pub buffer: Buffer,
-    pub offset: u64,
-    pub size: u64,
+    pub offset: usize,
+    pub size: usize,
 }
 
 impl BufferRange {

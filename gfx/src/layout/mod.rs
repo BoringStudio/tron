@@ -9,7 +9,7 @@ mod primitive;
 /// # Safety
 /// Must only be implemented for properly padded types.
 pub unsafe trait Std140: Pod {
-    const ALIGN_MASK: u64;
+    const ALIGN_MASK: usize;
 
     type ArrayPadding: Padding;
 
@@ -37,7 +37,7 @@ pub trait AsStd140 {
 /// # Safety
 /// Must only be implemented for properly padded types.
 pub unsafe trait Std430: Pod {
-    const ALIGN_MASK: u64;
+    const ALIGN_MASK: usize;
 
     type ArrayPadding: Padding;
 
@@ -76,12 +76,12 @@ pub struct Padded<T, P> {
 }
 
 unsafe impl<T: Std140> Std140 for Padded<T, <T as Std140>::ArrayPadding> {
-    const ALIGN_MASK: u64 = <T as Std140>::ALIGN_MASK;
+    const ALIGN_MASK: usize = <T as Std140>::ALIGN_MASK;
 
     type ArrayPadding = [u8; 0];
 }
 unsafe impl<T: Std430> Std430 for Padded<T, <T as Std430>::ArrayPadding> {
-    const ALIGN_MASK: u64 = <T as Std430>::ALIGN_MASK;
+    const ALIGN_MASK: usize = <T as Std430>::ALIGN_MASK;
 
     type ArrayPadding = [u8; 0];
 }

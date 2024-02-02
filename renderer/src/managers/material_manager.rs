@@ -68,7 +68,7 @@ impl MaterialManager {
 
         // SAFETY: `typed_data_mut` template parameter is the same as the one used to
         // construct `archetype`.
-        let mut data = unsafe { archetype.data.typed_data_mut::<SlotData<M>>() };
+        let data = unsafe { archetype.data.typed_data_mut::<SlotData<M>>() };
         let item = data.get_mut(*slot as usize).expect("invalid handle slot");
         *item.as_mut().expect("value was not initialized") = material;
 
@@ -184,7 +184,10 @@ struct FlushMaterial<'a> {
     bindless_resources: &'a BindlessResources,
 }
 
-fn flush<M: MaterialInstance>(archetype: &mut MaterialArchetype, args: FlushMaterial) -> Result<()> {
+fn flush<M: MaterialInstance>(
+    archetype: &mut MaterialArchetype,
+    args: FlushMaterial,
+) -> Result<()> {
     // SAFETY: `typed_data` template parameter is the same as the one used to
     // construct `archetype`.
     unsafe {
@@ -225,7 +228,7 @@ fn write_dynamic_object<M: MaterialInstance>(
 fn remove_slot<M: MaterialInstance>(archetype: &mut MaterialArchetype, slot: u32) {
     // SAFETY: `typed_data_mut` template parameter is the same as the one used to
     // construct `data`.
-    let mut data = unsafe { archetype.data.typed_data_mut::<SlotData<M>>() };
+    let data = unsafe { archetype.data.typed_data_mut::<SlotData<M>>() };
     let item = data.get_mut(slot as usize).expect("invalid handle slot");
     std::mem::take(item).expect("value was not initialized");
 

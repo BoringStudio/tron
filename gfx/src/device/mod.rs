@@ -145,13 +145,15 @@ impl Device {
     pub fn map_memory(
         &self,
         buffer: &mut MappableBuffer,
-        offset: u64,
+        offset: usize,
         size: usize,
     ) -> Result<&mut [MaybeUninit<u8>], MapError> {
         Ok(unsafe {
-            let ptr = buffer
-                .memory_block()
-                .map(self.logical().as_memory_device(), offset, size)?;
+            let ptr = buffer.memory_block().map(
+                self.logical().as_memory_device(),
+                offset as u64,
+                size,
+            )?;
 
             std::slice::from_raw_parts_mut(ptr.as_ptr() as _, size)
         })
@@ -168,7 +170,7 @@ impl Device {
     pub fn upload_to_memory<T>(
         &self,
         buffer: &mut MappableBuffer,
-        offset: u64,
+        offset: usize,
         data: &[T],
     ) -> Result<(), MapError>
     where
@@ -385,7 +387,7 @@ impl Device {
 
         let handle = {
             let info = vk::BufferCreateInfo::builder()
-                .size(info.size)
+                .size(info.size as u64)
                 .usage(info.usage.to_vk())
                 .sharing_mode(vk::SharingMode::EXCLUSIVE);
             unsafe { logical.create_buffer(&info, None) }.map_err(OutOfDeviceMemory::on_creation)?
@@ -406,7 +408,7 @@ impl Device {
         let block = {
             let request = gpu_alloc::Request {
                 size: reqs.memory_requirements.size,
-                align_mask: (reqs.memory_requirements.alignment - 1) | info.align,
+                align_mask: (reqs.memory_requirements.alignment - 1) | info.align_mask as u64,
                 usage: alloc_flags,
                 memory_types: reqs.memory_requirements.memory_type_bits,
             };
@@ -490,8 +492,8 @@ impl Device {
             let info = vk::BufferViewCreateInfo::builder()
                 .buffer(info.buffer.handle())
                 .format(info.format.to_vk())
-                .offset(info.offset)
-                .range(info.size);
+                .offset(info.offset as u64)
+                .range(info.size as u64);
 
             unsafe { logical.create_buffer_view(&info, None) }
                 .map_err(OutOfDeviceMemory::on_creation)?
@@ -1086,8 +1088,8 @@ impl Device {
                         let buffers = alloc.alloc_slice_fill_iter(data.iter().map(|range| {
                             vk::DescriptorBufferInfo::builder()
                                 .buffer(range.buffer.handle())
-                                .offset(range.offset)
-                                .range(range.size)
+                                .offset(range.offset as u64)
+                                .range(range.size as u64)
                         }));
                         descr.descriptor_type = vk::DescriptorType::UNIFORM_BUFFER;
                         descr.descriptor_count = buffers.len() as _;
@@ -1097,8 +1099,8 @@ impl Device {
                         let buffers = alloc.alloc_slice_fill_iter(data.iter().map(|range| {
                             vk::DescriptorBufferInfo::builder()
                                 .buffer(range.buffer.handle())
-                                .offset(range.offset)
-                                .range(range.size)
+                                .offset(range.offset as u64)
+                                .range(range.size as u64)
                         }));
                         descr.descriptor_type = vk::DescriptorType::STORAGE_BUFFER;
                         descr.descriptor_count = buffers.len() as _;
@@ -1108,8 +1110,8 @@ impl Device {
                         let buffers = alloc.alloc_slice_fill_iter(data.iter().map(|range| {
                             vk::DescriptorBufferInfo::builder()
                                 .buffer(range.buffer.handle())
-                                .offset(range.offset)
-                                .range(range.size)
+                                .offset(range.offset as u64)
+                                .range(range.size as u64)
                         }));
                         descr.descriptor_type = vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC;
                         descr.descriptor_count = buffers.len() as _;
@@ -1119,8 +1121,8 @@ impl Device {
                         let buffers = alloc.alloc_slice_fill_iter(data.iter().map(|range| {
                             vk::DescriptorBufferInfo::builder()
                                 .buffer(range.buffer.handle())
-                                .offset(range.offset)
-                                .range(range.size)
+                                .offset(range.offset as u64)
+                                .range(range.size as u64)
                         }));
                         descr.descriptor_type = vk::DescriptorType::STORAGE_BUFFER_DYNAMIC;
                         descr.descriptor_count = buffers.len() as _;

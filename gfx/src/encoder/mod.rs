@@ -114,7 +114,7 @@ impl Encoder {
     }
 
     /// Update a buffer with data (directly).
-    pub fn update_buffer<T>(&mut self, buffer: &Buffer, offset: u64, data: &[T])
+    pub fn update_buffer<T>(&mut self, buffer: &Buffer, offset: usize, data: &[T])
     where
         T: bytemuck::Pod,
     {
@@ -132,17 +132,17 @@ impl Encoder {
     pub fn upload_buffer<T>(
         &mut self,
         buffer: &Buffer,
-        offset: u64,
+        offset: usize,
         data: &[T],
         device: &Device,
     ) -> Result<(), MapError>
     where
         T: bytemuck::Pod,
     {
-        const SMALL_BUFFER_SIZE: u64 = 16384;
+        const SMALL_BUFFER_SIZE: usize = 16384;
         const MIN_ALIGN: usize = 0b11;
 
-        match std::mem::size_of_val(data) as u64 {
+        match std::mem::size_of_val(data) {
             0 => Ok(()),
             size if size <= SMALL_BUFFER_SIZE && size % 4 == 0 && offset % 4 == 0 => {
                 self.update_buffer(buffer, offset, data);
@@ -151,7 +151,7 @@ impl Encoder {
             size => {
                 let mut staging = device.create_mappable_buffer(
                     BufferInfo {
-                        align: MIN_ALIGN.max(std::mem::align_of::<T>() - 1) as u64,
+                        align_mask: MIN_ALIGN.max(std::mem::align_of::<T>() - 1),
                         size,
                         usage: BufferUsage::TRANSFER_SRC,
                     },
@@ -325,14 +325,14 @@ impl EncoderCommon {
     }
 
     /// Bind vertex buffers to a command buffer starting from the `first_binding`.
-    pub fn bind_vertex_buffers(&mut self, first_binding: u32, buffers: &[(&Buffer, u64)]) {
+    pub fn bind_vertex_buffers(&mut self, first_binding: u32, buffers: &[(&Buffer, usize)]) {
         assert!(self.capabilities.supports_graphics());
         self.command_buffer
             .bind_vertex_buffers(first_binding, buffers);
     }
 
     /// Bind an index buffer to a command buffer.
-    pub fn bind_index_buffer(&mut self, buffer: &Buffer, offset: u64, index_type: IndexType) {
+    pub fn bind_index_buffer(&mut self, buffer: &Buffer, offset: usize, index_type: IndexType) {
         assert!(self.capabilities.supports_graphics());
         self.command_buffer
             .bind_index_buffer(buffer, offset, index_type);
