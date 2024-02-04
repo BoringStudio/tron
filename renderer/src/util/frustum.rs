@@ -3,7 +3,7 @@ use glam::{Mat4, Vec3, Vec4, Vec4Swizzles};
 use crate::types::Position;
 
 /// Frustum of a camera with infinite far plane.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, gfx::AsStd140, gfx::AsStd430)]
 pub struct Frustum {
     pub near: Plane,
     pub left: Plane,
@@ -13,6 +13,29 @@ pub struct Frustum {
 }
 
 impl Frustum {
+    pub const IDENTITY: Self = Self {
+        near: Plane {
+            normal: Vec3::Z,
+            distance: 1.0,
+        },
+        left: Plane {
+            normal: Vec3::NEG_X,
+            distance: 1.0,
+        },
+        right: Plane {
+            normal: Vec3::X,
+            distance: 1.0,
+        },
+        top: Plane {
+            normal: Vec3::Y,
+            distance: 1.0,
+        },
+        bottom: Plane {
+            normal: Vec3::NEG_Y,
+            distance: 1.0,
+        },
+    };
+
     /// Computes the frustum of the given view-projection matrix.
     #[allow(dead_code)]
     pub fn new(view_proj: Mat4) -> Self {
@@ -103,7 +126,6 @@ impl Plane {
     }
 
     /// Normalizes the plane.
-    #[allow(dead_code)]
     pub fn normalized(mut self) -> Self {
         let length = self.normal.length();
         self.normal /= length;
@@ -112,10 +134,51 @@ impl Plane {
     }
 
     /// Returns a signed distance from the plane to the given point.
-    #[allow(dead_code)]
     pub fn distance_to_point(&self, point: Vec3) -> f32 {
         // Project "origin to point" vector onto plane normal and add distance along normal.
         self.normal.dot(point) + self.distance
+    }
+}
+
+impl gfx::AsStd140 for Plane {
+    type Output = Vec4;
+
+    #[inline]
+    fn as_std140(&self) -> Self::Output {
+        Vec4::from(self)
+    }
+
+    #[inline]
+    fn write_as_std140(&self, dst: &mut Self::Output) {
+        *dst = Vec4::from(self);
+    }
+}
+
+impl gfx::AsStd430 for Plane {
+    type Output = Vec4;
+
+    #[inline]
+    fn as_std430(&self) -> Self::Output {
+        Vec4::from(self)
+    }
+
+    #[inline]
+    fn write_as_std430(&self, dst: &mut Self::Output) {
+        *dst = Vec4::from(self);
+    }
+}
+
+impl From<Plane> for Vec4 {
+    #[inline]
+    fn from(value: Plane) -> Self {
+        value.normal.extend(value.distance)
+    }
+}
+
+impl From<&Plane> for Vec4 {
+    #[inline]
+    fn from(value: &Plane) -> Self {
+        value.normal.extend(value.distance)
     }
 }
 

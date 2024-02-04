@@ -20,12 +20,12 @@ struct Frustum {
 };
 
 bool frustum_contains_sphere(Frustum frustum, Sphere sphere) {
-    float neg_radius = -sphere.radius;
-    return plane_distance_to_point(frustum.left, sphere.location) >= neg_radius &&
-    plane_distance_to_point(frustum.right, sphere.location) >= neg_radius &&
-    plane_distance_to_point(frustum.top, sphere.location) >= neg_radius &&
-    plane_distance_to_point(frustum.bottom, sphere.location) >= neg_radius &&
-    plane_distance_to_point(frustum.near, sphere.location) >= neg_radius;
+    float neg_radius = -sphere.data.w;
+    return plane_distance_to_point(frustum.left, sphere.data.xyz) >= neg_radius &&
+    plane_distance_to_point(frustum.right, sphere.data.xyz) >= neg_radius &&
+    plane_distance_to_point(frustum.top, sphere.data.xyz) >= neg_radius &&
+    plane_distance_to_point(frustum.bottom, sphere.data.xyz) >= neg_radius &&
+    plane_distance_to_point(frustum.near, sphere.data.xyz) >= neg_radius;
 }
 
 #endif  // MATH_FRUSTUM_GLSL

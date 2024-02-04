@@ -96,7 +96,6 @@ impl RendererBuilder {
 
         let state = Arc::new(RendererState {
             is_running: AtomicBool::new(true),
-            window_resized: AtomicBool::new(true),
             worker_barrier: LoopBarrier::default(),
             instructions: InstructionQueue::default(),
             mesh_manager,
@@ -211,7 +210,6 @@ pub struct RendererState {
     scatter_copy: ScatterCopy,
 
     window: Arc<Window>,
-    window_resized: AtomicBool,
     queue: gfx::Queue,
 
     // NOTE: device must be dropped last
@@ -230,10 +228,6 @@ impl RendererState {
 
     pub fn notify_draw(&self) {
         self.worker_barrier.notify();
-    }
-
-    pub fn notify_resized(&self) {
-        self.window_resized.store(true, Ordering::Release);
     }
 
     pub fn add_mesh(self: &Arc<Self>, mesh: &Mesh) -> Result<MeshHandle> {

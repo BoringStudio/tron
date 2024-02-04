@@ -1,4 +1,3 @@
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -65,18 +64,6 @@ impl RendererWorker {
             profiling::scope!("eval_instructions");
             self.state.eval_instructions(&mut encoder)?
         };
-
-        if self
-            .state
-            .window_resized
-            .compare_exchange(true, false, Ordering::Release, Ordering::Relaxed)
-            .is_ok()
-        {
-            let window_size = self.state.window.inner_size();
-            self.state
-                .frame_resources
-                .set_render_resolution(window_size.width, window_size.height);
-        }
 
         let prev_frame_at = std::mem::replace(&mut self.prev_frame_at, Instant::now());
         let delta_time = self

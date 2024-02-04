@@ -3,7 +3,7 @@ use std::time::Instant;
 use anyhow::Result;
 
 use crate::render_graph::render_passes::MainPassInput;
-use crate::util::{EncoderExt, RenderPass};
+use crate::util::{EncoderExt, FlushFrameResources, FrameGlobals, RenderPass};
 use crate::{RendererState, RendererStateSyncedManagers};
 
 pub mod materials {
@@ -66,7 +66,11 @@ impl RenderGraph {
             .time_manager
             .compute_interpolation_factor(ctx.now);
 
-        let globals_dynamic_offset = ctx.state.frame_resources.flush(ctx.delta_time, ctx.frame);
+        let globals = ctx.state.frame_resources.flush(FlushFrameResources {
+            render_resolution: ctx.surface_image.image().info().extent.into(),
+            delta_time: ctx.delta_time,
+            frame: ctx.frame,
+        });
 
         ctx.encoder.bind_graphics_descriptor_sets(
             &self.graphics_pipeline_layout,
@@ -75,7 +79,7 @@ impl RenderGraph {
                 ctx.state.frame_resources.descriptor_set(),
                 ctx.state.bindless_resources.descriptor_set(),
             ],
-            &[globals_dynamic_offset],
+            &[globals.dynamic_offset()],
         );
 
         ctx.state.mesh_manager.bind_index_buffer(ctx.encoder);
@@ -102,6 +106,7 @@ impl RenderGraph {
             self.debug_material.execute(&mut RenderGraphNodeContext {
                 graphics_pipeline_layout: &self.graphics_pipeline_layout,
                 state: ctx.state,
+                globals: &globals,
                 synced_managers: ctx.synced_managers,
                 encoder,
                 now: ctx.now,
@@ -135,6 +140,7 @@ struct RenderGraphNodeContext<'a, 'pass> {
     pub graphics_pipeline_layout: &'a gfx::PipelineLayout,
     pub state: &'a RendererState,
     pub synced_managers: &'a RendererStateSyncedManagers,
+    pub globals: &'a FrameGlobals,
     pub encoder: gfx::RenderPassEncoder<'a, 'pass>,
     pub now: Instant,
     pub delta_time: f32,

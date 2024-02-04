@@ -84,7 +84,6 @@ impl Game {
                 }
                 WindowEvent::Resized(size) => {
                     self.minimized = size.width == 0 || size.height == 0;
-                    self.world.resource::<Graphics>().renderer.notify_resized();
                 }
                 WindowEvent::CloseRequested => {
                     self.world

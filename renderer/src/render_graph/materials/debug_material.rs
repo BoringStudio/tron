@@ -57,6 +57,8 @@ impl RenderGraphNode for DebugMaterial {
             return Ok(());
         };
 
+        let frustum = &ctx.globals.frustum;
+
         ctx.encoder
             .bind_cached_graphics_pipeline(&mut self.pipeline, &ctx.state.device)?;
 
@@ -77,6 +79,10 @@ impl RenderGraphNode for DebugMaterial {
             );
 
             for (slot, object) in static_objects {
+                // if !frustum.contains_sphere(&object.global_bounding_sphere) {
+                //     continue;
+                // }
+
                 ctx.encoder.draw_indexed(
                     object.first_index..object.first_index + object.index_count,
                     0,

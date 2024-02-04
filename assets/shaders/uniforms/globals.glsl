@@ -1,17 +1,20 @@
 #ifndef UNIFORMS_GLOBALS_GLSL
 #define UNIFORMS_GLOBALS_GLSL
 
+#include "../math/frustum.glsl"
+
 #define GLOBALS_SET 0
 #define GLOBALS_BINDING 0
 
 layout (set = GLOBALS_SET, binding = GLOBALS_BINDING, std140) uniform GlobalUniform {
+    Frustum frustum;
     mat4 camera_view;
     mat4 camera_projection;
     mat4 camera_view_inverse;
     mat4 camera_projection_inverse;
     mat4 camera_previous_view;
     mat4 camera_previous_projection;
-    vec2 render_resolution;
+    uvec2 render_resolution;
     float time;
     float delta_time;
     uint frame_index;

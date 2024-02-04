@@ -1,17 +1,18 @@
 use std::mem::MaybeUninit;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use anyhow::Result;
 use gfx::AsStd140;
-use glam::{Mat4, Vec2};
+use glam::{Mat4, UVec2};
 
 use crate::types::CameraProjection;
+use crate::util::Frustum;
 
 pub struct FrameResources {
     descriptor_set_layout: gfx::DescriptorSetLayout,
     descriptor_set: gfx::DescriptorSet,
+    camera_data: Mutex<CameraData>,
     buffer: Mutex<UniformBuffer>,
-    globals: Mutex<Globals>,
 }
 
 impl FrameResources {
@@ -45,8 +46,10 @@ impl FrameResources {
                 data: gfx::DescriptorSlice::UniformBufferDynamic(&[gfx::BufferRange {
                     buffer: buffer.inner.clone(),
                     offset: 0,
-                    // NOTE: size is one slot, not the whole buffer due to dynamic offsets usage
-                    size: buffer.slot_len as _,
+                    size: gfx::align_size(
+                        <GpuFrameGlobals as gfx::Std140>::ALIGN_MASK,
+                        std::mem::size_of::<GpuFrameGlobals>(),
+                    ),
                 }]),
             }],
         }]);
@@ -54,8 +57,8 @@ impl FrameResources {
         Ok(Self {
             descriptor_set_layout,
             descriptor_set,
+            camera_data: Mutex::new(CameraData::default()),
             buffer: Mutex::new(buffer),
-            globals: Mutex::new(Globals::default()),
         })
     }
 
@@ -67,41 +70,86 @@ impl FrameResources {
         &self.descriptor_set
     }
 
-    pub fn set_render_resolution(&self, width: u32, height: u32) {
-        let mut globals = self.globals.lock().unwrap();
-        globals.render_resolution = glam::vec2(width as f32, height as f32);
-    }
-
     pub fn set_camera(&self, view: &Mat4, projection: &CameraProjection) {
-        let mut globals = self.globals.lock().unwrap();
-
-        globals.camera_previous_view = globals.camera_view;
-        globals.camera_previous_projection = globals.camera_projection;
-
-        let aspect_ratio = globals.render_resolution.x / globals.render_resolution.y;
-        globals.camera_view = *view;
-        globals.camera_projection = projection.compute_projection_matrix(aspect_ratio);
-        globals.camera_view_inverse = view.inverse();
-        globals.camera_projection_inverse = globals.camera_projection.inverse();
+        let mut camera = self.camera_data.lock().unwrap();
+        camera.view = *view;
+        camera.projection = *projection;
+        camera.updated = true;
     }
 
     /// Update the uniform buffer and return the byte offset of the updated data
-    pub fn flush(&self, delta_time: f32, frame: u32) -> u32 {
+    pub fn flush(&self, args: FlushFrameResources) -> FrameResourcesGuard<'_> {
         const TIME_ROLLOVER: f32 = 3600.0;
 
-        let mut globals = self.globals.lock().unwrap();
+        let mut camera_data = self.camera_data.lock().unwrap();
 
-        globals.time = (globals.time + delta_time) % TIME_ROLLOVER;
-        globals.delta_time = delta_time;
-        globals.frame_index = frame;
-        self.buffer.lock().unwrap().write(&globals)
+        let mut buffer = self.buffer.lock().unwrap();
+
+        let globals = &mut buffer.globals;
+
+        globals.time = (globals.time + args.delta_time) % TIME_ROLLOVER;
+        globals.delta_time = args.delta_time;
+        globals.frame_index = args.frame;
+
+        if std::mem::take(&mut camera_data.updated)
+            || args.render_resolution != globals.render_resolution
+        {
+            globals.camera_previous_view = globals.camera_view;
+            globals.camera_previous_projection = globals.camera_projection;
+
+            let aspect_ratio = args.render_resolution.x as f32 / args.render_resolution.y as f32;
+            globals.render_resolution = args.render_resolution;
+            globals.camera_view = camera_data.view;
+            globals.camera_projection = camera_data
+                .projection
+                .compute_projection_matrix(aspect_ratio);
+            globals.camera_view_inverse = globals.camera_view.inverse();
+            globals.camera_projection_inverse = globals.camera_projection.inverse();
+            globals.frustum = Frustum::new(globals.camera_projection * globals.camera_view);
+
+            if !camera_data.initialized {
+                globals.camera_previous_view = globals.camera_view;
+                globals.camera_previous_projection = globals.camera_projection;
+                camera_data.initialized;
+            }
+        }
+
+        buffer.flush();
+
+        FrameResourcesGuard { buffer }
     }
 }
 
+pub struct FrameResourcesGuard<'a> {
+    buffer: MutexGuard<'a, UniformBuffer>,
+}
+
+impl FrameResourcesGuard<'_> {
+    pub fn dynamic_offset(&self) -> u32 {
+        self.buffer.current_offset()
+    }
+}
+
+impl std::ops::Deref for FrameResourcesGuard<'_> {
+    type Target = FrameGlobals;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.buffer.globals
+    }
+}
+
+pub struct FlushFrameResources {
+    pub render_resolution: UVec2,
+    pub delta_time: f32,
+    pub frame: u32,
+}
+
 struct UniformBuffer {
-    ptr: *mut MaybeUninit<GpuGlobals>,
+    globals: FrameGlobals,
+    ptr: *mut MaybeUninit<GpuFrameGlobals>,
     slot_len: u32,
-    odd_frame: bool,
+    next_frame: usize,
     inner: gfx::Buffer,
 }
 
@@ -111,10 +159,11 @@ impl UniformBuffer {
     fn new(device: &gfx::Device) -> Result<Self> {
         let limits = &device.properties().v1_0.limits;
         let min_offset_align_mask = limits.min_uniform_buffer_offset_alignment as usize - 1;
-        let offset_align_mask = <GpuGlobals as gfx::Std140>::ALIGN_MASK | min_offset_align_mask;
+        let offset_align_mask =
+            <GpuFrameGlobals as gfx::Std140>::ALIGN_MASK | min_offset_align_mask;
 
         // NOTE: Round up to the nearest required alignment
-        let slot_len = gfx::align_size(offset_align_mask, std::mem::size_of::<GpuGlobals>());
+        let slot_len = gfx::align_size(offset_align_mask, std::mem::size_of::<GpuFrameGlobals>());
 
         // Allocate uniform buffer
         let mut buffer = device.create_mappable_buffer(
@@ -132,53 +181,59 @@ impl UniformBuffer {
             .cast();
 
         Ok(Self {
+            globals: FrameGlobals::default(),
             ptr,
             slot_len: slot_len as u32,
-            odd_frame: false,
+            next_frame: 1,
             inner: buffer.freeze(),
         })
     }
 
-    fn write(&mut self, globals: &Globals) -> u32 {
-        let byte_offset = self.slot_len * self.odd_frame as u32;
+    fn current_offset(&self) -> u32 {
+        self.slot_len * self.next_frame as u32
+    }
+
+    fn flush(&mut self) {
+        self.next_frame = 1 - self.next_frame;
+        let byte_offset = self.current_offset();
+
         // SAFETY:
         // - `byte_offset` is always less than `self.slot_len * 2`
         // - `self.ptr` is a valid pointer to mapped memory
         unsafe {
             let ptr = self.ptr.byte_add(byte_offset as usize);
             // TODO: write directly to mapped memory without creating a temporary data on the stack
-            (*ptr).write(globals.as_std140());
+            *ptr = MaybeUninit::new(self.globals.as_std140());
         }
-
-        self.odd_frame = !self.odd_frame;
-        byte_offset
     }
 }
 
 #[derive(AsStd140)]
-struct Globals {
-    camera_view: Mat4,
-    camera_projection: Mat4,
-    camera_view_inverse: Mat4,
-    camera_projection_inverse: Mat4,
-    camera_previous_view: Mat4,
-    camera_previous_projection: Mat4,
-    render_resolution: Vec2,
-    time: f32,
-    delta_time: f32,
-    frame_index: u32,
+pub struct FrameGlobals {
+    pub frustum: Frustum,
+    pub camera_view: Mat4,
+    pub camera_projection: Mat4,
+    pub camera_view_inverse: Mat4,
+    pub camera_projection_inverse: Mat4,
+    pub camera_previous_view: Mat4,
+    pub camera_previous_projection: Mat4,
+    pub render_resolution: UVec2,
+    pub time: f32,
+    pub delta_time: f32,
+    pub frame_index: u32,
 }
 
-impl Default for Globals {
+impl Default for FrameGlobals {
     fn default() -> Self {
         Self {
+            frustum: Frustum::IDENTITY,
             camera_view: Mat4::IDENTITY,
             camera_projection: Mat4::IDENTITY,
             camera_view_inverse: Mat4::IDENTITY,
             camera_projection_inverse: Mat4::IDENTITY,
             camera_previous_view: Mat4::IDENTITY,
             camera_previous_projection: Mat4::IDENTITY,
-            render_resolution: Vec2::ONE,
+            render_resolution: UVec2::ONE,
             time: 0.0,
             delta_time: f32::EPSILON,
             frame_index: 0,
@@ -186,4 +241,22 @@ impl Default for Globals {
     }
 }
 
-type GpuGlobals = <Globals as AsStd140>::Output;
+type GpuFrameGlobals = <FrameGlobals as AsStd140>::Output;
+
+struct CameraData {
+    view: Mat4,
+    projection: CameraProjection,
+    initialized: bool,
+    updated: bool,
+}
+
+impl Default for CameraData {
+    fn default() -> Self {
+        Self {
+            view: Mat4::IDENTITY,
+            projection: CameraProjection::default(),
+            initialized: false,
+            updated: false,
+        }
+    }
+}
