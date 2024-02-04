@@ -1603,10 +1603,8 @@ name = "renderer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bevy_ecs",
  "bumpalo",
  "bytemuck",
- "ecs",
  "gfx",
  "glam",
  "once_cell",

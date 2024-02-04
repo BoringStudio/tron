@@ -8,13 +8,14 @@ use bevy_ecs::schedule::ScheduleLabel;
 use ecs::components::Transform;
 use glam::{Mat4, Vec2, Vec3};
 use rand::Rng;
-use renderer::components::{DynamicMeshInstance, StaticMeshInstance};
 use renderer::materials::DebugMaterialInstance;
 use renderer::RendererState;
 use winit::event::WindowEvent;
 
-use self::resources::{Graphics, Time};
+use self::components::{Camera, DynamicMeshInstance, StaticMeshInstance};
+use self::resources::{Graphics, MainCamera, Time};
 
+mod components;
 mod resources;
 
 pub struct Game {
@@ -32,14 +33,13 @@ impl Game {
         world.insert_resource(Time {
             started_at,
             now: started_at,
-            step: Duration::from_secs(1) / 10, // TEMP 10 FPS
+            step: Duration::from_secs(1) / 60, // TEMP 10 FPS
         });
+        world.insert_resource(MainCamera { entity: None });
         world.insert_resource(Graphics::new(renderer)?);
 
         let mut fixed_update_schedule = FixedUpdateSchedule::base_schedule();
-
         fixed_update_schedule.add_systems(rotate_objects_system.in_set(FixedUpdateSet::OnUpdate));
-
         fixed_update_schedule.add_systems(
             (
                 (
@@ -52,7 +52,19 @@ impl Game {
                 .in_set(FixedUpdateSet::AfterUpdate),
         );
 
-        let draw_schedule = DrawSchedule::base_schedule();
+        let mut draw_schedule = DrawSchedule::base_schedule();
+        draw_schedule.add_systems(apply_camera_transform_system.in_set(DrawSet::AfterDraw));
+
+        let entity = world
+            .spawn((
+                Camera {
+                    projection: Default::default(),
+                },
+                Transform::from_translation(Vec3::new(0.0, 0.5, 3.0))
+                    .looking_at(Vec3::ZERO, Vec3::Y),
+            ))
+            .id();
+        world.resource_mut::<MainCamera>().entity = Some(entity);
 
         Ok(Self {
             world,
@@ -191,7 +203,7 @@ impl Game {
                 ),
             });
 
-        let handle = graphics.renderer.add_dynamic_object(
+        let handle = graphics.renderer.add_static_object(
             mesh.clone(),
             material.clone(),
             &transform.to_matrix(),
@@ -199,7 +211,7 @@ impl Game {
 
         self.world.spawn(SceneObjectBundle {
             transform,
-            mesh_instance: DynamicMeshInstance {
+            mesh_instance: StaticMeshInstance {
                 mesh,
                 material,
                 handle,
@@ -239,7 +251,7 @@ pub struct DrawSchedule;
 impl DrawSchedule {
     fn base_schedule() -> Schedule {
         let mut schedule = Schedule::new(Self);
-        schedule.configure_sets(DrawSet::BeforeDraw);
+        schedule.configure_sets((DrawSet::BeforeDraw, DrawSet::OnDraw, DrawSet::AfterDraw).chain());
         schedule
     }
 }
@@ -247,6 +259,8 @@ impl DrawSchedule {
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
 pub enum DrawSet {
     BeforeDraw,
+    OnDraw,
+    AfterDraw,
 }
 
 fn process_gltf_node(
@@ -329,11 +343,11 @@ fn process_gltf_node(
             color: glam::vec3(1.0, 1.0, 1.0),
         });
 
-        let handle = renderer.add_dynamic_object(mesh.clone(), material.clone(), &global_transform);
+        let handle = renderer.add_static_object(mesh.clone(), material.clone(), &global_transform);
 
         ecs_world.spawn(SceneObjectBundle {
             transform: Transform::from_matrix(*global_transform),
-            mesh_instance: DynamicMeshInstance {
+            mesh_instance: StaticMeshInstance {
                 mesh,
                 material,
                 handle,
@@ -347,12 +361,12 @@ fn process_gltf_node(
 #[derive(Bundle)]
 struct SceneObjectBundle {
     transform: Transform,
-    mesh_instance: DynamicMeshInstance,
+    mesh_instance: StaticMeshInstance,
 }
 
 // TEMP
-fn rotate_objects_system(time: Res<Time>, mut query: Query<&mut Transform>) {
-    for mut transform in &mut query {
+fn rotate_objects_system(time: Res<Time>, mut query: Query<(&mut Transform, &StaticMeshInstance)>) {
+    for (mut transform, _) in &mut query {
         transform.rotate_y(time.step.as_secs_f32());
     }
 }
@@ -387,4 +401,24 @@ fn apply_dynamic_objects_transform_system(
 
 fn sync_fixed_update_system(time: Res<Time>, graphics: Res<Graphics>) {
     graphics.renderer.finish_fixed_update(time.now, time.step);
+}
+
+fn apply_camera_transform_system(
+    graphics: Res<Graphics>,
+    main_camera: Res<MainCamera>,
+    world: &World,
+) {
+    let Some(entity) = main_camera.entity else {
+        return;
+    };
+
+    let (Some(transform), Some(camera)) =
+        (world.get::<Transform>(entity), world.get::<Camera>(entity))
+    else {
+        return;
+    };
+
+    graphics
+        .renderer
+        .update_camera(&transform.to_matrix().inverse(), &camera.projection);
 }

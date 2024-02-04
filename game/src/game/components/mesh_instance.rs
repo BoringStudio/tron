@@ -1,6 +1,6 @@
 use bevy_ecs::component::Component;
 
-use crate::types::{DynamicObjectHandle, MaterialInstanceHandle, MeshHandle, StaticObjectHandle};
+use renderer::{DynamicObjectHandle, MaterialInstanceHandle, MeshHandle, StaticObjectHandle};
 
 #[derive(Debug, Clone, PartialEq, Component)]
 pub struct StaticMeshInstance {

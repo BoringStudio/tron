@@ -6,7 +6,6 @@ rust-version = "1.75"
 
 [dependencies]
 anyhow = { workspace = true }
-bevy_ecs = { workspace = true }
 bumpalo = { workspace = true }
 bytemuck = { workspace = true }
 glam = { workspace = true }
@@ -18,7 +17,6 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 winit = { workspace = true, features = ["rwh_06", "x11"] }
 
-ecs = { path = "../ecs" }
 gfx = { path = "../gfx", features = ["winit"] }
 shared = { path = "../shared" }
 

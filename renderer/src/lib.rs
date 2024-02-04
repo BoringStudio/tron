@@ -3,18 +3,16 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use bevy_ecs::entity::Entity;
-use bevy_ecs::system::Resource;
 use glam::Mat4;
 use shared::Embed;
 use winit::window::Window;
 
 pub use self::render_graph::materials;
 pub use crate::types::{
-    Color, CubeMeshGenerator, MaterialInstance, MaterialInstanceHandle, MaterialInstanceTag, Mesh,
-    MeshBuilder, MeshGenerator, MeshHandle, Normal, PlaneMeshGenerator, Position, Sorting,
-    SortingOrder, SortingReason, StaticObjectHandle, Tangent, VertexAttribute, VertexAttributeData,
-    VertexAttributeKind, UV0,
+    CameraProjection, Color, CubeMeshGenerator, DynamicObjectHandle, MaterialInstance,
+    MaterialInstanceHandle, MaterialInstanceTag, Mesh, MeshBuilder, MeshGenerator, MeshHandle,
+    Normal, PlaneMeshGenerator, Position, Sorting, SortingOrder, SortingReason, StaticObjectHandle,
+    Tangent, VertexAttribute, VertexAttributeData, VertexAttributeKind, UV0,
 };
 
 use crate::managers::{MaterialManager, MeshManager, ObjectManager, TimeManager};
@@ -26,22 +24,13 @@ use crate::util::{
 };
 use crate::worker::RendererWorker;
 
-use self::types::{
-    DynamicObjectHandle, DynamicObjectTag, ObjectData, RawDynamicObjectHandle, StaticObjectTag,
-};
-
-pub mod components;
+use self::types::{DynamicObjectTag, ObjectData, RawDynamicObjectHandle, StaticObjectTag};
 
 mod managers;
 mod render_graph;
 mod types;
 mod util;
 mod worker;
-
-#[derive(Resource, Default)]
-pub struct MainCamera {
-    pub entity: Option<Entity>,
-}
 
 pub struct RendererBuilder {
     window: Arc<Window>,
@@ -228,6 +217,10 @@ impl RendererState {
 
     pub fn notify_draw(&self) {
         self.worker_barrier.notify();
+    }
+
+    pub fn update_camera(&self, view: &Mat4, projection: &CameraProjection) {
+        self.frame_resources.set_camera(view, projection);
     }
 
     pub fn add_mesh(self: &Arc<Self>, mesh: &Mesh) -> Result<MeshHandle> {

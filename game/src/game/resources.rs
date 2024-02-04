@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use bevy_ecs::entity::Entity;
 use bevy_ecs::system::Resource;
 use renderer::{MeshHandle, RendererState};
 
@@ -10,6 +11,11 @@ pub struct Time {
     pub started_at: Instant,
     pub now: Instant,
     pub step: Duration,
+}
+
+#[derive(Resource)]
+pub struct MainCamera {
+    pub entity: Option<Entity>,
 }
 
 #[derive(Resource)]

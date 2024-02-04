@@ -3,11 +3,9 @@ use std::time::Instant;
 
 use anyhow::Result;
 use bumpalo::Bump;
-use glam::{Mat4, Vec3};
 use shared::util::DeallocOnDrop;
 
 use crate::render_graph::{RenderGraph, RenderGraphContext};
-use crate::types::CameraProjection;
 use crate::RendererState;
 
 pub struct RendererWorker {
@@ -70,12 +68,6 @@ impl RendererWorker {
             .prev_frame_at
             .duration_since(prev_frame_at)
             .as_secs_f32();
-
-        // TEMP
-        let camera_transform = Mat4::from_translation(-Vec3::new(0.0, 0.0, 3.0));
-        self.state
-            .frame_resources
-            .set_camera(&camera_transform, &CameraProjection::default());
 
         self.graph.execute(&mut RenderGraphContext {
             state: &self.state,
