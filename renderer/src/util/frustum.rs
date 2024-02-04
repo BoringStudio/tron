@@ -78,14 +78,14 @@ impl Frustum {
             mat[3][3] + mat[3][1],
         );
 
-        // z (reversed)
+        // z
         let near = Plane::new(
             Vec3::new(
-                mat[0][3] - mat[0][2],
-                mat[1][3] - mat[1][2],
-                mat[2][3] - mat[2][2],
+                mat[0][3] + mat[0][2],
+                mat[1][3] + mat[1][2],
+                mat[2][3] + mat[2][2],
             ),
-            mat[3][3] - mat[3][2],
+            mat[3][3] + mat[3][2],
         );
 
         // Normalize plane normals.

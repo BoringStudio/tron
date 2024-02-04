@@ -79,9 +79,9 @@ impl RenderGraphNode for DebugMaterial {
             );
 
             for (slot, object) in static_objects {
-                // if !frustum.contains_sphere(&object.global_bounding_sphere) {
-                //     continue;
-                // }
+                if !frustum.contains_sphere(&object.global_bounding_sphere) {
+                    continue;
+                }
 
                 ctx.encoder.draw_indexed(
                     object.first_index..object.first_index + object.index_count,
