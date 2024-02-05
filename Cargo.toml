@@ -35,5 +35,5 @@ smallvec = { version = "1", features = ["union", "const_generics", "const_new"] 
 thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3" }
-vulkanalia = { version = "0.22", features = ["window", "libloading"] }
+vulkanalia = { version = "0.22", features = ["libloading", "provisional"] }
 winit = { version = "0.29", default-features = false }
