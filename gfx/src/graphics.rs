@@ -172,6 +172,11 @@ impl Graphics {
             push_ext(&vk::KHR_WIN32_SURFACE_EXTENSION);
         }
 
+        #[cfg(target_os = "macos")]
+        {
+            push_ext(&vk::EXT_METAL_SURFACE_EXTENSION);
+        }
+
         // TODO: macos
 
         let mut instance_info = vk::InstanceCreateInfo::builder()

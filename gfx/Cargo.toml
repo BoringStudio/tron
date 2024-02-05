@@ -23,3 +23,8 @@ winit = { workspace = true, optional = true }
 
 gfx-macros = { path = "./macros" }
 shared = { path = "../shared" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = { version = "0.25" }
+metal = { version = "0.27" }
+objc = { version = "0.2" }

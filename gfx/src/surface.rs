@@ -722,6 +722,38 @@ where
 
             unsafe { instance.create_wayland_surface_khr(&info, None) }
         }
+        #[cfg(target_os = "macos")]
+        (RawDisplayHandle::AppKit(display), RawWindowHandle::AppKit(window)) => {
+            use std::os::raw::c_void;
+
+            use cocoa::appkit::{NSView, NSWindow};
+            use cocoa::base::id;
+            use metal::{MetalLayer, MetalLayerRef};
+            use objc::runtime::YES;
+            use vk::ExtMetalSurfaceExtension;
+
+            unsafe {
+                let layer = {
+                    let view = window.ns_view.as_ptr() as id;
+
+                    let layer = MetalLayer::new();
+                    layer.set_contents_scale(view.backingScaleFactor());
+                    layer.set_edge_antialiasing_mask(0);
+                    layer.set_presents_with_transaction(false);
+                    layer.remove_all_animations();
+
+                    let layer_ref = layer.as_ref() as *const metal::MetalLayerRef;
+                    view.setLayer(layer_ref as *mut objc::runtime::Object);
+                    view.setWantsLayer(YES);
+
+                    layer
+                };
+
+                let layer = (layer.as_ref() as *const MetalLayerRef).cast::<c_void>();
+                let info = vk::MetalSurfaceCreateInfoEXT::builder().layer(layer);
+                instance.create_metal_surface_ext(&info, None)
+            }
+        }
         _ => return Err(CreateSurfaceError::UnsupportedWindowOrDisplay),
     }
     .map_err(|e| match e {
