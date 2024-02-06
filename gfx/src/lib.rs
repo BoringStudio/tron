@@ -30,7 +30,7 @@ pub use self::resources::{
     FramebufferInfo, FrontFace, GraphicsPipeline, GraphicsPipelineDescr, GraphicsPipelineInfo,
     GraphicsPipelineRenderingInfo, Image, ImageAspectFlags, ImageExtent, ImageInfo, ImageLayout,
     ImageSubresource, ImageSubresourceLayers, ImageSubresourceRange, ImageUsageFlags, ImageView,
-    ImageViewInfo, ImageViewType, IndexType, LoadOp, LogicOp, MakeImageView, MappableBuffer,
+    ImageViewInfo, ImageViewType, IndexType, LoadOp, LogicOp, MakeImageView, MemoryBlockMut,
     MemoryUsage, MipmapMode, Pipeline, PipelineBindPoint, PipelineLayout, PipelineLayoutInfo,
     PipelineStageFlags, PolygonMode, PrimitiveTopology, PushConstant, Rasterizer, Rect,
     ReductionMode, RenderPass, RenderPassInfo, Sampler, SamplerAddressMode, SamplerInfo, Samples,

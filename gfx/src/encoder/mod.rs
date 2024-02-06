@@ -149,7 +149,7 @@ impl Encoder {
                 Ok(())
             }
             size => {
-                let mut staging = device.create_mappable_buffer(
+                let staging = device.create_mappable_buffer(
                     BufferInfo {
                         align_mask: MIN_ALIGN.max(std::mem::align_of::<T>() - 1),
                         size,
@@ -157,10 +157,10 @@ impl Encoder {
                     },
                     MemoryUsage::UPLOAD | MemoryUsage::TRANSIENT,
                 )?;
-                device.upload_to_memory(&mut staging, 0, data)?;
+                device.upload_to_memory(&mut staging.as_mappable(), 0, data)?;
 
                 self.copy_buffer(
-                    &staging.freeze(),
+                    &staging,
                     buffer,
                     &[BufferCopy {
                         src_offset: 0,

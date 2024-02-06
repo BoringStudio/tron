@@ -87,27 +87,29 @@ impl MeshManager {
         let indices_range;
         let indices_copy;
 
-        let staging_buffer = {
-            // Create a host-coherent staging buffer
-            let total_attribute_size = mesh
-                .attribute_data()
-                .iter()
-                .map(|a| a.byte_len())
-                .sum::<usize>();
-            let total_index_size = index_count * (INDEX_SIZE as usize);
+        // Create a host-coherent staging buffer
+        let total_attribute_size = mesh
+            .attribute_data()
+            .iter()
+            .map(|a| a.byte_len())
+            .sum::<usize>();
+        let total_index_size = index_count * (INDEX_SIZE as usize);
 
-            let mut staging_buffer = device.create_mappable_buffer(
-                gfx::BufferInfo {
-                    align_mask: VERTEX_ALIGN_MASK.max(INDEX_ALIGN_MASK),
-                    size: total_attribute_size + total_index_size,
-                    usage: gfx::BufferUsage::TRANSFER_SRC,
-                },
-                gfx::MemoryUsage::UPLOAD | gfx::MemoryUsage::TRANSIENT,
-            )?;
+        let staging_buffer = device.create_mappable_buffer(
+            gfx::BufferInfo {
+                align_mask: VERTEX_ALIGN_MASK.max(INDEX_ALIGN_MASK),
+                size: total_attribute_size + total_index_size,
+                usage: gfx::BufferUsage::TRANSFER_SRC,
+            },
+            gfx::MemoryUsage::UPLOAD | gfx::MemoryUsage::TRANSIENT,
+        )?;
+
+        {
+            let mut memory_block = staging_buffer.as_mappable();
 
             // Map staging buffer to host memory
             let staging_buffer_data = device.map_memory(
-                &mut staging_buffer,
+                &mut memory_block,
                 0,
                 (total_attribute_size + total_index_size) as _,
             )?;
@@ -164,9 +166,8 @@ impl MeshManager {
             };
 
             // Unmap and freeze staging buffer
-            device.unmap_memory(&mut staging_buffer);
-            staging_buffer.freeze()
-        };
+            device.unmap_memory(&mut memory_block);
+        }
 
         // Encode copy commands
         let encoder = make_encoder(queue, &mut state.encoder)?;

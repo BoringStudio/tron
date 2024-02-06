@@ -1,9 +1,7 @@
-use std::cell::UnsafeCell;
 use std::hash::Hash;
 use std::mem::ManuallyDrop;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 
-use gpu_alloc::MemoryBlock;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::device::WeakDevice;
@@ -183,6 +181,24 @@ pub struct Buffer {
 }
 
 impl Buffer {
+    pub(crate) fn new(
+        handle: vk::Buffer,
+        info: BufferInfo,
+        address: Option<DeviceAddress>,
+        owner: WeakDevice,
+        memory_block: gpu_alloc::MemoryBlock<vk::DeviceMemory>,
+    ) -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                handle,
+                info,
+                address,
+                owner,
+                memory_block: Mutex::new(ManuallyDrop::new(memory_block)),
+            }),
+        }
+    }
+
     pub fn info(&self) -> &BufferInfo {
         &self.inner.info
     }
@@ -195,44 +211,21 @@ impl Buffer {
         self.inner.handle
     }
 
-    pub fn try_into_mappable(mut self) -> Result<MappableBuffer, Self> {
-        if self.is_mappable() && Arc::get_mut(&mut self.inner).is_some() {
-            Ok(MappableBuffer { buffer: self })
-        } else {
-            Err(self)
+    pub fn as_mappable(&self) -> MemoryBlockMut<'_> {
+        MemoryBlockMut {
+            inner: self.inner.memory_block.lock().unwrap(),
         }
-    }
-
-    pub fn try_as_mappable(&mut self) -> Option<&mut MappableBuffer> {
-        if self.is_mappable() && Arc::get_mut(&mut self.inner).is_some() {
-            // SAFETY: buffer is unique and mappable
-            Some(unsafe { MappableBuffer::wrap(self) })
-        } else {
-            None
-        }
-    }
-
-    fn is_mappable(&self) -> bool {
-        self.inner
-            .memory_usage
-            .intersects(gpu_alloc::UsageFlags::DOWNLOAD | gpu_alloc::UsageFlags::UPLOAD)
     }
 }
 
 impl std::fmt::Debug for Buffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if f.alternate() {
-            // SAFETY: unique access is guaranteed by the interface
-            let memory_block = unsafe { &*self.inner.memory_block.get() };
-
             f.debug_struct("Buffer")
                 .field("info", &self.inner.info)
                 .field("owner", &self.inner.owner)
                 .field("handle", &self.inner.handle)
                 .field("address", &self.inner.address)
-                .field("memory_handle", &self.inner.memory)
-                .field("memory_offset", &memory_block.offset())
-                .field("memory_size", &memory_block.size())
                 .finish()
         } else {
             std::fmt::Debug::fmt(&self.inner.handle, f)
@@ -255,89 +248,38 @@ impl Hash for Buffer {
     }
 }
 
-impl From<MappableBuffer> for Buffer {
+pub struct MemoryBlockMut<'a> {
+    inner: MutexGuard<'a, ManuallyDrop<gpu_alloc::MemoryBlock<vk::DeviceMemory>>>,
+}
+
+impl std::ops::Deref for MemoryBlockMut<'_> {
+    type Target = gpu_alloc::MemoryBlock<vk::DeviceMemory>;
+
     #[inline]
-    fn from(value: MappableBuffer) -> Self {
-        value.buffer
+    fn deref(&self) -> &Self::Target {
+        &self.inner
     }
 }
 
-/// A host-visible buffer that can be mapped for reading and/or writing.
-///
-/// See [`Buffer`] for more information.
-#[derive(Eq, PartialEq)]
-#[repr(transparent)]
-pub struct MappableBuffer {
-    buffer: Buffer,
-}
-
-impl MappableBuffer {
-    pub(crate) fn new(
-        handle: vk::Buffer,
-        info: BufferInfo,
-        memory_usage: gpu_alloc::UsageFlags,
-        address: Option<DeviceAddress>,
-        owner: WeakDevice,
-        memory_block: MemoryBlock<vk::DeviceMemory>,
-    ) -> Self {
-        Self {
-            buffer: Buffer {
-                inner: Arc::new(Inner {
-                    handle,
-                    info,
-                    memory_usage,
-                    address,
-                    owner,
-                    memory: *memory_block.memory(),
-                    memory_block: UnsafeCell::new(ManuallyDrop::new(memory_block)),
-                }),
-            },
-        }
-    }
-
-    unsafe fn wrap(buffer: &mut Buffer) -> &mut Self {
-        &mut *(buffer as *mut Buffer).cast::<Self>()
-    }
-
-    pub fn info(&self) -> &BufferInfo {
-        self.buffer.info()
-    }
-
-    pub fn address(&self) -> Option<DeviceAddress> {
-        self.buffer.address()
-    }
-
-    pub fn handle(&self) -> vk::Buffer {
-        self.buffer.handle()
-    }
-
-    pub fn freeze(self) -> Buffer {
-        self.buffer
-    }
-
-    /// # Safety
-    ///
-    /// The following must be true:
-    /// - Returned mutable reference must not be used to replace the value.
-    pub(crate) unsafe fn memory_block(&mut self) -> &mut MemoryBlock<vk::DeviceMemory> {
-        &mut *self.buffer.inner.memory_block.get()
+impl std::ops::DerefMut for MemoryBlockMut<'_> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
     }
 }
 
 struct Inner {
     handle: vk::Buffer,
     info: BufferInfo,
-    memory_usage: gpu_alloc::UsageFlags,
     address: Option<DeviceAddress>,
     owner: WeakDevice,
-    memory: vk::DeviceMemory,
-    memory_block: UnsafeCell<ManuallyDrop<MemoryBlock<vk::DeviceMemory>>>,
+    memory_block: Mutex<ManuallyDrop<gpu_alloc::MemoryBlock<vk::DeviceMemory>>>,
 }
 
 impl Drop for Inner {
     fn drop(&mut self) {
         unsafe {
-            let block = ManuallyDrop::take(self.memory_block.get_mut());
+            let block = ManuallyDrop::take(self.memory_block.get_mut().unwrap());
 
             if let Some(device) = self.owner.upgrade() {
                 device.destroy_buffer(self.handle, block);

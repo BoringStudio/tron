@@ -2,7 +2,7 @@ use std::mem::MaybeUninit;
 use std::sync::{Arc, Mutex, Weak};
 
 use bumpalo::Bump;
-use gpu_alloc::{GpuAllocator, MemoryBlock};
+use gpu_alloc::GpuAllocator;
 use gpu_alloc_vulkanalia::AsMemoryDevice;
 use shared::util::WithDefer;
 use shared::FastDashMap;
@@ -24,7 +24,7 @@ use crate::resources::{
     DescriptorSetInfo, DescriptorSetLayout, DescriptorSetLayoutFlags, DescriptorSetLayoutInfo,
     DescriptorSetSize, DescriptorSlice, DescriptorType, Fence, FenceState, Framebuffer,
     FramebufferInfo, GraphicsPipeline, GraphicsPipelineInfo, Image, ImageInfo, ImageView,
-    ImageViewInfo, ImageViewType, MappableBuffer, MemoryUsage, PipelineLayout, PipelineLayoutInfo,
+    ImageViewInfo, ImageViewType, MemoryBlockMut, MemoryUsage, PipelineLayout, PipelineLayoutInfo,
     RenderPass, RenderPassInfo, Sampler, SamplerInfo, Semaphore, ShaderModule, ShaderModuleInfo,
     StencilTest, UpdateDescriptorSet,
 };
@@ -144,39 +144,32 @@ impl Device {
 
     pub fn map_memory(
         &self,
-        buffer: &mut MappableBuffer,
+        memory_block: &mut MemoryBlockMut,
         offset: usize,
         size: usize,
     ) -> Result<&mut [MaybeUninit<u8>], MapError> {
         Ok(unsafe {
-            let ptr = buffer.memory_block().map(
-                self.logical().as_memory_device(),
-                offset as u64,
-                size,
-            )?;
-
+            let ptr = memory_block.map(self.logical().as_memory_device(), offset as u64, size)?;
             std::slice::from_raw_parts_mut(ptr.as_ptr() as _, size)
         })
     }
 
-    pub fn unmap_memory(&self, buffer: &mut MappableBuffer) {
+    pub fn unmap_memory(&self, memory_block: &mut MemoryBlockMut) {
         unsafe {
-            buffer
-                .memory_block()
-                .unmap(self.logical().as_memory_device());
+            memory_block.unmap(self.logical().as_memory_device());
         }
     }
 
     pub fn upload_to_memory<T>(
         &self,
-        buffer: &mut MappableBuffer,
+        memory_block: &mut MemoryBlockMut,
         offset: usize,
         data: &[T],
     ) -> Result<(), MapError>
     where
         T: bytemuck::Pod,
     {
-        let slice = self.map_memory(buffer, offset, data.len())?;
+        let slice = self.map_memory(memory_block, offset, data.len())?;
 
         unsafe {
             std::ptr::copy_nonoverlapping(
@@ -186,7 +179,7 @@ impl Device {
             )
         }
 
-        self.unmap_memory(buffer);
+        self.unmap_memory(memory_block);
         Ok(())
     }
 
@@ -339,14 +332,13 @@ impl Device {
 
     pub fn create_buffer(&self, info: BufferInfo) -> Result<Buffer, OutOfDeviceMemory> {
         self.create_buffer_impl(info, None)
-            .map(MappableBuffer::freeze)
     }
 
     pub fn create_mappable_buffer(
         &self,
         info: BufferInfo,
         memory_usage: MemoryUsage,
-    ) -> Result<MappableBuffer, OutOfDeviceMemory> {
+    ) -> Result<Buffer, OutOfDeviceMemory> {
         self.create_buffer_impl(info, Some(memory_usage))
     }
 
@@ -354,7 +346,7 @@ impl Device {
         &self,
         info: BufferInfo,
         memory_usage: Option<MemoryUsage>,
-    ) -> Result<MappableBuffer, OutOfDeviceMemory> {
+    ) -> Result<Buffer, OutOfDeviceMemory> {
         let logical = &self.inner.logical;
 
         let mut alloc_flags = gpu_alloc::UsageFlags::empty();
@@ -449,10 +441,9 @@ impl Device {
 
         tracing::debug!(buffer = ?*handle, "created buffer");
 
-        Ok(MappableBuffer::new(
+        Ok(Buffer::new(
             handle.disarm(),
             info,
-            alloc_flags,
             address,
             self.downgrade(),
             block,
@@ -462,7 +453,7 @@ impl Device {
     pub(crate) unsafe fn destroy_buffer(
         &self,
         handle: vk::Buffer,
-        block: MemoryBlock<vk::DeviceMemory>,
+        block: gpu_alloc::MemoryBlock<vk::DeviceMemory>,
     ) {
         self.inner
             .allocator
@@ -583,7 +574,7 @@ impl Device {
     pub(crate) unsafe fn destroy_image(
         &self,
         handle: vk::Image,
-        block: MemoryBlock<vk::DeviceMemory>,
+        block: gpu_alloc::MemoryBlock<vk::DeviceMemory>,
     ) {
         self.inner
             .allocator

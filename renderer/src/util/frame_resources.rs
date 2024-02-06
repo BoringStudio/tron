@@ -166,7 +166,7 @@ impl UniformBuffer {
         let slot_len = gfx::align_size(offset_align_mask, std::mem::size_of::<GpuFrameGlobals>());
 
         // Allocate uniform buffer
-        let mut buffer = device.create_mappable_buffer(
+        let buffer = device.create_mappable_buffer(
             gfx::BufferInfo {
                 align_mask: offset_align_mask,
                 size: slot_len * 2,
@@ -176,7 +176,7 @@ impl UniformBuffer {
         )?;
 
         let ptr = device
-            .map_memory(&mut buffer, 0, (slot_len * 2) as usize)?
+            .map_memory(&mut buffer.as_mappable(), 0, (slot_len * 2) as usize)?
             .as_mut_ptr()
             .cast();
 
@@ -185,7 +185,7 @@ impl UniformBuffer {
             ptr,
             slot_len: slot_len as u32,
             next_frame: 1,
-            inner: buffer.freeze(),
+            inner: buffer,
         })
     }
 

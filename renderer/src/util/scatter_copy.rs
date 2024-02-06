@@ -88,7 +88,7 @@ impl ScatterCopy {
         let stride_bytes = item_size + 4;
 
         let buffer_size = 8 + count * stride_bytes;
-        let mut staging_buffer = device.create_mappable_buffer(
+        let staging_buffer = device.create_mappable_buffer(
             gfx::BufferInfo {
                 align_mask: MIN_ALIGN_MASK,
                 size: buffer_size,
@@ -97,8 +97,10 @@ impl ScatterCopy {
             gfx::MemoryUsage::UPLOAD,
         )?;
 
-        let staging_buffer = {
-            let mapped = device.map_memory(&mut staging_buffer, 0, buffer_size)?;
+        {
+            let mut memory_block = staging_buffer.as_mappable();
+
+            let mapped = device.map_memory(&mut memory_block, 0, buffer_size)?;
             let ptr = mapped.as_mut_ptr();
             debug_assert_eq!(ptr.align_offset(std::mem::align_of::<u32>()), 0);
 
@@ -118,8 +120,7 @@ impl ScatterCopy {
                 }
             }
 
-            device.unmap_memory(&mut staging_buffer);
-            staging_buffer.freeze()
+            device.unmap_memory(&mut memory_block);
         };
 
         let descriptor_set = device.create_descriptor_set(gfx::DescriptorSetInfo {

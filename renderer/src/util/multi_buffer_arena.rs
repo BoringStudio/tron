@@ -20,17 +20,19 @@ impl MultiBufferArena {
         usage: gfx::BufferUsage,
     ) -> Result<BufferArena<T>> {
         let size = capacity * BufferArena::<T>::ITEM_SIZE;
-        let mut buffer = device.create_mappable_buffer(
+        let buffer = device.create_mappable_buffer(
             gfx::BufferInfo {
                 align_mask: T::ALIGN_MASK,
                 size,
                 usage,
             },
-            gfx::MemoryUsage::UPLOAD | gfx::MemoryUsage::TRANSIENT,
+            gfx::MemoryUsage::UPLOAD,
         )?;
         // TODO: is TRANSIENT needed here?
 
-        let ptr = device.map_memory(&mut buffer, 0, size)?.as_mut_ptr();
+        let ptr = device
+            .map_memory(&mut buffer.as_mappable(), 0, size)?
+            .as_mut_ptr();
 
         Ok(BufferArena {
             buffer,
@@ -45,11 +47,10 @@ impl MultiBufferArena {
         &self,
         device: &gfx::Device,
         bindless_resources: &BindlessResources,
-        mut arena: BufferArena<T>,
+        arena: BufferArena<T>,
     ) -> StorageBufferHandle {
-        device.unmap_memory(&mut arena.buffer);
-        let buffer = arena.buffer.freeze();
-        let handle = bindless_resources.alloc_storage_buffer(device, buffer);
+        device.unmap_memory(&mut arena.buffer.as_mappable());
+        let handle = bindless_resources.alloc_storage_buffer(device, arena.buffer);
         self.retired.lock().unwrap().push(handle);
         handle
     }
@@ -63,7 +64,7 @@ impl MultiBufferArena {
 }
 
 pub struct BufferArena<T> {
-    buffer: gfx::MappableBuffer,
+    buffer: gfx::Buffer,
     ptr: *mut MaybeUninit<u8>,
     offset: usize,
     capacity: usize,
