@@ -108,7 +108,7 @@ impl BindlessResources {
     pub fn alloc_uniform_buffer(
         &self,
         device: &gfx::Device,
-        buffer: gfx::Buffer,
+        buffer: &gfx::BufferRange,
     ) -> UniformBufferHandle {
         let handle = self.uniform_buffer_allocator.alloc();
 
@@ -117,7 +117,7 @@ impl BindlessResources {
             writes: &[gfx::DescriptorSetWrite {
                 binding: UNIFORM_BUFFER_BINDING,
                 element: handle.index(),
-                data: gfx::DescriptorSlice::UniformBuffer(&[gfx::BufferRange::whole(buffer)]),
+                data: gfx::DescriptorSlice::UniformBuffer(&[std::slice::from_ref(buffer)]),
             }],
         }]);
 
@@ -132,7 +132,7 @@ impl BindlessResources {
     pub fn alloc_storage_buffer(
         &self,
         device: &gfx::Device,
-        buffer: gfx::Buffer,
+        buffer: &gfx::BufferRange,
     ) -> StorageBufferHandle {
         let handle = self.storage_buffer_allocator.alloc();
 
@@ -141,7 +141,7 @@ impl BindlessResources {
             writes: &[gfx::DescriptorSetWrite {
                 binding: STORAGE_BUFFER_BINDING,
                 element: handle.index(),
-                data: gfx::DescriptorSlice::StorageBuffer(&[gfx::BufferRange::whole(buffer)]),
+                data: gfx::DescriptorSlice::StorageBuffer(std::slice::from_ref(buffer)),
             }],
         }]);
 
@@ -150,6 +150,10 @@ impl BindlessResources {
 
     pub fn free_storage_buffer(&self, handle: StorageBufferHandle) {
         self.storage_buffer_allocator.dealloc(handle);
+    }
+
+    pub fn free_storage_buffers_batch(&self, handles: &[StorageBufferHandle]) {
+        self.storage_buffer_allocator.dealloc_batch(handles);
     }
 }
 
@@ -202,6 +206,14 @@ impl<const KIND: u8> GpuResourceHandleAllocator<KIND> {
             .unwrap()
             .retired_list
             .push(handle.0);
+    }
+
+    fn dealloc_batch(&self, handles: &[GpuResourceHandle<KIND>]) {
+        self.unused_handles
+            .lock()
+            .unwrap()
+            .retired_list
+            .extend_from_slice(bytemuck::cast_slice(handles));
     }
 
     fn flush_retired(&self) {

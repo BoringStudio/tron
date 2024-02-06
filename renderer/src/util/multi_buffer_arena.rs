@@ -3,22 +3,39 @@ use std::mem::MaybeUninit;
 use std::sync::Mutex;
 
 use anyhow::Result;
+use shared::FastHashMap;
 
 use crate::util::{BindlessResources, StorageBufferHandle};
 
-// TODO: reuse buffers
 #[derive(Default)]
 pub struct MultiBufferArena {
-    retired: Mutex<Vec<StorageBufferHandle>>,
+    buffer_align_mask: usize,
+    buffers: Mutex<FastHashMap<gfx::BufferUsage, Buffers>>,
 }
 
 impl MultiBufferArena {
+    pub fn new(device: &gfx::Device) -> Self {
+        let buffer_align_mask = device.limits().min_storage_buffer_offset_alignment as usize - 1;
+        Self {
+            buffer_align_mask,
+            buffers: Mutex::new(FastHashMap::default()),
+        }
+    }
+
     pub fn begin<T: gfx::Std430>(
         &self,
         device: &gfx::Device,
         capacity: usize,
         usage: gfx::BufferUsage,
     ) -> Result<BufferArena<T>> {
+        let mapped_buffer = 'existing: {
+            let mut buffers = self.buffers.lock().unwrap();
+            let Some(buffers) = buffers.get_mut();
+            if let Some(buffers) = buffers.get(&usage) {
+
+            }
+        };
+
         let size = capacity * BufferArena::<T>::ITEM_SIZE;
         let buffer = device.create_mappable_buffer(
             gfx::BufferInfo {
@@ -56,18 +73,38 @@ impl MultiBufferArena {
     }
 
     pub fn flush(&self, bindless_resources: &BindlessResources) {
-        let mut retired = self.retired.lock().unwrap();
-        for target in retired.drain(..) {
-            bindless_resources.free_storage_buffer(target);
+        let mut groups = self.buffers.lock().unwrap();
+        for buffers in groups.values_mut() {
+            for mut buffer in buffers.retired.drain(..) {
+                bindless_resources.free_storage_buffers_batch(&buffer.handles);
+                buffer.offset = 0;
+                buffer.handles.clear();
+                buffers.free.push(buffer);
+            }
+
+            buffers.retired.append(&mut buffers.used);
         }
     }
 }
 
-pub struct BufferArena<T> {
+struct Buffers {
+    used: Vec<MappedBuffer>,
+    free: Vec<MappedBuffer>,
+    retired: Vec<MappedBuffer>,
+}
+
+struct MappedBuffer {
     buffer: gfx::Buffer,
     ptr: *mut MaybeUninit<u8>,
     offset: usize,
     capacity: usize,
+    handles: Vec<StorageBufferHandle>,
+}
+
+unsafe impl Send for MappedBuffer {}
+
+pub struct BufferArena<T> {
+    inner: MappedBuffer,
     _makrer: PhantomData<T>,
 }
 
@@ -78,22 +115,16 @@ where
     const ITEM_SIZE: usize = gfx::align_size(T::ALIGN_MASK, std::mem::size_of::<T>());
 
     pub fn write(&mut self, data: &T) {
-        assert!(self.offset + Self::ITEM_SIZE <= self.capacity);
+        assert!(self.inner.offset + Self::ITEM_SIZE <= self.inner.capacity);
 
         unsafe {
             std::ptr::copy_nonoverlapping(
                 (data as *const T).cast(),
-                self.ptr.add(self.offset),
+                self.inner.ptr.add(self.inner.offset),
                 std::mem::size_of::<T>(),
             )
         }
 
-        self.offset += Self::ITEM_SIZE;
-    }
-
-    pub fn reset(&mut self) {
-        self.offset = 0;
+        self.inner.offset += Self::ITEM_SIZE;
     }
 }
-
-unsafe impl<T> Send for BufferArena<T> {}
