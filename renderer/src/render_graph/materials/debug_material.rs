@@ -48,7 +48,7 @@ impl DebugMaterial {
 impl RenderGraphNode for DebugMaterial {
     type RenderPass = MainPass;
 
-    fn execute<'a, 'pass>(&mut self, ctx: &mut RenderGraphNodeContext<'a, 'pass>) -> Result<()> {
+    fn execute(&mut self, ctx: &mut RenderGraphNodeContext<'_, '_>) -> Result<()> {
         let Some(material_instances_buffer) =
             ctx.synced_managers
                 .material_manager

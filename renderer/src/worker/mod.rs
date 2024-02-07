@@ -71,7 +71,7 @@ impl RendererWorker {
 
         self.graph.execute(&mut RenderGraphContext {
             state: &self.state,
-            synced_managers: &*synced_managers,
+            synced_managers: &synced_managers,
             surface_image: &surface_image,
             encoder: &mut encoder,
             now: self.prev_frame_at,

@@ -24,8 +24,8 @@ impl MeshManager {
         let vertex_alloc = RangeAllocator::new(0..INITIAL_VERTICES_CAPACITY);
         let index_alloc = RangeAllocator::new(0..INITIAL_INDEX_COUNT);
 
-        let vertex_buffer_handle =
-            bindless_resources.alloc_storage_buffer(device, buffers.vertices.clone());
+        let vertex_buffer_handle = bindless_resources
+            .alloc_storage_buffer(device, gfx::BufferRange::whole(buffers.vertices.clone()));
 
         Ok(Self {
             state: Mutex::new(MeshManagerState {
@@ -57,9 +57,12 @@ impl MeshManager {
     ) -> Option<gfx::Encoder> {
         let mut state = self.state.lock().unwrap();
         if std::mem::take(&mut state.new_vertex_buffer) {
-            let old_handle = self.vertex_buffer_handle.swap(
-                bindless_resources.alloc_storage_buffer(device, state.buffers.vertices.clone()),
-            );
+            let old_handle =
+                self.vertex_buffer_handle
+                    .swap(bindless_resources.alloc_storage_buffer(
+                        device,
+                        gfx::BufferRange::whole(state.buffers.vertices.clone()),
+                    ));
             bindless_resources.free_storage_buffer(old_handle);
         }
         state.encoder.take()

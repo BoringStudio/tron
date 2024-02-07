@@ -76,7 +76,7 @@ impl RendererBuilder {
         let frame_resources = FrameResources::new(&device)?;
         let bindless_resources = BindlessResources::new(&device)?;
         let scatter_copy = ScatterCopy::new(&device, &shader_preprocessor)?;
-        let multi_buffer_arena = MultiBufferArena::default();
+        let multi_buffer_arena = MultiBufferArena::new(&device);
 
         let mesh_manager = MeshManager::new(&device, &bindless_resources)?;
 
@@ -449,6 +449,7 @@ impl RendererState {
             encoder,
             &self.scatter_copy,
             &self.bindless_resources,
+            &self.multi_buffer_arena,
         )?;
 
         synced_managers.material_manager.flush(
@@ -456,6 +457,7 @@ impl RendererState {
             encoder,
             &self.scatter_copy,
             &self.bindless_resources,
+            &self.multi_buffer_arena,
         )?;
 
         if let Some(secondary) = self

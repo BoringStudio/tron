@@ -133,7 +133,7 @@ pub struct RenderGraphContext<'a> {
 trait RenderGraphNode {
     type RenderPass: RenderPass;
 
-    fn execute<'a, 'pass>(&mut self, ctx: &mut RenderGraphNodeContext<'a, 'pass>) -> Result<()>;
+    fn execute(&mut self, ctx: &mut RenderGraphNodeContext<'_, '_>) -> Result<()>;
 }
 
 struct RenderGraphNodeContext<'a, 'pass> {

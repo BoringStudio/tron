@@ -1,6 +1,8 @@
 use anyhow::Result;
 
-use crate::util::{BindlessResources, ScatterCopy, ScatterData, StorageBufferHandle};
+use crate::util::{
+    BindlessResources, MultiBufferArena, ScatterCopy, ScatterData, StorageBufferHandle,
+};
 
 pub struct FreelistDoubleBuffer {
     targets: [Target; 2],
@@ -42,6 +44,7 @@ impl FreelistDoubleBuffer {
         encoder: &mut gfx::Encoder,
         scatter_copy: &ScatterCopy,
         bindless_resources: &BindlessResources,
+        buffers: &MultiBufferArena,
         mut get_data: F,
     ) -> Result<()>
     where
@@ -79,7 +82,7 @@ impl FreelistDoubleBuffer {
             .merge_iter(&prev_target.updated_slots)
             .map(|slot| ScatterData::new(item_size as u32 * slot, get_data(slot)));
 
-        scatter_copy.execute(device, encoder, prepared.buffer, data)?;
+        scatter_copy.execute(device, encoder, prepared.buffer, buffers, data)?;
 
         // Clear previous target updated slots as they are no longer needed.
         prev_target.updated_slots.clear();
@@ -120,7 +123,8 @@ impl Target {
         let old_buffer = self.buffer.take();
         let (buffer, handle) = {
             let buffer = make_buffer(device, align_mask, item_size * reserved_count as usize)?;
-            let handle = bindless_resources.alloc_storage_buffer(device, buffer.clone());
+            let handle = bindless_resources
+                .alloc_storage_buffer(device, gfx::BufferRange::whole(buffer.clone()));
             self.buffer.get_or_insert((buffer, handle))
         };
 

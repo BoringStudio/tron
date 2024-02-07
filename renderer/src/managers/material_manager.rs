@@ -7,7 +7,9 @@ use shared::FastHashMap;
 
 use crate::managers::object_manager::{WriteDynamicObject, WriteStaticObject};
 use crate::types::{MaterialInstance, RawMaterialInstanceHandle};
-use crate::util::{BindlessResources, FreelistDoubleBuffer, ScatterCopy, StorageBufferHandle};
+use crate::util::{
+    BindlessResources, FreelistDoubleBuffer, MultiBufferArena, ScatterCopy, StorageBufferHandle,
+};
 
 #[derive(Default)]
 pub struct MaterialManager {
@@ -94,6 +96,7 @@ impl MaterialManager {
         encoder: &mut gfx::Encoder,
         scatter_copy: &ScatterCopy,
         bindless_resources: &BindlessResources,
+        buffers: &MultiBufferArena,
     ) -> Result<()> {
         for archetype in self.archetypes.values_mut() {
             (archetype.flush)(
@@ -103,6 +106,7 @@ impl MaterialManager {
                     encoder,
                     scatter_copy,
                     bindless_resources,
+                    buffers,
                 },
             )?;
         }
@@ -182,6 +186,7 @@ struct FlushMaterial<'a> {
     encoder: &'a mut gfx::Encoder,
     scatter_copy: &'a ScatterCopy,
     bindless_resources: &'a BindlessResources,
+    buffers: &'a MultiBufferArena,
 }
 
 fn flush<M: MaterialInstance>(
@@ -197,6 +202,7 @@ fn flush<M: MaterialInstance>(
             args.encoder,
             args.scatter_copy,
             args.bindless_resources,
+            args.buffers,
             |slot| {
                 let material = data[slot as usize].as_ref().expect("invalid slot");
                 material.shader_data()

@@ -14,7 +14,8 @@ use crate::types::{
     RawStaticObjectHandle, VertexAttributeArray, VertexAttributeKind,
 };
 use crate::util::{
-    BindlessResources, BoundingSphere, FreelistDoubleBuffer, ScatterCopy, StorageBufferHandle,
+    BindlessResources, BoundingSphere, FreelistDoubleBuffer, MultiBufferArena, ScatterCopy,
+    StorageBufferHandle,
 };
 
 #[derive(Default)]
@@ -172,6 +173,7 @@ impl ObjectManager {
         encoder: &mut gfx::Encoder,
         scatter_copy: &ScatterCopy,
         bindless_resources: &BindlessResources,
+        buffers: &MultiBufferArena,
     ) -> Result<()> {
         for archetype in self.static_archetypes.values_mut() {
             (archetype.flush)(
@@ -181,6 +183,7 @@ impl ObjectManager {
                     encoder,
                     scatter_copy,
                     bindless_resources,
+                    buffers,
                 },
             )?;
         }
@@ -346,7 +349,7 @@ impl<A> InternalDynamicObject<A> {
     {
         let transform = self
             .prev_global_transform
-            .to_interpolated_matrix(&self.next_global_transform, t);
+            .as_interpolated_matrix(&self.next_global_transform, t);
 
         GpuObject {
             transform_inverse_transpose: transform.inverse().transpose(),
@@ -399,7 +402,7 @@ pub struct GlobalTransform {
 }
 
 impl GlobalTransform {
-    fn to_interpolated_matrix(&self, other: &Self, t: f32) -> Mat4 {
+    fn as_interpolated_matrix(&self, other: &Self, t: f32) -> Mat4 {
         Mat4::from_scale_rotation_translation(
             self.scale.lerp(other.scale, t),
             self.rotation.slerp(other.rotation, t),
@@ -711,6 +714,7 @@ struct FlushStaticObject<'a> {
     encoder: &'a mut gfx::Encoder,
     scatter_copy: &'a ScatterCopy,
     bindless_resources: &'a BindlessResources,
+    buffers: &'a MultiBufferArena,
 }
 
 fn flush_static_object<A: VertexAttributeArray>(
@@ -730,6 +734,7 @@ fn flush_static_object<A: VertexAttributeArray>(
                 args.encoder,
                 args.scatter_copy,
                 args.bindless_resources,
+                args.buffers,
                 |slot| {
                     let material = data[slot as usize].as_ref().expect("invalid slot");
                     material.as_std430()
@@ -747,17 +752,15 @@ fn finalize_dynamic_object_transforms<A: VertexAttributeArray>(
     let data = unsafe { archetype.data.typed_data_mut::<DynamicSlotData<A>>() };
 
     // Reset `updated` flag on each existing object.
-    for item in data {
-        if let Some(item) = item {
-            if item.index_count_and_updated.get_bool() {
-                // Reset the flag for the next fixed update interval.
-                item.index_count_and_updated.set_bool(false);
-            } else {
-                // Objects which were not updated during the fixed update
-                // interval should have their previous transform same as the
-                // next one so that they are not interpolated.
-                item.prev_global_transform = item.next_global_transform;
-            }
+    for item in data.iter_mut().flatten() {
+        if item.index_count_and_updated.get_bool() {
+            // Reset the flag for the next fixed update interval.
+            item.index_count_and_updated.set_bool(false);
+        } else {
+            // Objects which were not updated during the fixed update
+            // interval should have their previous transform same as the
+            // next one so that they are not interpolated.
+            item.prev_global_transform = item.next_global_transform;
         }
     }
 }

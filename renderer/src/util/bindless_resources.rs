@@ -108,7 +108,7 @@ impl BindlessResources {
     pub fn alloc_uniform_buffer(
         &self,
         device: &gfx::Device,
-        buffer: &gfx::BufferRange,
+        buffer: gfx::BufferRange,
     ) -> UniformBufferHandle {
         let handle = self.uniform_buffer_allocator.alloc();
 
@@ -117,7 +117,7 @@ impl BindlessResources {
             writes: &[gfx::DescriptorSetWrite {
                 binding: UNIFORM_BUFFER_BINDING,
                 element: handle.index(),
-                data: gfx::DescriptorSlice::UniformBuffer(&[std::slice::from_ref(buffer)]),
+                data: gfx::DescriptorSlice::UniformBuffer(&[buffer]),
             }],
         }]);
 
@@ -132,7 +132,7 @@ impl BindlessResources {
     pub fn alloc_storage_buffer(
         &self,
         device: &gfx::Device,
-        buffer: &gfx::BufferRange,
+        buffer: gfx::BufferRange,
     ) -> StorageBufferHandle {
         let handle = self.storage_buffer_allocator.alloc();
 
@@ -141,7 +141,7 @@ impl BindlessResources {
             writes: &[gfx::DescriptorSetWrite {
                 binding: STORAGE_BUFFER_BINDING,
                 element: handle.index(),
-                data: gfx::DescriptorSlice::StorageBuffer(std::slice::from_ref(buffer)),
+                data: gfx::DescriptorSlice::StorageBuffer(&[buffer]),
             }],
         }]);
 

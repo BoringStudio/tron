@@ -110,7 +110,7 @@ impl FrameResources {
             if !camera_data.initialized {
                 globals.camera_previous_view = globals.camera_view;
                 globals.camera_previous_projection = globals.camera_projection;
-                camera_data.initialized;
+                camera_data.initialized = true;
             }
         }
 
@@ -176,7 +176,7 @@ impl UniformBuffer {
         )?;
 
         let ptr = device
-            .map_memory(&mut buffer.as_mappable(), 0, (slot_len * 2) as usize)?
+            .map_memory(&mut buffer.as_mappable(), 0, slot_len * 2)?
             .as_mut_ptr()
             .cast();
 

@@ -199,6 +199,10 @@ impl Buffer {
         }
     }
 
+    pub fn owner(&self) -> &WeakDevice {
+        &self.inner.owner
+    }
+
     pub fn info(&self) -> &BufferInfo {
         &self.inner.info
     }

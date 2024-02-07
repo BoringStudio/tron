@@ -2,7 +2,7 @@ use std::mem::MaybeUninit;
 
 use anyhow::Result;
 
-use crate::util::ShaderPreprocessor;
+use crate::util::{MultiBufferArena, ShaderPreprocessor};
 
 pub struct ScatterData<T> {
     pub word_offset: u32,
@@ -72,6 +72,7 @@ impl ScatterCopy {
         device: &gfx::Device,
         encoder: &mut gfx::Encoder,
         dst: &gfx::Buffer,
+        buffers: &MultiBufferArena,
         data: D,
     ) -> Result<()>
     where
@@ -88,20 +89,15 @@ impl ScatterCopy {
         let stride_bytes = item_size + 4;
 
         let buffer_size = 8 + count * stride_bytes;
-        let staging_buffer = device.create_mappable_buffer(
-            gfx::BufferInfo {
-                align_mask: MIN_ALIGN_MASK,
-                size: buffer_size,
-                usage: gfx::BufferUsage::STORAGE | gfx::BufferUsage::TRANSFER_SRC,
-            },
-            gfx::MemoryUsage::UPLOAD,
-        )?;
 
-        {
-            let mut memory_block = staging_buffer.as_mappable();
+        let staging_buffer = {
+            let mut staging_buffer = buffers.begin::<u32>(
+                device,
+                buffer_size / 4,
+                gfx::BufferUsage::STORAGE | gfx::BufferUsage::TRANSFER_SRC,
+            )?;
 
-            let mapped = device.map_memory(&mut memory_block, 0, buffer_size)?;
-            let ptr = mapped.as_mut_ptr();
+            let ptr = staging_buffer.as_mut_ptr();
             debug_assert_eq!(ptr.align_offset(std::mem::align_of::<u32>()), 0);
 
             let mut writer = Writer { ptr, offset: 0 };
@@ -120,7 +116,9 @@ impl ScatterCopy {
                 }
             }
 
-            device.unmap_memory(&mut memory_block);
+            unsafe { staging_buffer.add_offset(buffer_size) };
+
+            buffers.end_raw(staging_buffer)
         };
 
         let descriptor_set = device.create_descriptor_set(gfx::DescriptorSetInfo {
@@ -132,9 +130,7 @@ impl ScatterCopy {
                 gfx::DescriptorSetWrite {
                     binding: 0,
                     element: 0,
-                    data: gfx::DescriptorSlice::StorageBuffer(&[gfx::BufferRange::whole(
-                        staging_buffer,
-                    )]),
+                    data: gfx::DescriptorSlice::StorageBuffer(&[staging_buffer]),
                 },
                 gfx::DescriptorSetWrite {
                     binding: 1,
@@ -187,5 +183,3 @@ impl Writer {
         self.offset += std::mem::size_of::<T>();
     }
 }
-
-const MIN_ALIGN_MASK: usize = 0b11;
