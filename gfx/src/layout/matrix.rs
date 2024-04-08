@@ -77,8 +77,7 @@ impl AsStd430 for Affine2 {
     fn write_as_std430(&self, dst: &mut Self::Output) {
         dst[0].value = self.x_axis;
         dst[1].value = self.y_axis;
-        dst[2].value = self.z_axis;
-        dst[3].value = self.translation;
+        dst[2].value = self.translation;
     }
 }
 

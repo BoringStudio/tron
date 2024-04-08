@@ -14,8 +14,8 @@ impl Parent {
 }
 
 impl MapEntities for Parent {
-    fn map_entities(&mut self, entity_mapper: &mut EntityMapper) {
-        self.0 = entity_mapper.get_or_reserve(self.0);
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+        self.0 = entity_mapper.map_entity(self.0);
     }
 }
 
@@ -83,9 +83,9 @@ impl Children {
 }
 
 impl MapEntities for Children {
-    fn map_entities(&mut self, entity_mapper: &mut EntityMapper) {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         for child in self.0.iter_mut() {
-            *child = entity_mapper.get_or_reserve(*child);
+            *child = entity_mapper.map_entity(*child);
         }
     }
 }

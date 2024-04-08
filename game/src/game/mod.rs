@@ -365,7 +365,10 @@ struct SceneObjectBundle {
 }
 
 // TEMP
-fn rotate_objects_system(time: Res<Time>, mut query: Query<(&mut Transform, &DynamicMeshInstance)>) {
+fn rotate_objects_system(
+    time: Res<Time>,
+    mut query: Query<(&mut Transform, &DynamicMeshInstance)>,
+) {
     for (mut transform, _) in &mut query {
         transform.rotate_y(time.step.as_secs_f32());
     }
@@ -373,12 +376,9 @@ fn rotate_objects_system(time: Res<Time>, mut query: Query<(&mut Transform, &Dyn
 
 fn apply_static_objects_transform_system(
     graphics: Res<Graphics>,
-    query: Query<(&Transform, &StaticMeshInstance, Changed<Transform>)>,
+    query: Query<(&Transform, &StaticMeshInstance), Changed<Transform>>,
 ) {
-    for (transform, object, changed) in &query {
-        if !changed {
-            continue;
-        }
+    for (transform, object) in &query {
         graphics
             .renderer
             .update_static_object(&object.handle, transform.to_matrix());
@@ -387,12 +387,9 @@ fn apply_static_objects_transform_system(
 
 fn apply_dynamic_objects_transform_system(
     graphics: Res<Graphics>,
-    query: Query<(&Transform, &DynamicMeshInstance, Changed<Transform>)>,
+    query: Query<(&Transform, &DynamicMeshInstance), Changed<Transform>>,
 ) {
-    for (transform, object, changed) in &query {
-        if !changed {
-            continue;
-        }
+    for (transform, object) in &query {
         graphics
             .renderer
             .update_dynamic_object(&object.handle, transform.to_matrix(), false);
