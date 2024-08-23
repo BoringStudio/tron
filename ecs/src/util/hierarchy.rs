@@ -1,7 +1,7 @@
 use bevy_ecs::bundle::Bundle;
 use bevy_ecs::entity::Entity;
-use bevy_ecs::prelude::World;
-use bevy_ecs::system::{Command, Commands, EntityCommands};
+use bevy_ecs::system::{Commands, EntityCommands};
+use bevy_ecs::world::{Command, World};
 use smallvec::SmallVec;
 
 pub struct ChildBuilder<'a> {

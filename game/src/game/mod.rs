@@ -343,7 +343,7 @@ fn process_gltf_node(
             color: glam::vec3(1.0, 1.0, 1.0),
         });
 
-        let handle = renderer.add_dynamic_object(mesh.clone(), material.clone(), &global_transform);
+        let handle = renderer.add_dynamic_object(mesh.clone(), material.clone(), global_transform);
 
         ecs_world.spawn(SceneObjectBundle {
             transform: Transform::from_matrix(*global_transform),

@@ -207,10 +207,7 @@ impl UpdatedSlots {
         self.is_empty
     }
 
-    fn merge_iter<'a>(
-        &'a self,
-        prev: &'a UpdatedSlots,
-    ) -> impl Iterator<Item = u32> + ExactSizeIterator + 'a {
+    fn merge_iter<'a>(&'a self, prev: &'a UpdatedSlots) -> impl ExactSizeIterator<Item = u32> + 'a {
         let cur_len = self.chunks.len();
         let prev_len = prev.chunks.len();
 

@@ -55,7 +55,7 @@ pub enum ClearValue {
 impl ClearValue {
     pub fn try_to_vk(self, format: Format) -> Option<vk::ClearValue> {
         fn to_uint8(color: f32) -> u8 {
-            color.min(0f32).max(u8::max_value() as f32) as u8
+            color.min(0f32).max(u8::MAX as f32) as u8
         }
 
         fn to_sint8(color: f32) -> i8 {

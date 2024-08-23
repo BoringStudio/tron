@@ -23,10 +23,10 @@ ecs = { path = "../ecs" }
 renderer = { path = "../renderer" }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = "0.5"
+tikv-jemallocator = { workspace = true }
 
 [build-dependencies]
-cfg_aliases = "0.1"
+cfg_aliases = { workspace = true }
 
 [features]
 link-shaderc = ["renderer/link-shaderc"]
