@@ -133,7 +133,7 @@ impl FromGfx<DescriptorSetLayoutFlags> for vk::DescriptorSetLayoutCreateFlags {
     fn from_gfx(value: DescriptorSetLayoutFlags) -> Self {
         let mut res = Self::empty();
         if value.contains(DescriptorSetLayoutFlags::PUSH_DESCRIPTOR) {
-            res |= Self::PUSH_DESCRIPTOR_KHR;
+            res |= Self::PUSH_DESCRIPTOR;
         }
         if value.contains(DescriptorSetLayoutFlags::UPDATE_AFTER_BIND_POOL) {
             res |= Self::UPDATE_AFTER_BIND_POOL;

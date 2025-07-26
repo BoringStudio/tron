@@ -2,7 +2,7 @@
 name = "gfx"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75.0"
+rust-version = "1.88.0"
 
 [dependencies]
 arrayvec = { workspace = true }
@@ -23,8 +23,3 @@ winit = { workspace = true, optional = true }
 
 gfx-macros = { path = "./macros" }
 shared = { path = "../shared" }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-cocoa = { workspace = true }
-metal = { workspace = true }
-objc = { workspace = true }

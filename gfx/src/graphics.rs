@@ -146,14 +146,6 @@ impl Graphics {
         };
 
         // Add required extensions for creating windows
-        #[cfg(target_os = "macos")]
-        let flags = if Self::requires_portability(api_version) {
-            push_ext(&vk::KHR_PORTABILITY_ENUMERATION_EXTENSION);
-            vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR
-        } else {
-            vk::InstanceCreateFlags::empty()
-        };
-        #[cfg(not(target_os = "macos"))]
         let flags = vk::InstanceCreateFlags::empty();
 
         push_ext(&vk::KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_EXTENSION);
@@ -180,11 +172,6 @@ impl Graphics {
         #[cfg(target_os = "windows")]
         {
             push_ext(&vk::KHR_WIN32_SURFACE_EXTENSION);
-        }
-
-        #[cfg(target_os = "macos")]
-        {
-            push_ext(&vk::EXT_METAL_SURFACE_EXTENSION);
         }
 
         let mut instance_info = vk::InstanceCreateInfo::builder()
@@ -282,12 +269,6 @@ impl Graphics {
     /// Returns `true` if the Vulkan API version is at least 1.3.
     pub fn vk1_3(&self) -> bool {
         vk::version_major(self.api_version) >= 1 && vk::version_minor(self.api_version) >= 3
-    }
-
-    #[cfg(target_os = "macos")]
-    pub(crate) const fn requires_portability(api_version: u32) -> bool {
-        const PORTABILITY_MACOS_VERSION: u32 = vk::make_version(1, 3, 216);
-        api_version >= PORTABILITY_MACOS_VERSION
     }
 }
 

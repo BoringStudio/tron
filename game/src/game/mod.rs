@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::ScheduleLabel;
-use ecs::components::Transform;
+use bevy_transform::components::Transform;
 use glam::{Mat4, Vec2, Vec3};
 use rand::Rng;
 use renderer::materials::DebugMaterialInstance;
@@ -77,7 +77,7 @@ impl Game {
     pub fn handle_event(
         &mut self,
         event: winit::event::Event<()>,
-        elwt: &winit::event_loop::EventLoopWindowTarget<()>,
+        elwt: &winit::event_loop::ActiveEventLoop,
     ) {
         elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
@@ -182,14 +182,14 @@ impl Game {
     pub fn spawn_cube(&mut self) {
         let graphics = self.world.resource::<Graphics>();
 
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let transform = Transform::from_translation(Vec3::new(
-            rng.gen_range(-5.0..5.0),
+            rng.random_range(-5.0..5.0),
             -1.0,
-            rng.gen_range(-5.0..5.0),
+            rng.random_range(-5.0..5.0),
         ))
-        .with_scale(Vec3::splat(rng.gen_range(0.1..0.5)));
+        .with_scale(Vec3::splat(rng.random_range(0.1..0.5)));
 
         let mesh = graphics.primitive_meshes.cube.clone();
 
@@ -197,16 +197,16 @@ impl Game {
             .renderer
             .add_material_instance(DebugMaterialInstance {
                 color: Vec3::new(
-                    rng.gen_range(0.0..1.0),
-                    rng.gen_range(0.0..1.0),
-                    rng.gen_range(0.0..1.0),
+                    rng.random_range(0.0..1.0),
+                    rng.random_range(0.0..1.0),
+                    rng.random_range(0.0..1.0),
                 ),
             });
 
         let handle = graphics.renderer.add_dynamic_object(
             mesh.clone(),
             material.clone(),
-            &transform.to_matrix(),
+            &transform.compute_matrix(),
         );
 
         self.world.spawn(SceneObjectBundle {
@@ -381,7 +381,7 @@ fn apply_static_objects_transform_system(
     for (transform, object) in &query {
         graphics
             .renderer
-            .update_static_object(&object.handle, transform.to_matrix());
+            .update_static_object(&object.handle, transform.compute_matrix());
     }
 }
 
@@ -392,7 +392,7 @@ fn apply_dynamic_objects_transform_system(
     for (transform, object) in &query {
         graphics
             .renderer
-            .update_dynamic_object(&object.handle, transform.to_matrix(), false);
+            .update_dynamic_object(&object.handle, transform.compute_matrix(), false);
     }
 }
 
@@ -417,5 +417,5 @@ fn apply_camera_transform_system(
 
     graphics
         .renderer
-        .update_camera(&transform.to_matrix().inverse(), &camera.projection);
+        .update_camera(&transform.compute_matrix().inverse(), &camera.projection);
 }

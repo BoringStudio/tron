@@ -122,15 +122,6 @@ impl PhysicalDevice {
             );
         }
 
-        #[cfg(target_os = "macos")]
-        if Graphics::requires_portability(api_version) {
-            let supported = require_extension(&vk::KHR_PORTABILITY_SUBSET_EXTENSION);
-            assert!(
-                supported,
-                "`VK_KHR_portability_subset` extension must be supported"
-            );
-        }
-
         device_create_info = AllExtensions::process_features(
             api_version,
             &mut min_api_version,

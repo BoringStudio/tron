@@ -7,8 +7,8 @@ use winit::event_loop::EventLoopBuilder;
 #[cfg(wayland_platform)]
 use winit::platform::wayland::EventLoopBuilderExtWayland;
 #[cfg(x11_platform)]
-use winit::platform::x11::{EventLoopBuilderExtX11, WindowBuilderExtX11, XWindowType};
-use winit::window::WindowBuilder;
+use winit::platform::x11::{EventLoopBuilderExtX11, WindowType};
+use winit::window::WindowAttributes;
 
 use self::game::Game;
 
@@ -19,13 +19,13 @@ mod game;
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() -> Result<()> {
-    let app: App = argh::from_env();
+    let app: Cli = argh::from_env();
     app.run()
 }
 
 /// Vulkan rendering experiments
 #[derive(FromArgs)]
-struct App {
+struct Cli {
     // TEMP
     /// glTF file to load
     #[argh(positional)]
@@ -59,7 +59,7 @@ struct App {
     wayland_backend: bool,
 }
 
-impl App {
+impl Cli {
     pub fn run(self) -> Result<()> {
         #[cfg(all(x11_platform, wayland_platform))]
         if self.x11_backend && self.wayland_backend {
@@ -87,7 +87,7 @@ impl App {
         let app_name = env!("CARGO_BIN_NAME").to_owned();
 
         let event_loop = {
-            let mut builder = EventLoopBuilder::new();
+            let mut builder = EventLoopBuilder::default();
 
             #[cfg(x11_platform)]
             if self.x11_backend {
@@ -102,16 +102,18 @@ impl App {
         };
 
         let window = {
-            let mut builder = WindowBuilder::new();
-            builder = builder.with_title(app_name);
+            let mut attr = WindowAttributes::default();
+            attr = attr.with_title(app_name);
 
             #[cfg(x11_platform)]
             if self.x11_as_popup {
-                builder =
-                    builder.with_x11_window_type(vec![XWindowType::Dialog, XWindowType::Normal]);
+                use winit::platform::x11::WindowAttributesExtX11;
+
+                attr = attr.with_x11_window_type(vec![WindowType::Dialog, WindowType::Normal]);
             }
 
-            builder.build(&event_loop).map(Arc::new)?
+            #[allow(deprecated)]
+            event_loop.create_window(attr).map(Arc::new)?
         };
 
         let mut renderer = Renderer::builder(window.clone())
@@ -127,6 +129,7 @@ impl App {
         }
 
         tracing::debug!("event loop started");
+        #[allow(deprecated)]
         event_loop.run(move |event, elwt| {
             game.handle_event(event, elwt);
         })?;

@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use bevy_ecs::entity::Entity;
-use bevy_ecs::system::Resource;
+use bevy_ecs::resource::Resource;
 use renderer::{MeshHandle, RendererState};
 
 #[derive(Resource)]

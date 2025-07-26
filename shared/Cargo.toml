@@ -2,7 +2,7 @@
 name = "shared"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75.0"
+rust-version = "1.88.0"
 
 [dependencies]
 ahash = { workspace = true }
