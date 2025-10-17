@@ -58,7 +58,7 @@ impl VirtualFs {
         &self,
         base: impl AsRef<VirtualPath>,
         path: impl AsRef<VirtualPath>,
-    ) -> Result<Option<ResolvedFile>> {
+    ) -> Result<Option<ResolvedFile<'_>>> {
         fn get_file_impl<'a>(
             nodes: &'a Nodes,
             base: &VirtualPath,

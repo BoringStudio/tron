@@ -29,7 +29,7 @@ impl AnyVec {
     /// # Safety
     /// The following must be true:
     /// - `T` must be an original type of `Vec<T>`.
-    pub unsafe fn downcast_mut<T>(&mut self) -> AnyVecGuard<T> {
+    pub unsafe fn downcast_mut<T>(&mut self) -> AnyVecGuard<'_, T> {
         let vec = self.swap_vec(Vec::new());
         AnyVecGuard { vec, data: self }
     }

@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use arrayvec::ArrayVec;
 use bumpalo::Bump;
 use vulkanalia::prelude::v1_0::*;
-use vulkanalia::vk::KhrSwapchainExtension;
+use vulkanalia::vk::KhrSwapchainExtensionDeviceCommands;
 
 use crate::encoder::{CommandBuffer, CommandBufferLevel, Encoder, PrimaryEncoder};
 use crate::resources::{Fence, PipelineStageFlags, Semaphore};

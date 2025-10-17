@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use once_cell::sync::OnceCell;
 use vulkanalia::loader::{LibloadingLoader, LIBRARY};
 use vulkanalia::prelude::v1_0::*;
-use vulkanalia::vk::ExtDebugUtilsExtension as _;
+use vulkanalia::vk::ExtDebugUtilsExtensionInstanceCommands;
 use vulkanalia::Instance;
 
 use crate::physical::{PhysicalDevice, PhysicalDeviceSelector};

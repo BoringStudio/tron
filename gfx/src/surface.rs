@@ -5,7 +5,7 @@ use std::sync::Arc;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
 use shared::util::WithDefer;
 use vulkanalia::prelude::v1_0::*;
-use vulkanalia::vk::{KhrSurfaceExtension, KhrSwapchainExtension};
+use vulkanalia::vk::{KhrSurfaceExtensionInstanceCommands, KhrSwapchainExtensionDeviceCommands};
 use vulkanalia::Instance;
 
 use crate::device::WeakDevice;
@@ -640,7 +640,7 @@ where
     ) {
         #[cfg(target_os = "windows")]
         (RawDisplayHandle::Windows(_), RawWindowHandle::Win32(window)) => {
-            use vk::KhrWin32SurfaceExtension;
+            use vk::KhrWin32SurfaceExtensionInstanceCommands;
 
             require_extension(&vk::KHR_WIN32_SURFACE_EXTENSION)?;
 
@@ -664,7 +664,7 @@ where
             target_os = "openbsd"
         ))]
         (RawDisplayHandle::Xcb(display), RawWindowHandle::Xcb(window)) => {
-            use vk::KhrXcbSurfaceExtension;
+            use vk::KhrXcbSurfaceExtensionInstanceCommands;
 
             require_extension(&vk::KHR_XCB_SURFACE_EXTENSION)?;
 
@@ -687,7 +687,7 @@ where
             target_os = "openbsd"
         ))]
         (RawDisplayHandle::Xlib(display), RawWindowHandle::Xlib(window)) => {
-            use vk::KhrXlibSurfaceExtension;
+            use vk::KhrXlibSurfaceExtensionInstanceCommands;
 
             require_extension(&vk::KHR_XLIB_SURFACE_EXTENSION)?;
 
@@ -712,7 +712,7 @@ where
             target_os = "openbsd"
         ))]
         (RawDisplayHandle::Wayland(display), RawWindowHandle::Wayland(window)) => {
-            use vk::KhrWaylandSurfaceExtension;
+            use vk::KhrWaylandSurfaceExtensionInstanceCommands;
 
             require_extension(&vk::KHR_WAYLAND_SURFACE_EXTENSION)?;
 

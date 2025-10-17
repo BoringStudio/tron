@@ -206,7 +206,7 @@ impl Game {
         let handle = graphics.renderer.add_dynamic_object(
             mesh.clone(),
             material.clone(),
-            &transform.compute_matrix(),
+            &transform.to_matrix(),
         );
 
         self.world.spawn(SceneObjectBundle {
@@ -381,7 +381,7 @@ fn apply_static_objects_transform_system(
     for (transform, object) in &query {
         graphics
             .renderer
-            .update_static_object(&object.handle, transform.compute_matrix());
+            .update_static_object(&object.handle, transform.to_matrix());
     }
 }
 
@@ -392,7 +392,7 @@ fn apply_dynamic_objects_transform_system(
     for (transform, object) in &query {
         graphics
             .renderer
-            .update_dynamic_object(&object.handle, transform.compute_matrix(), false);
+            .update_dynamic_object(&object.handle, transform.to_matrix(), false);
     }
 }
 
@@ -417,5 +417,5 @@ fn apply_camera_transform_system(
 
     graphics
         .renderer
-        .update_camera(&transform.compute_matrix().inverse(), &camera.projection);
+        .update_camera(&transform.to_matrix().inverse(), &camera.projection);
 }
