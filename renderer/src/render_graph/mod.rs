@@ -142,8 +142,11 @@ struct RenderGraphNodeContext<'a, 'pass> {
     pub synced_managers: &'a RendererStateSyncedManagers,
     pub globals: &'a FrameGlobals,
     pub encoder: gfx::RenderPassEncoder<'a, 'pass>,
+    #[allow(unused)]
     pub now: Instant,
+    #[allow(unused)]
     pub delta_time: f32,
+    #[allow(unused)]
     pub frame: u32,
     pub interpolation_factor: f32,
 }

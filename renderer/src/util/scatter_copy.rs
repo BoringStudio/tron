@@ -156,7 +156,7 @@ impl ScatterCopy {
             gfx::PipelineStageFlags::COMPUTE_SHADER,
             gfx::AccessFlags::SHADER_READ,
         );
-        encoder.dispatch(((count + 63) / 64) as u32, 1, 1);
+        encoder.dispatch(count.div_ceil(64) as u32, 1, 1);
 
         Ok(())
     }

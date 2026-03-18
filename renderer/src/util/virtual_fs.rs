@@ -416,7 +416,7 @@ mod tests {
 
     #[test]
     fn path_components_forward_parsing() {
-        fn make_components(s: &str) -> Vec<PathComponent> {
+        fn make_components(s: &'_ str) -> Vec<PathComponent<'_>> {
             VirtualPath::new(s).components().collect::<Vec<_>>()
         }
 
@@ -475,7 +475,7 @@ mod tests {
 
     #[test]
     fn path_components_backward_parsing() {
-        fn make_components(s: &str) -> Vec<PathComponent> {
+        fn make_components(s: &'_ str) -> Vec<PathComponent<'_>> {
             VirtualPath::new(s).components().rev().collect::<Vec<_>>()
         }
 

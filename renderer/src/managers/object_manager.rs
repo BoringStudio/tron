@@ -1,3 +1,5 @@
+#![allow(unused)] // temp
+
 use std::any::TypeId;
 use std::collections::hash_map;
 

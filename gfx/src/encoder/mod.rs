@@ -144,7 +144,7 @@ impl Encoder {
 
         match std::mem::size_of_val(data) {
             0 => Ok(()),
-            size if size <= SMALL_BUFFER_SIZE && size % 4 == 0 && offset % 4 == 0 => {
+            size if size <= SMALL_BUFFER_SIZE && size % 4 == 0 && offset.is_multiple_of(4) => {
                 self.update_buffer(buffer, offset, data);
                 Ok(())
             }

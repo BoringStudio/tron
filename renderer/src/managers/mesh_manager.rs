@@ -331,7 +331,7 @@ impl MeshManagerState {
                 "max index buffer size exceeded ({max_buffer_size} bytes)"
             );
             anyhow::ensure!(
-                new_indices_size % INDEX_SIZE == 0,
+                new_indices_size.is_multiple_of(INDEX_SIZE),
                 "unaligned index buffer size ({new_indices_size} bytes, must be multiple of {INDEX_SIZE})"
             );
 

@@ -350,8 +350,8 @@ impl CommandBuffer {
     pub(crate) fn update_buffer(&mut self, buffer: &Buffer, offset: usize, data: &[u8]) {
         let inner = self.inner.as_mut();
         if let Some(device) = inner.state.device_from_full() {
-            assert!(offset % 4 == 0, "unaligned buffer offset");
-            assert!(data.len() % 4 == 0, "unaligned buffer data length");
+            assert!(offset.is_multiple_of(4), "unaligned buffer offset");
+            assert!(data.len().is_multiple_of(4), "unaligned buffer data length");
             assert!(data.len() <= 65536, "too much data to update");
 
             inner.references.buffers.insert(buffer.clone());

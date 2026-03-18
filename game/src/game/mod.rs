@@ -112,12 +112,9 @@ impl Game {
                         _ => return,
                     };
 
-                    match code {
-                        KeyCode::ArrowRight => {
-                            self.spawn_cube();
-                            tracing::info!("added test object");
-                        }
-                        _ => {}
+                    if code == KeyCode::ArrowRight {
+                        self.spawn_cube();
+                        tracing::info!("added test object");
                     }
                 }
                 _ => {}
@@ -238,6 +235,7 @@ impl FixedUpdateSchedule {
     }
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
 pub enum FixedUpdateSet {
     BeforeUpdate,
@@ -256,6 +254,7 @@ impl DrawSchedule {
     }
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
 pub enum DrawSet {
     BeforeDraw,

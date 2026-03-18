@@ -281,7 +281,7 @@ impl MeshBuilder {
 
         anyhow::ensure!(len <= indices.len(), "index count mismatch");
         anyhow::ensure!(
-            indices.len() % 3 == 0,
+            indices.len().is_multiple_of(3),
             "index count must be a multiple of 3"
         );
 
@@ -485,7 +485,7 @@ mod tests {
     use std::collections::HashMap;
     use std::str::FromStr;
 
-    const OBJ: &'static str = r#"v -1.000000 -1.000000 1.000000
+    const OBJ: &str = r#"v -1.000000 -1.000000 1.000000
 v -1.000000 1.000000 1.000000
 v -1.000000 -1.000000 -1.000000
 v -1.000000 1.000000 -1.000000

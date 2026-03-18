@@ -20,6 +20,7 @@ pub(crate) trait TryFromVk<T>: Sized {
     fn try_from_vk(value: T) -> Option<Self>;
 }
 
+#[expect(unused)]
 pub(crate) trait TryIntoGfx<T>: Sized {
     fn try_into_gfx(self) -> Option<T>;
 }

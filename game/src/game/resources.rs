@@ -8,6 +8,7 @@ use renderer::{MeshHandle, RendererState};
 
 #[derive(Resource)]
 pub struct Time {
+    #[allow(unused)]
     pub started_at: Instant,
     pub now: Instant,
     pub step: Duration,
@@ -37,6 +38,7 @@ impl Graphics {
 
 pub struct PrimitiveMeshes {
     pub cube: MeshHandle,
+    #[allow(unused)]
     pub plane: MeshHandle,
 }
 

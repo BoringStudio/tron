@@ -142,12 +142,12 @@ impl Device {
         self.inner.wait_idle()
     }
 
-    pub fn map_memory(
+    pub fn map_memory<'a>(
         &self,
-        memory_block: &mut MemoryBlockMut,
+        memory_block: &'a mut MemoryBlockMut,
         offset: usize,
         size: usize,
-    ) -> Result<&mut [MaybeUninit<u8>], MapError> {
+    ) -> Result<&'a mut [MaybeUninit<u8>], MapError> {
         Ok(unsafe {
             let ptr = memory_block.map(self.logical().as_memory_device(), offset as u64, size)?;
             std::slice::from_raw_parts_mut(ptr.as_ptr() as _, size)

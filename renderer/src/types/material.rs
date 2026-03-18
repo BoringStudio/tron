@@ -21,6 +21,7 @@ pub trait MaterialInstance: Send + Sync + 'static {
 }
 
 pub trait VertexAttributeArray: AsRef<[VertexAttributeKind]> + Clone {
+    #[allow(unused)]
     const LEN: usize;
 
     type U32Array: gfx::Std430 + std::fmt::Debug + Send + Sync;

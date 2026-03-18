@@ -67,49 +67,49 @@ mod tests {
     fn correct_init() {
         let empty = U32WithBool::default();
         assert_eq!(empty.get_u32(), 0);
-        assert_eq!(empty.get_bool(), false);
+        assert!(!empty.get_bool());
 
         let max = U32WithBool::new(u32::MAX >> 1, true);
         assert_eq!(max.get_u32(), u32::MAX >> 1);
-        assert_eq!(max.get_bool(), true);
+        assert!(max.get_bool());
 
         let only_bool = U32WithBool::new(0, true);
         assert_eq!(only_bool.get_u32(), 0);
-        assert_eq!(only_bool.get_bool(), true);
+        assert!(only_bool.get_bool());
 
         let only_u32 = U32WithBool::new(u32::MAX >> 1, false);
         assert_eq!(only_u32.get_u32(), u32::MAX >> 1);
-        assert_eq!(only_u32.get_bool(), false);
+        assert!(!only_u32.get_bool());
 
         let some_u32_and_false = U32WithBool::new(123456, false);
         assert_eq!(some_u32_and_false.get_u32(), 123456);
-        assert_eq!(some_u32_and_false.get_bool(), false);
+        assert!(!some_u32_and_false.get_bool());
 
         let some_u32_and_true = U32WithBool::new(123456, true);
         assert_eq!(some_u32_and_true.get_u32(), 123456);
-        assert_eq!(some_u32_and_true.get_bool(), true);
+        assert!(some_u32_and_true.get_bool());
     }
 
     #[test]
     fn correct_update() {
         let mut value = U32WithBool::default();
         assert_eq!(value.get_u32(), 0);
-        assert_eq!(value.get_bool(), false);
+        assert!(!value.get_bool());
 
         value.set_u32(123);
         assert_eq!(value.get_u32(), 123);
-        assert_eq!(value.get_bool(), false);
+        assert!(!value.get_bool());
 
         value.set_u32(u32::MAX >> 1);
         assert_eq!(value.get_u32(), u32::MAX >> 1);
-        assert_eq!(value.get_bool(), false);
+        assert!(!value.get_bool());
 
         value.set_bool(true);
         assert_eq!(value.get_u32(), u32::MAX >> 1);
-        assert_eq!(value.get_bool(), true);
+        assert!(value.get_bool());
 
         value.set_u32(4123123);
         assert_eq!(value.get_u32(), 4123123);
-        assert_eq!(value.get_bool(), true);
+        assert!(value.get_bool());
     }
 }
