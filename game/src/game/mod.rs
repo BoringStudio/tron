@@ -23,6 +23,7 @@ pub struct Game {
     fixed_update_schedule: Schedule,
     draw_schedule: Schedule,
     minimized: bool,
+    skip_created: bool,
 }
 
 impl Game {
@@ -71,6 +72,7 @@ impl Game {
             fixed_update_schedule,
             draw_schedule,
             minimized: false,
+            skip_created: false,
         })
     }
 
@@ -108,12 +110,17 @@ impl Game {
                     use winit::keyboard::{KeyCode, PhysicalKey};
 
                     let code = match event.physical_key {
-                        PhysicalKey::Code(code) if event.state.is_pressed() => code,
+                        PhysicalKey::Code(code) => code,
                         _ => return,
                     };
 
-                    if code == KeyCode::ArrowRight {
-                        self.spawn_cube();
+                    if code == KeyCode::ShiftLeft {
+                        self.skip_created = event.state.is_pressed();
+                        tracing::info!("skip_created: {}", self.skip_created);
+                    }
+
+                    if code == KeyCode::ArrowRight && event.state.is_pressed() {
+                        self.spawn_cube(self.skip_created);
                         tracing::info!("added test object");
                     }
                 }
@@ -176,7 +183,7 @@ impl Game {
     }
 
     // TEMP
-    pub fn spawn_cube(&mut self) {
+    pub fn spawn_cube(&mut self, skip_created: bool) {
         let graphics = self.world.resource::<Graphics>();
 
         let mut rng = rand::rng();
@@ -205,6 +212,10 @@ impl Game {
             material.clone(),
             &transform.to_matrix(),
         );
+
+        if skip_created {
+            return;
+        }
 
         self.world.spawn(SceneObjectBundle {
             transform,

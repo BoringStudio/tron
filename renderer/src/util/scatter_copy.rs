@@ -73,19 +73,18 @@ impl ScatterCopy {
         encoder: &mut gfx::Encoder,
         dst: &gfx::Buffer,
         buffers: &MultiBufferArena,
+        count: usize,
         data: D,
     ) -> Result<()>
     where
         T: gfx::Std430,
-        D: IntoIterator<Item = ScatterData<T>>,
-        D::IntoIter: ExactSizeIterator,
+        D: Iterator<Item = ScatterData<T>>,
     {
         let data = data.into_iter();
 
         let item_size = std::mem::size_of::<T>();
         assert_eq!(item_size % 4, 0);
 
-        let count = data.len();
         let stride_bytes = item_size + 4;
 
         let buffer_size = 8 + count * stride_bytes;

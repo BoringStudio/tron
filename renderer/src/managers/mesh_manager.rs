@@ -298,7 +298,7 @@ impl MeshManagerState {
         let max_buffer_size = device.limits().max_storage_buffer_range;
 
         // Make vertices buffer if needed
-        let current_vertices_size = self.index_alloc.initial_range().end;
+        let current_vertices_size = self.vertex_alloc.initial_range().end;
         let new_vertices = if update_vertices {
             let new_vertices_size = current_vertices_size
                 .checked_add(additional_vertices_capacity)

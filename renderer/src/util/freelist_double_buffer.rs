@@ -35,6 +35,12 @@ impl FreelistDoubleBuffer {
         target.updated_slots.insert(slot);
     }
 
+    pub fn remove_slot(&mut self, slot: u32) {
+        self.targets.iter_mut().for_each(|item| {
+            item.updated_slots.remove(slot);
+        });
+    }
+
     /// # Safety
     /// - `T` must be the same type on each invocation.
     #[inline]
@@ -77,12 +83,12 @@ impl FreelistDoubleBuffer {
             return Ok(());
         }
 
-        let data = prepared
+        let (count, data) = prepared
             .updated_slots
-            .merge_iter(&prev_target.updated_slots)
-            .map(|slot| ScatterData::new(item_size as u32 * slot, get_data(slot)));
+            .merge_iter(&prev_target.updated_slots);
+        let data = data.map(|slot| ScatterData::new(item_size as u32 * slot, get_data(slot)));
 
-        scatter_copy.execute(device, encoder, prepared.buffer, buffers, data)?;
+        scatter_copy.execute(device, encoder, prepared.buffer, buffers, count, data)?;
 
         // Clear previous target updated slots as they are no longer needed.
         prev_target.updated_slots.clear();
@@ -174,94 +180,97 @@ const MIN_ALIGN_MASK: usize = 0b1111;
 
 struct UpdatedSlots {
     chunks: Vec<SlotChunk>,
-    is_empty: bool,
+    len: usize,
 }
 
 impl Default for UpdatedSlots {
     fn default() -> Self {
         UpdatedSlots {
             chunks: Vec::new(),
-            is_empty: true,
+            len: 0,
         }
     }
 }
 
 impl UpdatedSlots {
-    fn insert(&mut self, slot: u32) {
+    pub fn insert(&mut self, slot: u32) {
         let chunk = (slot as usize) / BITS_PER_CHUNK;
         let bit = (slot as usize) % BITS_PER_CHUNK;
 
         if chunk >= self.chunks.len() {
             self.chunks.resize(chunk + 1, 0);
         }
-        self.chunks[chunk] |= 1 << bit;
-        self.is_empty = false;
+        let mask = 1 << bit;
+        let chunk = &mut self.chunks[chunk];
+        let chunk_before = *chunk;
+        *chunk |= mask;
+        self.len += (chunk_before & mask == 0) as usize;
+    }
+
+    pub fn remove(&mut self, slot: u32) {
+        let chunk = (slot as usize) / BITS_PER_CHUNK;
+        let bit = (slot as usize) % BITS_PER_CHUNK;
+
+        if chunk >= self.chunks.len() {
+            return;
+        }
+        let mask = 1 << bit;
+        let chunk = &mut self.chunks[chunk];
+        let chunk_before = *chunk;
+        *chunk &= !mask;
+        self.len -= (chunk_before & mask != 0) as usize;
     }
 
     fn clear(&mut self) {
         self.chunks.clear();
-        self.is_empty = true;
+        self.len = 0;
     }
 
     fn is_empty(&self) -> bool {
-        self.is_empty
+        self.len == 0
     }
 
-    fn merge_iter<'a>(&'a self, prev: &'a UpdatedSlots) -> impl ExactSizeIterator<Item = u32> + 'a {
-        let cur_len = self.chunks.len();
-        let prev_len = prev.chunks.len();
-
-        let (cur, prev, rest) = if cur_len < prev_len {
-            let (prev, rest) = prev.chunks.split_at(cur_len);
-            (self.chunks.as_slice(), prev, rest)
-        } else {
-            let (cur, rest) = self.chunks.split_at(prev_len);
-            (cur, prev.chunks.as_slice(), rest)
+    fn merge_iter<'a>(&'a self, prev: &'a UpdatedSlots) -> (usize, impl Iterator<Item = u32> + 'a) {
+        let chunks = MergedChunksIter {
+            chunk: 0,
+            left: &self.chunks,
+            right: &prev.chunks,
         };
 
-        let total = std::iter::zip(cur, prev)
-            .map(|(cur, prev)| cur | prev)
-            .chain(rest.iter().copied())
+        let total = chunks
+            .clone()
             .map(|chunk| chunk.count_ones() as usize)
             .sum::<usize>();
 
-        ChunksIter {
-            inner: std::iter::zip(cur, prev)
-                .map(|(cur, prev)| cur | prev)
-                .chain(rest.iter().copied())
-                .enumerate()
-                .flat_map(|(i, chunk)| ChunkIter {
-                    chunk,
-                    offset: (i * BITS_PER_CHUNK) as u32,
-                }),
-            total,
-        }
+        let iter = chunks.enumerate().flat_map(|(i, chunk)| ChunkIter {
+            chunk,
+            offset: (i * BITS_PER_CHUNK) as u32,
+        });
+        (total, iter)
     }
 }
 
-struct ChunksIter<I> {
-    inner: I,
-    total: usize,
+#[derive(Clone)]
+struct MergedChunksIter<'a> {
+    chunk: usize,
+    left: &'a [SlotChunk],
+    right: &'a [SlotChunk],
 }
 
-impl<I> Iterator for ChunksIter<I>
-where
-    I: Iterator<Item = u32>,
-{
-    type Item = u32;
+impl Iterator for MergedChunksIter<'_> {
+    type Item = SlotChunk;
 
-    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.total, Some(self.total))
+        let res = match (self.left.get(self.chunk), self.right.get(self.chunk)) {
+            (None, None) => return None,
+            (Some(left), None) => *left,
+            (None, Some(right)) => *right,
+            (Some(left), Some(right)) => *left | *right,
+        };
+        self.chunk += 1;
+        Some(res)
     }
 }
-
-impl<I> ExactSizeIterator for ChunksIter<I> where I: Iterator<Item = u32> {}
 
 struct ChunkIter {
     chunk: SlotChunk,

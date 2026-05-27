@@ -86,6 +86,7 @@ impl MaterialManager {
             .get_mut(archetype)
             .expect("invalid handle archetype");
 
+        archetype.buffer.remove_slot(*slot);
         (archetype.remove_slot)(archetype, *slot);
     }
 
