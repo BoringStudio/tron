@@ -79,15 +79,17 @@ impl MaterialManager {
 
     #[tracing::instrument(level = "debug", name = "remove_material", skip_all)]
     pub fn remove(&mut self, handle: RawMaterialInstanceHandle) {
-        let HandleData { archetype, slot } = &self.handles[&handle];
+        let Some(HandleData { archetype, slot }) = self.handles.remove(&handle) else {
+            panic!("accessing an unknown handle");
+        };
 
         let archetype = self
             .archetypes
-            .get_mut(archetype)
+            .get_mut(&archetype)
             .expect("invalid handle archetype");
 
-        archetype.buffer.remove_slot(*slot);
-        (archetype.remove_slot)(archetype, *slot);
+        archetype.buffer.remove_slot(slot);
+        (archetype.remove_slot)(archetype, slot);
     }
 
     #[tracing::instrument(level = "debug", name = "flush_materials", skip_all)]

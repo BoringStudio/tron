@@ -1,8 +1,5 @@
 {
   "rust-analyzer.cargo.buildScripts.enable": true,
-  "rust-analyzer.linkedProjects": [
-    "./renderer/Cargo.toml",
-    "./renderer/Cargo.toml"
-  ],
-  "git.enabled": false
+  "rust-analyzer.linkedProjects": ["./renderer/Cargo.toml"],
+  "git.enabled": false,
 }
